@@ -1,0 +1,23 @@
+import Phaser from 'phaser';
+
+// Central type system: GTA-condensed display, athletic body, terminal mono.
+export const DISPLAY = '"Anton", "Rajdhani", sans-serif';
+export const BODY = '"Rajdhani", system-ui, sans-serif';
+export const MONO = '"Share Tech Mono", monospace';
+
+// Big extruded title: dark offset base + glowing face.
+export function displayText(
+  scene: Phaser.Scene,
+  x: number, y: number, str: string, size: number,
+  color = '#ffffff', glow = '#22d3ee', depth = 2, fixed = false,
+) {
+  const back = scene.add.text(2, 3, str, {
+    fontFamily: DISPLAY, fontSize: `${size}px`, color: '#020617',
+  }).setOrigin(0.5);
+  const front = scene.add.text(0, 0, str, {
+    fontFamily: DISPLAY, fontSize: `${size}px`, color,
+  }).setOrigin(0.5);
+  front.setShadow(0, 0, glow, 22, false, true);
+  if (fixed) { back.setScrollFactor(0); front.setScrollFactor(0); }
+  return scene.add.container(x, y, [back, front]).setDepth(depth);
+}

@@ -7,7 +7,7 @@ import {
 import { log, metrics } from '../ops.js';
 import type { Rect } from '../map.js';
 
-const TICK = 1000 / 20;
+const TICK = 1000 / 30; // 30Hz authoritative sim (snappy remotes, cheap at 2-8p)
 let bulletSeq = 0, pickupSeq = 0;
 
 const MATCH_DEFAULT = 300, KILL_TARGET = 15;

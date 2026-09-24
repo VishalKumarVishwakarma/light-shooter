@@ -10,7 +10,7 @@ const game = new Phaser.Game({
   width: 960,
   height: 600,
   backgroundColor: '#0b0e14',
-  physics: { default: 'arcade' }, // arcade only, no matter -> lightweight
+  // no physics system: movement is analytic (stepMove) — zero engine overhead
   fps: { target: 60, smoothStep: true }, // clamp delta spikes so hitches don't cascade
   dom: { createContainer: true }, // required for the callsign <input/> overlay
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },

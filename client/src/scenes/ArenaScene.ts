@@ -105,7 +105,6 @@ export class ArenaScene extends Phaser.Scene {
     ensureTextures(this);
     this.cameras.main.fadeIn(250, 0, 0, 0);
     this.cameras.main.setBounds(0, 0, W, H);
-    this.physics.world.setBounds(0, 0, W, H);
     // ground: grid + film-grain noise + vignette
     this.add.grid(0, 0, W, H, 40, 40, 0x111826).setOrigin(0);
     const lowQ = quality() === 'low';
@@ -1243,7 +1242,7 @@ export class ArenaScene extends Phaser.Scene {
         this.cameras.main.setZoom(1);
       }
       (this as any)._acc = ((this as any)._acc || 0) + dt;
-      if ((this as any)._acc > 1 / 20) {
+      if ((this as any)._acc > 1 / 30) {
         (this as any)._acc = 0;
         Session.room!.send('move', { dx, dy, angle: ang });
       }
@@ -1265,10 +1264,10 @@ export class ArenaScene extends Phaser.Scene {
     } else {
       this.myMove = { dx: 0, dy: 0 };
     }
-    // interpolate remotes: render 100ms behind the server, lerping between
+    // interpolate remotes: render 66ms behind the server, lerping between
     // the two bracketing snapshots — constant velocity instead of chase judder
     const nowMs = this.time.now;
-    const rt = nowMs - 100;
+    const rt = nowMs - 66;
     this.players.forEach((o, id) => {
       if (id === this.meId) return;
       const h = o.hist;
@@ -1280,11 +1279,11 @@ export class ArenaScene extends Phaser.Scene {
       if (rt <= h[0].t) { o.gfx.x = h[0].x; o.gfx.y = h[0].y; return; }
       const last = h[h.length - 1];
       if (rt >= last.t) {
-        // past the newest sample: coast along the last segment (capped 150ms)
+        // past the newest sample: coast along the last segment (capped 100ms)
         if (h.length >= 2) {
           const p0 = h[h.length - 2];
           const seg = Math.max(1, last.t - p0.t);
-          const k = Math.min(150, rt - last.t) / seg;
+          const k = Math.min(100, rt - last.t) / seg;
           o.gfx.x = last.x + (last.x - p0.x) * k;
           o.gfx.y = last.y + (last.y - p0.y) * k;
         } else { o.gfx.x = last.x; o.gfx.y = last.y; }
@@ -1299,7 +1298,7 @@ export class ArenaScene extends Phaser.Scene {
         }
       }
     });
-    // dead-reckon bullets between 20Hz server ticks (sniper covers 65px/tick —
+    // dead-reckon bullets between 30Hz server ticks (sniper covers 43px/tick —
     // snapping reads as stutter; ticks still correct via onChange)
     if (dt > 0) {
       const step = Math.min(dt, 0.05);

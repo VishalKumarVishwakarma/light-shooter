@@ -11,9 +11,16 @@ export function roomLink(code: string) {
   return `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}`;
 }
 
+const qrOrder: string[] = [];
 function qrKey(scene: Phaser.Scene, text: string) {
   const key = 'qr_' + text;
   if (scene.textures.exists(key)) return key;
+  // cap the cache: lobbies come and go, GPU memory shouldn't grow forever
+  if (qrOrder.length >= 20) {
+    const old = qrOrder.shift()!;
+    try { scene.textures.remove(old); } catch { /* already gone */ }
+  }
+  qrOrder.push(key);
   const qr = qrcode(0, 'M');
   qr.addData(text);
   qr.make();

@@ -4,7 +4,9 @@ import Phaser from 'phaser';
 function cv(w: number, h: number) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  return { c, ctx: c.getContext('2d')! };
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('canvas 2D unavailable (GPU/memory pressure?)');
+  return { c, ctx };
 }
 
 function put(scene: Phaser.Scene, key: string, c: HTMLCanvasElement) {

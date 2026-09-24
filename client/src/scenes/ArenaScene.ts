@@ -62,6 +62,10 @@ export class ArenaScene extends Phaser.Scene {
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private blood!: Phaser.GameObjects.Particles.ParticleEmitter;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
+  // pooled damage numbers: every impact mints canvas-backed Text, and browsers
+  // cap live 2D contexts — pooling bounds them no matter how long the fight runs
+  private dmgPool: Phaser.GameObjects.Text[] = [];
+  private dmgMade = 0;
   private backToLobby = false;
   private endShown = false;
   private subGen = 0; // subscription generation: stale room callbacks exit early
@@ -130,6 +134,8 @@ export class ArenaScene extends Phaser.Scene {
     this.pkDots.clear();
     this.feedRows.forEach((r) => { r.bg.destroy(); r.k.destroy(); r.m.destroy(); r.v.destroy(); });
     this.feedRows = [];
+    this.dmgPool = [];
+    this.dmgMade = 0;
     if (this.board) { this.board.destroy(true); this.board = null; }
     this.boardVisible = false;
     this.waterTiles = [];
@@ -395,6 +401,24 @@ export class ArenaScene extends Phaser.Scene {
     this.time.delayedCall(60, () => f.destroy());
   }
 
+  private damageNumber(x: number, y: number, str: string, color: string) {
+    let t = this.dmgPool.pop();
+    if (!t) {
+      if (this.dmgMade >= 24) return; // shed load under absurd burst instead of crashing
+      t = this.add.text(0, 0, '', {
+        fontFamily: MONO, fontSize: '14px', fontStyle: '700', color: '#fecaca',
+      }).setOrigin(0.5).setDepth(8);
+      t.setStroke('#000000', 3);
+      this.dmgMade++;
+    }
+    this.tweens.killTweensOf(t);
+    t.setText(str).setColor(color).setPosition(x, y - 14).setAlpha(1).setVisible(true);
+    this.tweens.add({
+      targets: t, y: y - 44, alpha: 0, duration: 650, ease: 'Quad.easeOut',
+      onComplete: () => { t.setVisible(false); this.dmgPool.push(t); },
+    });
+  }
+
   private slash(x: number, y: number, ang: number) {
     const g = this.add.graphics().setDepth(7);
     g.lineStyle(5, 0xfef08a, 0.95);
@@ -471,14 +495,7 @@ export class ArenaScene extends Phaser.Scene {
       this.sparks.explode(8, h.x, h.y);
       // floating damage number on every impact (grey BLOCKED when shielded)
       const blocked = (h.dmg ?? 0) <= 0;
-      const dn = this.add.text(h.x, h.y - 14, blocked ? 'BLOCKED' : `-${h.dmg ?? 0}`, {
-        fontFamily: MONO, fontSize: '14px', fontStyle: '700', color: blocked ? '#94a3b8' : '#fecaca',
-      }).setOrigin(0.5).setDepth(8);
-      dn.setStroke('#000000', 3);
-      this.tweens.add({
-        targets: dn, y: h.y - 44, alpha: 0, duration: 650, ease: 'Quad.easeOut',
-        onComplete: () => dn.destroy(),
-      });
+      this.damageNumber(h.x, h.y, blocked ? 'BLOCKED' : `-${h.dmg ?? 0}`, blocked ? '#94a3b8' : '#fecaca');
       // damage direction arc for the victim (screen-edge red arc toward the shooter)
       const me = this.players.get(this.meId);
       if (h.to === this.meId && me && h.ox !== undefined && h.oy !== undefined) {

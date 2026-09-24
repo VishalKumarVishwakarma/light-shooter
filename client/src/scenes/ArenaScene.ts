@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Session } from '../net/Session';
-import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS, inRect, stepMove } from '../map';
+import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS, inRect, pointInWall, stepMove } from '../map';
 import { ensureTextures, avatarTex } from '../textures';
 import { makeButton, quality, setQuality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
@@ -399,7 +399,9 @@ export class ArenaScene extends Phaser.Scene {
     room.send('shoot', { angle: ang });
     const gw = this.ownWeapon();
     sfx.shoot(gw);
-    this.flash(me.gfx.x + Math.cos(ang) * MUZZLE, me.gfx.y + Math.sin(ang) * MUZZLE, ang, false, gw === 'laser' ? 0x22d3ee : 0);
+    const mx = me.gfx.x + Math.cos(ang) * MUZZLE, my = me.gfx.y + Math.sin(ang) * MUZZLE;
+    this.flash(mx, my, ang, false, gw === 'laser' ? 0x22d3ee : 0);
+    if (gw === 'laser') this.beam(mx, my, ang); // instant full-length beam (no echo delay)
     this.recoil(me.gun);
     // heavier guns kick the camera harder
     this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
@@ -461,6 +463,40 @@ export class ArenaScene extends Phaser.Scene {
       .setRotation(ang).setDepth(7).setScale(big ? 1.3 : 0.8);
     if (tint) f.setTint(tint);
     this.time.delayedCall(60, () => f.destroy());
+  }
+
+  // laser beam: march the ray until a wall (steel/standing brick) or max range,
+  // then burn a 3-pass beam (halo + body + white core) with an impact flare.
+  private rayEnd(x: number, y: number, dx: number, dy: number, maxD: number) {
+    const walls = [...STEEL];
+    BRICKS.forEach((rc, i) => {
+      if ((this.brickHp.get(`br_${i}`) ?? BRICK_HP) > 0) walls.push(rc);
+    });
+    for (let t = 16; t <= maxD; t += 16) {
+      const px = x + dx * t, py = y + dy * t;
+      if (px < 0 || py < 0 || px > W || py > H) return { x: px, y: py };
+      if (pointInWall(px, py, walls)) return { x: x + dx * (t - 8), y: y + dy * (t - 8) };
+    }
+    return { x: x + dx * maxD, y: y + dy * maxD };
+  }
+
+  private beam(x1: number, y1: number, ang: number) {
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    const range = WEAPONS.laser.speed * WEAPONS.laser.life;
+    const end = this.rayEnd(x1, y1, dx, dy, range);
+    const g = this.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
+    g.lineStyle(11, 0x22d3ee, 0.28);
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(end.x, end.y); g.strokePath();
+    g.lineStyle(5, 0x67e8f9, 0.65);
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(end.x, end.y); g.strokePath();
+    g.lineStyle(2, 0xffffff, 0.95);
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(end.x, end.y); g.strokePath();
+    const flare = this.add.image(end.x, end.y, 'glow').setTint(0x22d3ee)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(6).setScale(2.2);
+    this.tweens.add({
+      targets: [g, flare], alpha: 0, duration: 170, ease: 'Quad.easeOut',
+      onComplete: () => { g.destroy(); flare.destroy(); },
+    });
   }
 
   private damageNumber(x: number, y: number, str: string, color: string) {
@@ -751,7 +787,7 @@ export class ArenaScene extends Phaser.Scene {
       if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
       else if (foe) img.setTint(0xfb923c);
       img.setRotation(Math.atan2(b.vy, b.vx));
-      img.setScale(bw === 'laser' ? 2.6 : 2.1, 0.85); // laser streaks longer
+      img.setScale(bw === 'laser' ? 1.5 : 2.1, 0.85); // laser head rides inside its beam
       this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
       // muzzle flash + recoil at the shooter's barrel
       const own = this.players.get(b.ownerId);
@@ -759,6 +795,8 @@ export class ArenaScene extends Phaser.Scene {
         const a = Math.atan2(b.vy, b.vx);
         this.flash(own.gfx.x + Math.cos(a) * MUZZLE, own.gfx.y + Math.sin(a) * MUZZLE, a, false, bw === 'laser' ? 0x22d3ee : 0);
         this.recoil(own.gun);
+        // enemy lasers burn their beam on arrival (own beam already drew at fire time)
+        if (bw === 'laser' && foe) this.beam(b.x, b.y, a);
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
       // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.

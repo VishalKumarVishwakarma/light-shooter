@@ -3,7 +3,7 @@ import { Session } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
+import { BODY, COND, DIM, MONO, SUB, displayText, kicker } from '../fonts';
 import qrcode from 'qrcode-generator';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
@@ -266,31 +266,50 @@ export class LobbyScene extends Phaser.Scene {
       i = 0;
       ps.forEach((p: any, id: string) => {
         const y = 168 + i * 28;
+        const isReady = !!p.ready;
+        // state strip: ready = green glass + green spine, waiting = dark + red spine
+        const strip = this.add.rectangle(250, y, 462, 26,
+          isReady ? 0x16a34a : 0x020617, isReady ? 0.28 : 0.6).setOrigin(0, 0.5);
+        strip.setStrokeStyle(1, isReady ? 0x4ade80 : 0xef4444, isReady ? 0.8 : 0.45);
+        const spine = this.add.rectangle(250, y, 5, 26,
+          isReady ? 0x4ade80 : 0xef4444).setOrigin(0, 0.5);
+        let spineGlow: Phaser.GameObjects.Image | null = null;
+        if (isReady) {
+          spineGlow = this.add.image(252, y, 'halo').setTint(0x4ade80)
+            .setBlendMode(Phaser.BlendModes.ADD).setScale(0.5, 0.35).setAlpha(0.7);
+        }
         const icon = this.add.image(268, y, id === meId ? 'soldier_me' : 'soldier_foe').setScale(0.5);
+        if (!isReady) icon.setAlpha(0.55); // waiting players visibly dimmed
         const crown = id === hostId ? '👑 ' : '';
         const meTag = id === meId ? '   ← YOU' : '';
         const row = this.add.text(292, y, `${crown}${p.name}${meTag}`, {
           fontFamily: BODY, fontSize: '17px', fontStyle: '700',
-          color: p.ready ? '#4ade80' : TXT,
+          color: isReady ? '#ffffff' : DIM,
         }).setOrigin(0, 0.5);
         row.setStroke('#020617', 4);
-        // big status badge + glowing status light — impossible to miss
-        const dot = this.add.circle(600, y, 5, p.ready ? 0x4ade80 : 0xef4444);
-        if (p.ready) {
+        if (isReady) row.setShadow(0, 0, '#4ade80', 8, false, true);
+        // status light: ready = filled pulsing green, waiting = hollow red ring
+        const dot = isReady
+          ? this.add.circle(596, y, 6, 0x4ade80).setStrokeStyle(2, 0xbbf7d0, 1)
+          : this.add.circle(596, y, 6).setStrokeStyle(2.5, 0xef4444, 1).setFillStyle(0xef4444, 0.15);
+        if (isReady) {
           this.tweens.add({ targets: dot, alpha: 0.35, duration: 700, yoyo: true, repeat: -1 });
         }
-        const badge = this.add.rectangle(648, y, 92, 22, p.ready ? 0x16a34a : 0x334155);
-        if (p.ready) badge.setStrokeStyle(1, 0x4ade80, 0.8);
-        const badgeTx = this.add.text(648, y, p.ready ? '✓ READY' : '··· WAITING', {
-          fontFamily: COND, fontSize: '13px', fontStyle: '700', color: '#ffffff',
+        // badge: ready = bright green pill w/ dark text, waiting = dark pill w/ red text
+        const badge = this.add.rectangle(652, y, 106, 24, isReady ? 0x4ade80 : 0x1e293b);
+        badge.setStrokeStyle(1.5, isReady ? 0xbbf7d0 : 0xef4444, isReady ? 1 : 0.8);
+        const badgeTx = this.add.text(652, y, isReady ? '✓ READY' : '✕ NOT READY', {
+          fontFamily: COND, fontSize: '14px', fontStyle: '700',
+          color: isReady ? '#052e16' : '#f87171',
         }).setOrigin(0.5);
-        badgeTx.setStroke('#020617', 3);
+        badgeTx.setStroke(isReady ? '#bbf7d0' : '#020617', isReady ? 1 : 3);
         // subtle slide-in for newcomers only (not on every redraw)
         if (fresh.has(id)) {
           row.setX(284).setAlpha(0);
           this.tweens.add({ targets: row, x: 292, alpha: 1, duration: 180 });
         }
-        this.rowsBox.add([icon, row, dot, badge, badgeTx]);
+        this.rowsBox.add([strip, spine, icon, row, dot, badge, badgeTx]);
+        if (spineGlow) this.rowsBox.add(spineGlow);
         i++;
       });
       if (!n) {

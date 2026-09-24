@@ -3,7 +3,7 @@ import { Session } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, MONO, displayText, kicker } from '../fonts';
+import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
 import qrcode from 'qrcode-generator';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
@@ -70,9 +70,11 @@ export class LobbyScene extends Phaser.Scene {
 
     this.add.image(480, 300, 'menubg').setDisplaySize(960, 600);
     this.add.tileSprite(480, 300, 960, 600, 'noise').setAlpha(0.3);
-    this.add.text(480, 100, 'MISSION: LAST SQUAD STANDING  ·  FIRST TO 3 WINS', {
-      fontFamily: BODY, fontSize: '13px', fontStyle: '700', color: '#f59e0b',
+    const mission = this.add.text(480, 100, 'MISSION: LAST SQUAD STANDING  ·  FIRST TO 3 WINS', {
+      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: '#f59e0b',
     }).setOrigin(0.5);
+    mission.setStroke('#020617', 3);
+    mission.setShadow(0, 0, '#f59e0b', 8, false, true);
 
     displayText(this, 480, 32, 'LOBBY', 30);
     kicker(this, 480, 10, 'S Q U A D   M U S T E R');
@@ -80,8 +82,10 @@ export class LobbyScene extends Phaser.Scene {
     // code pill (click to copy)
     this.add.image(480, 74, 'pill');
     this.codeText = this.add.text(480, 74, '', {
-      fontFamily: MONO, fontSize: '16px', color: '#22d3ee',
+      fontFamily: MONO, fontSize: '16px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
+    this.codeText.setStroke('#020617', 3);
+    this.codeText.setShadow(0, 0, '#22d3ee', 8, false, true);
     this.refreshCode(false);
     const pillHit = this.add.rectangle(480, 74, 440, 44, 0x000000, 0)
       .setStrokeStyle(1, 0x22d3ee, 0.5);
@@ -91,8 +95,10 @@ export class LobbyScene extends Phaser.Scene {
       this.refreshCode(true);
     });
     const invite = this.add.text(706, 74, '＋ INVITE', {
-      fontFamily: BODY, fontSize: '14px', fontStyle: '700', color: '#22d3ee',
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0, 0.5);
+    invite.setStroke('#020617', 3);
+    invite.setShadow(0, 0, '#22d3ee', 8, false, true);
     invite.setInteractive({ useHandCursor: true });
     invite.on('pointerdown', () => { sfx.click(); this.openInvite(); });
 
@@ -123,14 +129,17 @@ export class LobbyScene extends Phaser.Scene {
     this.startLabel = start.label;
 
     this.statusText = this.add.text(480, 524, '', {
-      fontFamily: BODY, fontSize: '16px', color: '#facc15',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5);
+    this.statusText.setStroke('#020617', 3);
+    this.statusText.setShadow(0, 0, '#facc15', 8, false, true);
     const leave = this.add.text(480, 562, 'leave lobby', {
-      fontFamily: BODY, fontSize: '13px', color: '#64748b',
+      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: DIM,
     }).setOrigin(0.5);
+    leave.setStroke('#020617', 3);
     leave.setInteractive({ useHandCursor: true });
-    leave.on('pointerover', () => leave.setColor('#94a3b8'));
-    leave.on('pointerout', () => leave.setColor('#64748b'));
+    leave.on('pointerover', () => leave.setColor(SUB));
+    leave.on('pointerout', () => leave.setColor(DIM));
     leave.on('pointerdown', async () => {
       this.gone = true;
       await Session.leave();
@@ -162,9 +171,10 @@ export class LobbyScene extends Phaser.Scene {
     for (const [x, y] of SPAWNS) g.fillCircle(cx - w / 2 + x * s, cy - h / 2 + y * s, 1.8);
     g.lineStyle(1, 0x22d3ee, 0.5);
     g.strokeRect(cx - w / 2, cy - h / 2, w, h);
-    this.add.text(cx, cy + h / 2 + 12, 'BATTLE CITY ARENA', {
-      fontFamily: BODY, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
+    const cap = this.add.text(cx, cy + h / 2 + 12, 'BATTLE CITY ARENA', {
+      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5, 0);
+    cap.setStroke('#020617', 3);
   }
 
   private openInvite() {
@@ -172,12 +182,16 @@ export class LobbyScene extends Phaser.Scene {
     const link = roomLink(code);
     const m = modal(this, 'INVITE PLAYERS', 500, 420);
     m.body.add(this.add.image(0, -80, qrKey(this, link)).setDisplaySize(150, 150));
-    m.body.add(this.add.text(0, 20, link, {
+    const linkT = this.add.text(0, 20, link, {
       fontFamily: MONO, fontSize: '12px', color: '#7dd3fc', align: 'center', wordWrap: { width: 440 },
-    }).setOrigin(0.5, 0));
+    }).setOrigin(0.5, 0);
+    linkT.setStroke('#020617', 3);
+    m.body.add(linkT);
     const copy = this.add.text(-90, 130, '⧉ COPY LINK', {
-      fontFamily: BODY, fontSize: '16px', fontStyle: '700', color: '#22d3ee',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
+    copy.setStroke('#020617', 3);
+    copy.setShadow(0, 0, '#22d3ee', 8, false, true);
     copy.setInteractive({ useHandCursor: true });
     copy.on('pointerdown', () => {
       navigator.clipboard?.writeText(link).then(
@@ -187,8 +201,10 @@ export class LobbyScene extends Phaser.Scene {
     });
     m.body.add(copy);
     const share = this.add.text(90, 130, '⤴ SHARE', {
-      fontFamily: BODY, fontSize: '16px', fontStyle: '700', color: '#22d3ee',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
+    share.setStroke('#020617', 3);
+    share.setShadow(0, 0, '#22d3ee', 8, false, true);
     share.setInteractive({ useHandCursor: true });
     share.on('pointerdown', () => {
       const nav = navigator as any;
@@ -231,16 +247,18 @@ export class LobbyScene extends Phaser.Scene {
       ps.forEach((p: any) => { if (p.ready) ready++; i++; });
       const n = i;
       const head = this.add.text(250, 126, `SQUAD  ${n}/8`, {
-        fontFamily: BODY, fontSize: '15px', fontStyle: '700', color: '#94a3b8',
+        fontFamily: COND, fontSize: '16px', fontStyle: '700', color: SUB,
       }).setOrigin(0, 0.5);
+      head.setStroke('#020617', 3);
       const pct = n ? ready / n : 0;
       const barBg = this.add.rectangle(480, 144, 460, 8, 0x1e293b).setOrigin(0.5);
       const barFill = this.add.rectangle(250, 144, Math.max(2, 460 * pct), 8,
         pct === 1 && n >= 2 ? 0x4ade80 : 0xca8a04).setOrigin(0, 0.5);
       const rdy = this.add.text(710, 126, n >= 2 && ready === n ? 'ALL READY ✓' : `READY  ${ready}/${n}`, {
-        fontFamily: BODY, fontSize: '15px', fontStyle: '700',
+        fontFamily: COND, fontSize: '16px', fontStyle: '700',
         color: n >= 2 && ready === n ? '#4ade80' : '#facc15',
       }).setOrigin(1, 0.5);
+      rdy.setStroke('#020617', 3);
       this.rowsBox.add([head, barBg, barFill, rdy]);
       // ready-up chime for the host when the count climbs
       if (this.prevReady !== -1 && ready > this.prevReady) sfx.ready();
@@ -252,9 +270,10 @@ export class LobbyScene extends Phaser.Scene {
         const crown = id === hostId ? '👑 ' : '';
         const meTag = id === meId ? '   ← YOU' : '';
         const row = this.add.text(292, y, `${crown}${p.name}${meTag}`, {
-          fontFamily: BODY, fontSize: '17px', fontStyle: '600',
-          color: p.ready ? '#4ade80' : '#e2e8f0',
+          fontFamily: BODY, fontSize: '17px', fontStyle: '700',
+          color: p.ready ? '#4ade80' : TXT,
         }).setOrigin(0, 0.5);
+        row.setStroke('#020617', 4);
         // big status badge + glowing status light — impossible to miss
         const dot = this.add.circle(600, y, 5, p.ready ? 0x4ade80 : 0xef4444);
         if (p.ready) {
@@ -263,8 +282,9 @@ export class LobbyScene extends Phaser.Scene {
         const badge = this.add.rectangle(648, y, 92, 22, p.ready ? 0x16a34a : 0x334155);
         if (p.ready) badge.setStrokeStyle(1, 0x4ade80, 0.8);
         const badgeTx = this.add.text(648, y, p.ready ? '✓ READY' : '··· WAITING', {
-          fontFamily: BODY, fontSize: '12px', fontStyle: '700', color: '#ffffff',
+          fontFamily: COND, fontSize: '13px', fontStyle: '700', color: '#ffffff',
         }).setOrigin(0.5);
+        badgeTx.setStroke('#020617', 3);
         // subtle slide-in for newcomers only (not on every redraw)
         if (fresh.has(id)) {
           row.setX(284).setAlpha(0);
@@ -274,9 +294,11 @@ export class LobbyScene extends Phaser.Scene {
         i++;
       });
       if (!n) {
-        this.rowsBox.add(this.add.text(480, 250, 'waiting for players…', {
-          fontFamily: BODY, fontSize: '16px', color: '#64748b',
-        }).setOrigin(0.5));
+        const waiting = this.add.text(480, 250, 'waiting for players…', {
+          fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: DIM,
+        }).setOrigin(0.5);
+        waiting.setStroke('#020617', 3);
+        this.rowsBox.add(waiting);
       }
       const myReady = !!ps.get(meId)?.ready;
       this.readyLabel.setText(myReady ? 'UNREADY' : 'READY');

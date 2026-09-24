@@ -3,7 +3,7 @@ import { Session, fetchLobbies, randomName } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
 import { sfx } from '../audio';
-import { BODY, COND, displayText, kicker } from '../fonts';
+import { BODY, COND, DIM, SUB, TXT, displayText, kicker, prose } from '../fonts';
 
 export class MenuScene extends Phaser.Scene {
   private errText!: Phaser.GameObjects.Text;
@@ -98,9 +98,11 @@ export class MenuScene extends Phaser.Scene {
     // callsign entry (F1: player name + random generator, persisted).
     // Wrapped defensively: menu must render even if DOM overlay is unavailable.
     try {
-      this.add.text(300, 204, 'CALLSIGN', {
-        fontFamily: BODY, fontSize: '15px', fontStyle: '700', color: '#94a3b8',
+      const cs = this.add.text(300, 204, 'CALLSIGN', {
+        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: SUB,
       }).setOrigin(0, 0.5).setDepth(2);
+      cs.setStroke('#020617', 3);
+      cs.setShadow(0, 0, '#22d3ee', 6, false, true);
       const input = document.createElement('input');
       input.value = Session.name;
       input.maxLength = 12;
@@ -142,34 +144,36 @@ export class MenuScene extends Phaser.Scene {
       onClick: () => this.showLobbies(),
     });
 
-    this.add.text(480, 410, 'create a lobby, share the code, host starts the game', {
-      fontFamily: BODY, fontSize: '15px', color: '#94a3b8',
-    }).setOrigin(0.5).setDepth(2);
+    prose(this, 480, 410, 'create a lobby, share the code, host starts the game', 15, SUB);
 
     this.errText = this.add.text(480, 438, '', {
-      fontFamily: BODY, fontSize: '14px', color: '#f87171',
+      fontFamily: BODY, fontSize: '14px', fontStyle: '700', color: '#fca5a5',
     }).setOrigin(0.5).setDepth(2);
+    this.errText.setStroke('#020617', 3);
     // footer: settings / how-to / credits + version
     const foot = (x: number, label: string, fn: () => void) => {
       const t = this.add.text(x, 578, label, {
-        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#64748b',
+        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: DIM,
       }).setOrigin(0.5).setDepth(2);
       t.setStroke('#020617', 3);
       t.setInteractive({ useHandCursor: true });
       t.on('pointerover', () => t.setColor('#22d3ee'));
-      t.on('pointerout', () => t.setColor('#64748b'));
+      t.on('pointerout', () => t.setColor(DIM));
       t.on('pointerdown', () => { sfx.click(); fn(); });
     };
     foot(380, '⚙ SETTINGS', () => this.openSettings());
     foot(500, '❓ HOW TO PLAY', () => this.openHow());
     foot(630, '© CREDITS', () => this.openCredits());
-    this.add.text(14, 584, `v${VERSION}`, {
-      fontFamily: BODY, fontSize: '12px', color: '#475569',
+    const ver = this.add.text(14, 584, `v${VERSION}`, {
+      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: DIM,
     }).setOrigin(0, 0.5).setDepth(2);
+    ver.setStroke('#020617', 3);
     // live lobby ticker (real data, refreshed)
     const live = this.add.text(946, 584, '', {
-      fontFamily: BODY, fontSize: '12px', fontStyle: '700', color: '#4ade80',
+      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: '#4ade80',
     }).setOrigin(1, 0.5).setDepth(2);
+    live.setStroke('#020617', 3);
+    live.setShadow(0, 0, '#4ade80', 8, false, true);
     const pingLobbies = async () => {
       try {
         const ls = await fetchLobbies();
@@ -194,9 +198,12 @@ export class MenuScene extends Phaser.Scene {
     void sub;
   }
 
-  private linkButton(parent: Phaser.GameObjects.Container, x: number, y: number, label: string, selected: boolean, fn: () => void) {    const t = this.add.text(x, y, label, {
-      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: selected ? '#22d3ee' : '#64748b',
+  private linkButton(parent: Phaser.GameObjects.Container, x: number, y: number, label: string, selected: boolean, fn: () => void) {
+    const t = this.add.text(x, y, label, {
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: selected ? '#22d3ee' : DIM,
     }).setOrigin(0.5);
+    t.setStroke('#020617', 3);
+    if (selected) t.setShadow(0, 0, '#22d3ee', 8, false, true);
     t.setInteractive({ useHandCursor: true });
     t.on('pointerdown', fn);
     parent.add(t);
@@ -206,15 +213,18 @@ export class MenuScene extends Phaser.Scene {
   private openSettings() {
     const m = modal(this, 'SETTINGS', 520, 360);
     const y0 = -110;
-    m.body.add(this.add.text(-220, y0, 'GRAPHICS', {
-      fontFamily: BODY, fontSize: '15px', fontStyle: '700', color: '#94a3b8',
-    }).setOrigin(0, 0.5));
+    const rowLabel = (y: number, str: string) => {
+      const t = this.add.text(-220, y, str, {
+        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: SUB,
+      }).setOrigin(0, 0.5);
+      t.setStroke('#020617', 3);
+      m.body.add(t);
+    };
+    rowLabel(y0, 'GRAPHICS');
     const q = quality();
     this.linkButton(m.body, 120, y0, 'HIGH', q === 'high', () => { setQuality('high'); m.close(); this.openSettings(); });
     this.linkButton(m.body, 190, y0, 'LOW', q === 'low', () => { setQuality('low'); m.close(); this.openSettings(); });
-    m.body.add(this.add.text(-220, y0 + 40, 'SOUND', {
-      fontFamily: BODY, fontSize: '15px', fontStyle: '700', color: '#94a3b8',
-    }).setOrigin(0, 0.5));
+    rowLabel(y0 + 40, 'SOUND');
     this.linkButton(m.body, 120, y0 + 40, sfx.muted ? 'OFF' : 'ON', !sfx.muted, () => {
       sfx.setMuted(!sfx.muted); m.close(); this.openSettings();
     });
@@ -222,18 +232,18 @@ export class MenuScene extends Phaser.Scene {
       sfx.setVolume(sfx.volume - 0.1); sfx.click(); m.close(); this.openSettings();
     });
     const vol = this.add.text(205, y0 + 40, `${Math.round(sfx.volume * 100)}%`, {
-      fontFamily: BODY, fontSize: '16px', fontStyle: '700', color: '#e2e8f0',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: TXT,
     }).setOrigin(0.5);
+    vol.setStroke('#020617', 3);
     m.body.add(vol);
     this.linkButton(m.body, 240, y0 + 40, '+', false, () => {
       sfx.setVolume(sfx.volume + 0.1); sfx.click(); m.close(); this.openSettings();
     });
-    m.body.add(this.add.text(-220, y0 + 80, 'CONTROLS', {
-      fontFamily: BODY, fontSize: '15px', fontStyle: '700', color: '#94a3b8',
-    }).setOrigin(0, 0.5));
+    rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
       'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1/2 or wheel swap · E interact',
-      { fontFamily: BODY, fontSize: '14px', color: '#e2e8f0', lineSpacing: 4 }).setOrigin(0, 0.5);
+      { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
+    ctl.setStroke('#020617', 3);
     m.body.add(ctl);
     this.linkButton(m.body, 0, y0 + 140, 'RESET CALLSIGN', false, () => {
       Session.setName(randomName()); toast(this, 'callsign: ' + Session.name); m.close();
@@ -253,33 +263,41 @@ export class MenuScene extends Phaser.Scene {
       ['🏆', 'Most kills at the whistle — or first to the kill target — wins.'],
     ];
     rows.forEach(([icon, txt], i) => {
-      m.body.add(this.add.text(-240, -130 + i * 38, `${icon}   ${txt}`, {
-        fontFamily: BODY, fontSize: '16px', color: '#e2e8f0',
-      }).setOrigin(0, 0.5));
+      const row = this.add.text(-240, -130 + i * 38, `${icon}   ${txt}`, {
+        fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT,
+      }).setOrigin(0, 0.5);
+      row.setStroke('#020617', 3);
+      m.body.add(row);
     });
   }
 
   private openCredits() {
     const m = modal(this, 'CREDITS', 480, 260);
-    m.body.add(this.add.text(0, -60,
+    const cred = this.add.text(0, -60,
       '8P LIGHT SHOOTER\nbuilt with Phaser 3 + Colyseus\nprocedural art · zero downloads', {
-        fontFamily: BODY, fontSize: '16px', color: '#e2e8f0', align: 'center', lineSpacing: 6,
-      }).setOrigin(0.5));
-    m.body.add(this.add.text(0, 40, `v${VERSION} · thanks for playing`, {
-      fontFamily: BODY, fontSize: '14px', color: '#64748b',
-    }).setOrigin(0.5));
+        fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT, align: 'center', lineSpacing: 6,
+      }).setOrigin(0.5);
+    cred.setStroke('#020617', 3);
+    m.body.add(cred);
+    const cv = this.add.text(0, 40, `v${VERSION} · thanks for playing`, {
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: SUB,
+    }).setOrigin(0.5);
+    cv.setStroke('#020617', 3);
+    m.body.add(cv);
     m.body.add(this.add.text(0, 66, 'PRIVACY · TERMS (see repo root)', {
-      fontFamily: BODY, fontSize: '12px', color: '#475569',
+      fontFamily: BODY, fontSize: '12px', color: DIM,
     }).setOrigin(0.5));
   }
 
   private showError(title: string, msg: string) {
     const m = modal(this, title, 460, 220);
-    m.body.add(this.add.text(0, -30, msg, {
-      fontFamily: BODY, fontSize: '16px', color: '#e2e8f0', align: 'center', wordWrap: { width: 400 },
-    }).setOrigin(0.5));
+    const em = this.add.text(0, -30, msg, {
+      fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT, align: 'center', wordWrap: { width: 400 },
+    }).setOrigin(0.5);
+    em.setStroke('#020617', 3);
+    m.body.add(em);
     m.body.add(this.add.text(0, 55, 'full room? bad code? server hiccup.', {
-      fontFamily: BODY, fontSize: '13px', color: '#64748b',
+      fontFamily: BODY, fontSize: '13px', color: DIM,
     }).setOrigin(0.5));
   }
 
@@ -310,8 +328,9 @@ export class MenuScene extends Phaser.Scene {
         .setStrokeStyle(1, live ? 0xfb923c : 0x22d3ee, 0.7).setDepth(2);
       const tx = this.add.text(480, top + i * 32,
         `${l.code}    ${l.players}/${l.max}    ${l.phase.toUpperCase()}${live ? '  ·  JOIN LIVE' : ''}`,
-        { fontFamily: BODY, fontSize: '15px', color: live ? '#fdba74' : '#e2e8f0' })
+        { fontFamily: COND, fontSize: '16px', fontStyle: '700', color: live ? '#fdba74' : TXT })
         .setOrigin(0.5).setDepth(3);
+      tx.setStroke('#020617', 3);
       bg.setInteractive({ useHandCursor: true });
       bg.on('pointerover', () => bg.setFillStyle(live ? 0x9a3412 : 0x1e293b, 0.95));
       bg.on('pointerout', () => bg.setFillStyle(live ? 0x7c2d12 : 0x0f172a, 0.92));
@@ -329,14 +348,17 @@ export class MenuScene extends Phaser.Scene {
     });
     if (lobbies.length > 2) {
       const more = this.add.text(480, top + rows.length * 32, `+${lobbies.length - 2} more — type the code below`, {
-        fontFamily: BODY, fontSize: '13px', color: '#64748b',
+        fontFamily: BODY, fontSize: '13px', fontStyle: '600', color: DIM,
       }).setOrigin(0.5, 0).setDepth(2);
+      more.setStroke('#020617', 3);
       this.listObjs.push(more);
     }
     const manual = this.add.text(480, top + rows.length * 32 + (lobbies.length > 2 ? 20 : 4),
       'have a code? click here to type it',
-      { fontFamily: BODY, fontSize: '14px', color: '#22d3ee' })
+      { fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#22d3ee' })
       .setOrigin(0.5, 0).setDepth(2);
+    manual.setStroke('#020617', 3);
+    manual.setShadow(0, 0, '#22d3ee', 8, false, true);
     manual.setInteractive({ useHandCursor: true });
     manual.on('pointerdown', () => this.askCode());
     this.listObjs.push(manual);
@@ -355,8 +377,10 @@ export class MenuScene extends Phaser.Scene {
     const holder = this.add.dom(0, -30, input);
     m.body.add(holder);
     const go = this.add.text(0, 45, 'JOIN →', {
-      fontFamily: BODY, fontSize: '18px', fontStyle: '700', color: '#22d3ee',
+      fontFamily: COND, fontSize: '19px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
+    go.setStroke('#020617', 3);
+    go.setShadow(0, 0, '#22d3ee', 8, false, true);
     go.setInteractive({ useHandCursor: true });
     const doJoin = () => {
       const code = input.value.trim();

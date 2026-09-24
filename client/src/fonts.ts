@@ -16,6 +16,38 @@ export function track(str: string): string {
   return str.split('').join('  ');
 }
 
+// Premium body palette (tiers on dark glass — nothing below DIM for prose).
+export const TXT = '#edf2f9'; // primary copy
+export const SUB = '#bcc8da'; // secondary copy (replaces flat #94a3b8)
+export const DIM = '#8ea0b8'; // tertiary captions (replaces #64748b/#475569)
+
+// Body copy: Rajdhani semibold with carved stroke + soft drop so paragraphs
+// sit on glass instead of sinking into it.
+export function prose(
+  scene: Phaser.Scene, x: number, y: number, str: string,
+  size = 15, color = TXT, depth = 2,
+) {
+  const t = scene.add.text(x, y, str, {
+    fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600', color,
+  }).setOrigin(0.5).setDepth(depth);
+  t.setStroke('#020617', 3);
+  t.setShadow(0, 1, '#000000', 3, false, true);
+  return t;
+}
+
+// Section label: bold condensed eyebrow for settings rows / list headers.
+export function eyebrow(
+  scene: Phaser.Scene, x: number, y: number, str: string,
+  color = SUB, size = 14, depth = 2,
+) {
+  const t = scene.add.text(x, y, track(str.toUpperCase()), {
+    fontFamily: COND, fontSize: `${size}px`, fontStyle: '700', color,
+  }).setOrigin(0.5).setDepth(depth);
+  t.setStroke('#020617', 3);
+  t.setShadow(0, 0, color, 6, false, true);
+  return t;
+}
+
 // Small letterspaced kicker label (section eyebrows, broadcast tags).
 export function kicker(
   scene: Phaser.Scene, x: number, y: number, str: string,

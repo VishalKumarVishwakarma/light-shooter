@@ -4,7 +4,7 @@ import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS
 import { ensureTextures, avatarTex } from '../textures';
 import { makeButton, quality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, COND, MONO, displayText, kicker } from '../fonts';
+import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
 
 const RADIUS = 16;
 type PObj = {
@@ -220,8 +220,9 @@ export class ArenaScene extends Phaser.Scene {
     this.hpLabel.setStroke('#000000', 3);
     this.hpLabel.setShadow(0, 0, '#22c55e', 8, false, true);
     this.pingText = this.add.text(10, 34, 'PING …', {
-      fontFamily: MONO, fontSize: '11px', color: '#64748b',
+      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: DIM,
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
+    this.pingText.setStroke('#020617', 3);
     this.dispHp = 100; this.ghostHp = 100;
     this.paintHp(100, 100);
     if (this.lowPulse) { this.lowPulse.stop(); this.lowPulse = null; }
@@ -247,8 +248,9 @@ export class ArenaScene extends Phaser.Scene {
     this.ammoCount.setStroke('#020617', 5);
     this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
     this.ammoHint = this.add.text(950, 402, 'R reload · 1/2 swap', {
-      fontFamily: BODY, fontSize: '12px', color: '#64748b',
+      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: DIM,
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.ammoHint.setStroke('#020617', 3);
     // reload progress bar under the ammo readout
     this.add.rectangle(950, 420, 110, 5, 0x000000, 0.55).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.reloadBar = this.add.rectangle(950, 420, 0, 5, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
@@ -297,8 +299,9 @@ export class ArenaScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.wantedText.setStroke('#000000', 3);
     this.roundText = this.add.text(480, 88, '', {
-      fontFamily: BODY, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
+      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.roundText.setStroke('#020617', 3);
     try {
       if (new URLSearchParams(location.search).get('fps')) {
         this.fpsText = this.add.text(12, 578, '60', {
@@ -1053,12 +1056,14 @@ export class ArenaScene extends Phaser.Scene {
     const acc = (r: { shots: number; hits: number }) =>
       r.shots > 0 ? Math.round((r.hits / r.shots) * 100) + '%' : '—';
     rows.slice(0, 6).forEach((r, i) => {
-      this.add.text(cx, cy - 80 + i * 22,
+      const row = this.add.text(cx, cy - 80 + i * 22,
         `${r.name === mvp ? '★ ' : '#' + (i + 1) + ' '}${r.name}   ${r.kills}K/${r.deaths}D   ${r.damage} DMG   ${acc(r)}`, {
-          fontFamily: MONO, fontSize: '14px', color: r.name === mvp ? '#facc15' : '#e2e8f0',
+          fontFamily: MONO, fontSize: '14px', fontStyle: '700', color: r.name === mvp ? '#facc15' : TXT,
         }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+      row.setStroke('#020617', 3);
     });
-    this.add.text(cx, cy + 62, `kill target ${st?.killTarget || 15} · rematch for a new game`, { fontFamily: BODY, fontSize: '13px', fontStyle: '600', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    const sub = this.add.text(cx, cy + 62, `kill target ${st?.killTarget || 15} · rematch for a new game`, { fontFamily: BODY, fontSize: '13px', fontStyle: '600', color: SUB }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    sub.setStroke('#020617', 3);
     if (Session.isHost) {
       makeButton(this, {
         tex: 'btn220', x: cx, y: cy + 104, tint: 0x2563eb, label: 'REMATCH', fontSize: 15,
@@ -1066,11 +1071,14 @@ export class ArenaScene extends Phaser.Scene {
         onClick: () => Session.room?.send('rematch'),
       });
     } else {
-      this.add.text(cx, cy + 96, 'waiting for host…', { fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+      const wait = this.add.text(cx, cy + 96, 'waiting for host…', { fontFamily: COND, fontSize: '17px', fontStyle: '700', color: TXT }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+      wait.setStroke('#020617', 3);
+      wait.setShadow(0, 0, '#22d3ee', 8, false, true);
     }
     const leave = this.add.text(cx, cy + 136, 'leave to menu', {
-      fontFamily: BODY, fontSize: '13px', color: '#64748b',
+      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: DIM,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    leave.setStroke('#020617', 3);
     leave.setInteractive({ useHandCursor: true });
     leave.on('pointerdown', async () => { await Session.leave(); this.scene.start('menu'); });
   }

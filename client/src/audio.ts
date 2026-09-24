@@ -71,35 +71,58 @@ class SFX {
   }
 
   click() { this.tone(700, 0.06, 'square', 0.12); }
-  // Pistol: sharp mid crack (boxy square pop + tight noise snap).
-  shootPistol(g = 1) { this.noise(0.11, 0.5 * g, 2600); this.tone(210, 0.09, 'square', 0.28 * g, -130); }
-  // Rifle: brighter rapid bark (raspy saw + short hi-fi snap + metallic tick).
-  shootRifle(g = 1) {
-    this.noise(0.07, 0.42 * g, 4300);
-    this.tone(360, 0.06, 'sawtooth', 0.22 * g, -200);
-    this.tone(1250, 0.03, 'square', 0.08 * g);
+  // PUBG-style gunfire: every shot = crack transient + chest body + mechanical
+  // clack + tail. jitter() keeps full-auto from sounding machine-stamped.
+  // bright (0..1) muffles highs for distant shots, like PUBG distance falloff.
+  private jitter(f: number, amt = 0.05) {
+    return f * (1 + (Math.random() - 0.5) * 2 * amt);
   }
-  // Shotgun: deep chest boom (sub thump + wide low blast + shell crack).
-  shootShotgun(g = 1) {
-    this.tone(95, 0.3, 'sine', 0.55 * g, -45);
-    this.noise(0.32, 0.6 * g, 750);
-    this.noise(0.09, 0.35 * g, 3200);
+  private clack(vol: number, delay = 0.012) {
+    this.tone(this.jitter(1750, 0.08), 0.03, 'triangle', vol, -600, delay);
   }
-  // Sniper: piercing crack with a canyon echo tail.
-  shootSniper(g = 1) {
-    this.tone(950, 0.16, 'sawtooth', 0.3 * g, -700);
-    this.noise(0.2, 0.55 * g, 5200);
-    this.noise(0.32, 0.16 * g, 2400, 0.16); // echo tail
-    this.tone(420, 0.22, 'triangle', 0.1 * g, -260, 0.16);
+  // Pistol (P92-ish): snappy close pop, light body, quick clack.
+  shootPistol(g = 1, bright = 1) {
+    this.noise(0.05, 0.55 * g, 6500 * bright); // crack
+    this.noise(0.12, 0.4 * g, 1400 * bright, 0.01); // body
+    this.tone(this.jitter(190, 0.06), 0.1, 'square', 0.26 * g, -110);
+    this.clack(0.1 * g);
   }
-  // Fire dispatcher: one call, correct gun every time (g = distance gain 0..1).
+  // Rifle (M416-ish): punchy bark — hard transient, mid chest, bolt clack.
+  shootRifle(g = 1, bright = 1) {
+    this.noise(0.045, 0.6 * g, 7500 * bright); // crack
+    this.noise(0.1, 0.5 * g, 1800 * bright, 0.008); // body
+    this.tone(this.jitter(320, 0.05), 0.07, 'sawtooth', 0.24 * g, -180);
+    this.tone(this.jitter(1300, 0.06), 0.03, 'square', 0.09 * g, 0, 0.005); // ping
+    this.clack(0.13 * g, 0.02);
+  }
+  // Shotgun (S686-ish): massive low boom, long smoky tail, pump clack.
+  shootShotgun(g = 1, bright = 1) {
+    this.noise(0.06, 0.65 * g, 6000 * bright); // crack
+    this.tone(this.jitter(88, 0.05), 0.34, 'sine', 0.6 * g, -40); // sub thump
+    this.noise(0.34, 0.55 * g, 700 * bright, 0.01); // blast body
+    this.noise(0.16, 0.22 * g, 1800 * bright, 0.1); // smoke tail
+    this.clack(0.12 * g, 0.09);
+  }
+  // Sniper (Kar98-ish): huge crack, deep body, double canyon echo.
+  shootSniper(g = 1, bright = 1) {
+    this.noise(0.06, 0.7 * g, 8000 * bright); // crack
+    this.tone(this.jitter(880, 0.04), 0.18, 'sawtooth', 0.3 * g, -640);
+    this.noise(0.24, 0.5 * g, 1500 * bright, 0.01); // body
+    this.noise(0.34, 0.17 * g, 2200 * bright, 0.17); // echo 1
+    this.tone(400, 0.24, 'triangle', 0.1 * g, -240, 0.17);
+    this.noise(0.4, 0.09 * g, 1800 * bright, 0.38); // echo 2
+    this.clack(0.11 * g, 0.12); // bolt
+  }
+  // Fire dispatcher: one call, correct gun every time.
+  // g = distance gain 0..1 (far shots also lose their highs, PUBG-style).
   shoot(weapon: string, g = 1) {
     const gain = Math.max(0, Math.min(1, g));
     if (gain <= 0) return;
-    if (weapon === 'rifle') this.shootRifle(gain);
-    else if (weapon === 'shotgun') this.shootShotgun(gain);
-    else if (weapon === 'sniper') this.shootSniper(gain);
-    else this.shootPistol(gain);
+    const bright = 0.35 + 0.65 * gain;
+    if (weapon === 'rifle') this.shootRifle(gain, bright);
+    else if (weapon === 'shotgun') this.shootShotgun(gain, bright);
+    else if (weapon === 'sniper') this.shootSniper(gain, bright);
+    else this.shootPistol(gain, bright);
   }
   // Knife: fast bandpass whoosh sweeping up.
   melee() { this.noise(0.16, 0.32, 900, 0, 'bandpass', 3800); }

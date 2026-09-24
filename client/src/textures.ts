@@ -13,14 +13,14 @@ function put(scene: Phaser.Scene, key: string, c: HTMLCanvasElement) {
   if (!scene.textures.exists(key)) scene.textures.addCanvas(key, c);
 }
 
-// Chibi army kid: oversized olive helmet, peeking face, tiny uniformed body.
-// Helmet is shared army issue; uniform/star/trim carry the team color.
+// Chibi army kid: oversized TEAM-COLORED helmet (the big read), peeking face,
+// tiny uniformed body. Whole silhouette carries the squad color.
 function soldier(base: string, dark: string, light: string, _head: string, badge: string | null) {
   const { c, ctx } = cv(56, 56);
   const cx = 28, cy = 28;
-  const skin = '#f2c89b', olive = '#5b6636', oliveDark = '#333b1f', oliveLight = '#9aa468';
-  // oversized backpack (behind torso, west)
-  ctx.fillStyle = oliveDark;
+  const skin = '#f2c89b';
+  // team backpack (behind torso, west)
+  ctx.fillStyle = dark;
   const bx = cx - 22, by = cy - 8;
   ctx.fillRect(bx, by, 12, 16);
   ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.5;
@@ -46,18 +46,18 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   ctx.strokeStyle = light; ctx.lineWidth = 1.5; // sleeve cuffs
   ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 4.1, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 4.1, 0, Math.PI * 2); ctx.stroke();
-  // big army helmet
+  // big team helmet (the instant read: light crown -> base -> dark rim)
   const hg = ctx.createRadialGradient(cx - 5, cy - 7, 2, cx, cy, 15);
-  hg.addColorStop(0, oliveLight); hg.addColorStop(0.6, olive); hg.addColorStop(1, oliveDark);
+  hg.addColorStop(0, light); hg.addColorStop(0.6, base); hg.addColorStop(1, dark);
   ctx.fillStyle = hg;
   ctx.beginPath(); ctx.arc(cx - 2, cy, 14, 0, Math.PI * 2); ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = oliveDark;
+  ctx.lineWidth = 2; ctx.strokeStyle = dark;
   ctx.beginPath(); ctx.arc(cx - 2, cy, 14, 0, Math.PI * 2); ctx.stroke();
-  // helmet band
+  // helmet band + white squad star
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath(); ctx.arc(cx - 2, cy, 11, 0.4, Math.PI * 2 - 0.4); ctx.stroke();
   // team star decal on top
-  ctx.fillStyle = light;
+  ctx.fillStyle = '#ffffff';
   star(ctx, cx - 4, cy - 6, 4);
   // cute face peeking east from under the brim
   ctx.fillStyle = skin;

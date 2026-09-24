@@ -683,6 +683,7 @@ export class ArenaScene extends Phaser.Scene {
       const col = mine ? 0x22d3ee : foeColor(idx)[4];
       const glowCss = mine ? '#22d3ee' : foeColor(idx)[3];
       const sh = this.add.image(0, 11, 'shadow').setAlpha(0.8);
+      const baseRing = this.add.image(0, 10, 'ring').setTint(col).setScale(0.62, 0.34).setAlpha(0.95);
       const ring = this.add.image(0, 0, 'ring').setVisible(false);
       const ringB = this.add.image(0, 0, 'ring').setTint(0x38bdf8).setVisible(false);
       const bootL = this.add.image(-7, 8, 'boot');
@@ -694,7 +695,7 @@ export class ArenaScene extends Phaser.Scene {
       const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
       label.setStroke('#020617', 4);
       label.setShadow(0, 0, glowCss, 6, false, true);
-      const gfx = this.add.container(p.x, p.y, [sh, legs, ring, ringB, body, gun, label]);
+      const gfx = this.add.container(p.x, p.y, [sh, baseRing, legs, ring, ringB, body, gun, label]);
       this.players.set(id, {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,

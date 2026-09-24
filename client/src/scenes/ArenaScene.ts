@@ -264,35 +264,35 @@ export class ArenaScene extends Phaser.Scene {
     // red edge flash on damage
     this.dmgVin = this.add.image(480, 300, 'vignette').setTint(0xef4444)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // ammo readout (bottom-right, above minimap): glass card
+    // ammo readout (bottom-right, above minimap): compact glass card
     const ammoCard = this.add.graphics().setScrollFactor(0).setDepth(9);
     ammoCard.fillStyle(0x020617, 0.68);
-    ammoCard.fillRoundedRect(796, 340, 160, 96, 12);
+    ammoCard.fillRoundedRect(800, 344, 156, 72, 12);
     ammoCard.fillStyle(0xffffff, 0.05);
-    ammoCard.fillRoundedRect(798, 342, 156, 34, 10);
+    ammoCard.fillRoundedRect(802, 346, 152, 26, 10);
     ammoCard.lineStyle(1.5, 0x22d3ee, 0.35);
-    ammoCard.strokeRoundedRect(796, 340, 160, 96, 12);
-    this.add.image(872, 372, 'gun').setScale(0.8).setScrollFactor(0).setDepth(10).setAlpha(0.9);
-    this.ammoTitle = this.add.text(950, 352, 'PISTOL', {
-      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: '#94a3b8',
+    ammoCard.strokeRoundedRect(800, 344, 156, 72, 12);
+    this.add.image(820, 384, 'gun').setScale(0.6).setScrollFactor(0).setDepth(10).setAlpha(0.9);
+    this.ammoTitle = this.add.text(806, 350, 'PISTOL', {
+      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
+    this.ammoCount = this.add.text(950, 348, '12/12', {
+      fontFamily: COND, fontSize: '22px', fontStyle: '700', color: '#fff',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount = this.add.text(950, 366, '12/12', {
-      fontFamily: COND, fontSize: '32px', fontStyle: '700', color: '#fff',
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount.setStroke('#020617', 5);
+    this.ammoCount.setStroke('#020617', 4);
     this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
-    this.ammoHint = this.add.text(950, 402, 'R reload · 1/2 swap', {
-      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: DIM,
+    this.ammoHint = this.add.text(950, 392, 'R reload · F knife · Q guard', {
+      fontFamily: COND, fontSize: '10px', fontStyle: '700', color: DIM,
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.ammoHint.setStroke('#020617', 3);
     // reload progress bar under the ammo readout
-    this.add.rectangle(950, 420, 110, 5, 0x000000, 0.55).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.reloadBar = this.add.rectangle(950, 420, 0, 5, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
+    this.add.rectangle(946, 406, 140, 4, 0x000000, 0.55).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.reloadBar = this.add.rectangle(946, 406, 0, 4, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
     // tappable RELOAD button (touch + mouse; R key works too)
-    this.reloadBg = this.add.rectangle(895, 448, 110, 30, 0x0b1220, 0.92)
+    this.reloadBg = this.add.rectangle(906, 428, 80, 22, 0x0b1220, 0.92)
       .setStrokeStyle(1.5, 0xeab308, 0.9).setScrollFactor(0).setDepth(10);
-    this.reloadTx = this.add.text(895, 448, '⟳ RELOAD', {
-      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#facc15',
+    this.reloadTx = this.add.text(906, 428, '⟳ RELOAD', {
+      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.reloadBg.setInteractive({ useHandCursor: true });
     this.reloadBg.on('pointerover', () => this.reloadBg.setFillStyle(0x334155));
@@ -327,11 +327,11 @@ export class ArenaScene extends Phaser.Scene {
     ];
     this.loadSlots = [];
     slots.forEach(([key, nm, w], i) => {
-      const x = 480 + (i - 2.5) * 48;
-      const bg = this.add.rectangle(x, 500, 44, 36, 0x020617, 0.78)
+      const x = 480 + (i - 2.5) * 42;
+      const bg = this.add.rectangle(x, 500, 38, 32, 0x020617, 0.78)
         .setStrokeStyle(1.5, 0x334155, 0.9).setScrollFactor(0).setDepth(10);
       const tx = this.add.text(x, 500, `${key}\n${nm}`, {
-        fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
+        fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
       tx.setStroke('#020617', 2);
       bg.setInteractive({ useHandCursor: true });
@@ -449,9 +449,9 @@ export class ArenaScene extends Phaser.Scene {
       // clicks on HUD buttons belong to the buttons, not the trigger
       if (this.grabBtn?.c.visible
         && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
-      if (Math.abs(pt.x - 895) < 60 && Math.abs(pt.y - 448) < 20) return; // reload btn
+      if (Math.abs(pt.x - 906) < 45 && Math.abs(pt.y - 428) < 15) return; // reload btn
       if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
-      if (pt.y > 478 && pt.y < 522 && Math.abs(pt.x - 480) < 150) return; // loadout strip
+      if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 110) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -962,14 +962,14 @@ export class ArenaScene extends Phaser.Scene {
       this.ammoCount.setText('…');
       this.ammoCount.setColor('#fb923c');
       const total = p.weapon === 'rifle' ? 2 : W.reload;
-      this.reloadBar.displayWidth = Math.max(1, 110 * (1 - Math.max(0, p.reloadLeft) / total));
+      this.reloadBar.displayWidth = Math.max(1, 140 * (1 - Math.max(0, p.reloadLeft) / total));
     } else {
       this.reloadBar.displayWidth = 1;
       const low = left > 0 && left / W.clip <= 0.25;
       this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
       this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText('R reload · 1-6 swap · F knife · Q guard');
+    this.ammoHint.setText('R reload · F knife · Q guard');
     const needReload = !p.reloading && left < W.clip;
     this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);

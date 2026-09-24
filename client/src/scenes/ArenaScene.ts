@@ -272,7 +272,7 @@ export class ArenaScene extends Phaser.Scene {
     ammoCard.fillRoundedRect(802, 346, 152, 26, 10);
     ammoCard.lineStyle(1.5, 0x22d3ee, 0.35);
     ammoCard.strokeRoundedRect(800, 344, 156, 72, 12);
-    this.add.image(820, 384, 'gun').setScale(0.6).setScrollFactor(0).setDepth(10).setAlpha(0.9);
+    this.add.image(820, 384, 'gun').setScale(0.7).setScrollFactor(0).setDepth(10).setAlpha(0.95);
     this.ammoTitle = this.add.text(806, 350, 'PISTOL', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
@@ -1132,16 +1132,16 @@ export class ArenaScene extends Phaser.Scene {
     let inner: Phaser.GameObjects.GameObject[];
     if (kind === 'health') {
       const glow = this.add.image(0, 0, 'glow').setTint(0x22c55e).setAlpha(0.5);
-      const h1 = this.add.rectangle(0, 0, 20, 7, 0x22c55e);
-      const h2 = this.add.rectangle(0, 0, 7, 20, 0x22c55e);
+      const h1 = this.add.rectangle(0, 0, 22, 8, 0x22c55e).setStrokeStyle(1.5, 0x052e16, 0.9);
+      const h2 = this.add.rectangle(0, 0, 8, 22, 0x22c55e).setStrokeStyle(1.5, 0x052e16, 0.9);
       inner = [glow, h1, h2];
     } else if (kind === 'ammo') {
-      const box = this.add.rectangle(0, 0, 18, 13, 0xeab308).setStrokeStyle(2, 0x92400e);
+      const box = this.add.rectangle(0, 0, 20, 14, 0xeab308).setStrokeStyle(2.5, 0x92400e);
       inner = [box];
     } else { // rifle / shotgun / sniper / laser: gold ring + tinted rifle + name tag
       const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee };
-      const ring = this.add.image(0, 0, 'ring').setScale(0.75);
-      const gun = this.add.image(0, 0, 'gun').setScale(0.9).setTint(tints[kind] ?? 0xffffff);
+      const ring = this.add.image(0, 0, 'ring').setScale(0.85);
+      const gun = this.add.image(0, 0, 'gun').setScale(1.0).setTint(tints[kind] ?? 0xffffff);
       const tag = this.add.text(0, -30, kind.toUpperCase(), {
         fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
       }).setOrigin(0.5);
@@ -1149,9 +1149,9 @@ export class ArenaScene extends Phaser.Scene {
       inner = [ring, gun, tag];
     }
     if (kind === 'shield' || kind === 'speed') {
-      const ring = this.add.image(0, 0, 'ring').setScale(0.7)
+      const ring = this.add.image(0, 0, 'ring').setScale(0.8)
         .setTint(kind === 'shield' ? 0x38bdf8 : 0xfde047);
-      const dot = this.add.image(0, 0, 'dot').setScale(1.6)
+      const dot = this.add.image(0, 0, 'dot').setScale(1.9)
         .setTint(kind === 'shield' ? 0x38bdf8 : 0xfde047);
       inner = [ring, dot];
     }

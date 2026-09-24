@@ -38,13 +38,19 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   ctx.fillRect(cx - 6, cy - 5, 12, 10);
   ctx.fillStyle = dark;
   ctx.fillRect(cx + 2, cy - 4, 4, 4); ctx.fillRect(cx + 2, cy + 1, 4, 4);
-  // stubby arms reaching east
-  ctx.strokeStyle = base; ctx.lineCap = 'round'; ctx.lineWidth = 5;
+  // stubby arms reaching east (dark under-stroke = bold outline)
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineCap = 'round'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(cx - 1, cy - 8); ctx.lineTo(cx + 11, cy - 4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - 1, cy + 8); ctx.lineTo(cx + 11, cy + 4); ctx.stroke();
+  ctx.strokeStyle = base; ctx.lineWidth = 5;
   ctx.beginPath(); ctx.moveTo(cx - 1, cy - 8); ctx.lineTo(cx + 11, cy - 4); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx - 1, cy + 8); ctx.lineTo(cx + 11, cy + 4); ctx.stroke();
   ctx.fillStyle = skin; // kid hands (big, chunky)
-  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 3.4, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 3.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 3.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 3.8, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 4.4, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 4.4, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeStyle = light; ctx.lineWidth = 1.5; // sleeve cuffs
   ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 4.1, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 4.1, 0, Math.PI * 2); ctx.stroke();
@@ -58,9 +64,11 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   // helmet band + white squad star
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath(); ctx.arc(cx - 2, cy, 11, 0.4, Math.PI * 2 - 0.4); ctx.stroke();
-  // team star decal on top
+  // team star decal on top (bold white)
   ctx.fillStyle = '#ffffff';
-  star(ctx, cx - 4, cy - 6, 4);
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1;
+  star(ctx, cx - 4, cy - 6, 4.5);
+  ctx.stroke();
   // helmet gloss streak (sun from the top-left)
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(cx - 2, cy, 10, Math.PI * 1.05, Math.PI * 1.45); ctx.stroke();
@@ -68,23 +76,23 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   ctx.fillStyle = skin;
   ctx.beginPath(); ctx.arc(cx + 9, cy, 5.5, -1.2, 1.2); ctx.fill();
   ctx.fillStyle = '#20242e'; // determined eyes
-  ctx.beginPath(); ctx.arc(cx + 11, cy - 2, 1.3, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + 11, cy + 2, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 11, cy - 2, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 11, cy + 2, 1.6, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'rgba(240,120,120,0.8)'; // rosy cheek
-  ctx.beginPath(); ctx.arc(cx + 8.5, cy + 3.5, 1.4, 0, Math.PI * 2); ctx.fill();
-  // squad number belly patch
+  ctx.beginPath(); ctx.arc(cx + 8.5, cy + 3.5, 1.6, 0, Math.PI * 2); ctx.fill();
+  // squad number belly patch (bold: thick rim, big numeral)
   if (badge) {
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.beginPath(); ctx.arc(cx, cy + 13, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = light;
-    ctx.beginPath(); ctx.arc(cx, cy + 13, 6, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = light;
-    ctx.font = 'bold 9px sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.beginPath(); ctx.arc(cx, cy + 13, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = light;
+    ctx.beginPath(); ctx.arc(cx, cy + 13, 7, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(badge, cx, cy + 13.5);
   }
-  // team trim arcs
-  ctx.lineWidth = 2.5; ctx.strokeStyle = light;
+  // team trim arcs (thick)
+  ctx.lineWidth = 3.5; ctx.strokeStyle = light;
   ctx.beginPath(); ctx.arc(cx, cy, 15.5, 2.3, 2.9); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, 15.5, -2.9, -2.3); ctx.stroke();
   return c;
@@ -117,7 +125,7 @@ function gun() {
   ctx.beginPath();
   ctx.moveTo(10, 3); ctx.lineTo(46, 3); ctx.lineTo(48, 6); ctx.lineTo(48, 12);
   ctx.lineTo(46, 15); ctx.lineTo(10, 15); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(10, 3); ctx.lineTo(46, 3); ctx.lineTo(48, 6); ctx.lineTo(48, 12);
   ctx.lineTo(46, 15); ctx.lineTo(10, 15); ctx.closePath(); ctx.stroke();
@@ -195,8 +203,8 @@ function bolt() {
   g.addColorStop(1, 'rgba(255,255,255,1)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(1, 3, 38, 8, 4);
-  else ctx.rect(1, 3, 38, 8);
+  if (ctx.roundRect) ctx.roundRect(1, 2, 38, 10, 5);
+  else ctx.rect(1, 2, 38, 10);
   ctx.fill();
   // bright core line
   const core = ctx.createLinearGradient(0, 0, 40, 0);
@@ -204,7 +212,7 @@ function bolt() {
   core.addColorStop(0.5, 'rgba(255,255,255,0.9)');
   core.addColorStop(1, 'rgba(255,255,255,1)');
   ctx.fillStyle = core;
-  ctx.fillRect(4, 6, 34, 2);
+  ctx.fillRect(4, 6, 34, 3);
   return c;
 }
 
@@ -251,8 +259,8 @@ function boot() {
   ctx.arcTo(13, 17, 8, 17, 4); ctx.arcTo(1, 17, 1, 12, 4);
   ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#4b5563'; // toe cap
-  ctx.beginPath(); ctx.arc(7, 12.5, 4.5, 0.3, Math.PI - 0.3); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(7, 12.5, 5, 0.3, Math.PI - 0.3); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(3, 6); ctx.lineTo(11, 6); ctx.stroke(); // sole line
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.fillRect(3, 1, 8, 2); // top shine
@@ -431,7 +439,7 @@ function ring() {
   ctx.shadowBlur = 10;
   const g = ctx.createLinearGradient(0, 0, 72, 72);
   g.addColorStop(0, '#fef08a'); g.addColorStop(0.5, '#facc15'); g.addColorStop(1, '#ea580c');
-  ctx.strokeStyle = g; ctx.lineWidth = 4;
+  ctx.strokeStyle = g; ctx.lineWidth = 5;
   ctx.beginPath(); ctx.arc(36, 36, 27, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
   ctx.fillStyle = 'rgba(250,204,21,0.10)';

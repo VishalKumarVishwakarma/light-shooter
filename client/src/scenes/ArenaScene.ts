@@ -1463,7 +1463,10 @@ export class ArenaScene extends Phaser.Scene {
       makeButton(this, {
         tex: 'btn220', x: cx, y: cy + 104, tint: 0x2563eb, label: 'REMATCH', fontSize: 15,
         depth: 21, scroll: true,
-        onClick: () => Session.room?.send('rematch'),
+        onClick: () => {
+          toast(this, 'returning to lobby…', '#7dd3fc');
+          Session.room?.send('rematch');
+        },
       });
     } else {
       const wait = this.add.text(cx, cy + 96, 'waiting for host…', { fontFamily: COND, fontSize: '17px', fontStyle: '700', color: TXT }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
@@ -1538,7 +1541,23 @@ export class ArenaScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number) {
     const dt = dtMs / 1000;
-    const playing = (Session.room as any)?.state?.phase === 'playing';
+    // phase routing, polled every frame: state callbacks can miss a transition
+    // (proven with ready toggles), and a missed ended->lobby strands the player
+    // on the results screen forever. Polling is the backstop; callbacks stay fast-path.
+    const phase = (Session.room as any)?.state?.phase;
+    if (phase === 'lobby' && !this.backToLobby) {
+      this.backToLobby = true;
+      this.scene.start('lobby');
+      return;
+    }
+    if (phase === 'ended' && !this.endShown) {
+      this.showEnd((Session.room as any)?.state?.winnerName || 'DRAW');
+    }
+    if (phase === 'countdown') {
+      this.showCountdown(Math.ceil((Session.room as any)?.state?.countdown || 0));
+    }
+    if (phase === 'playing' && this.lastCd !== -99) this.showFight();
+    const playing = phase === 'playing';
     const me = this.players.get(this.meId);
     // idle breathing for every soldier (phase-shifted per player) + streak-ring pulse
     // + walk cycle: legs swing toward movement, feet alternate while running

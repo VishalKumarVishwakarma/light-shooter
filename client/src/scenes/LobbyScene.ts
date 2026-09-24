@@ -371,6 +371,8 @@ export class LobbyScene extends Phaser.Scene {
     draw();
   }
 
+  private lastCdSec = -1;
+
   update() {
     const phase = (Session.room as any)?.state?.phase;
     if (!Session.room) return;
@@ -378,7 +380,13 @@ export class LobbyScene extends Phaser.Scene {
       this.gone = true;
       this.scene.start('arena');
     } else if (phase === 'countdown') {
-      this.statusText.setText(`starting in ${Math.ceil((Session.room as any).state.countdown)}…`);
+      const s = Math.ceil((Session.room as any).state.countdown);
+      if (s !== this.lastCdSec) {
+        this.lastCdSec = s;
+        this.statusText.setText(`starting in ${s}…`);
+      }
+    } else {
+      this.lastCdSec = -1;
     }
   }
 }

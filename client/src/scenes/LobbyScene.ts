@@ -104,9 +104,11 @@ export class LobbyScene extends Phaser.Scene {
 
     // player panel
     const panel = this.add.graphics();
+    panel.fillStyle(0x020617, 0.6);
+    panel.fillRoundedRect(227, 105, 506, 294, 17);
     panel.fillStyle(0x0b1220, 0.88);
     panel.fillRoundedRect(230, 108, 500, 288, 14);
-    panel.lineStyle(1.5, 0x22d3ee, 0.35);
+    panel.lineStyle(2.5, 0x22d3ee, 0.55);
     panel.strokeRoundedRect(230, 108, 500, 288, 14);
     this.rowsBox = this.add.container(0, 0).setDepth(2);
     // arena recon preview (scaled terrain + spawns)

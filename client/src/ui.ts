@@ -108,7 +108,7 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   panel.fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h * 0.34, 14);
   panel.fillStyle(0x22d3ee, 0.9); // neon crown line
   panel.fillRoundedRect(-w / 2 + 18, -h / 2, w - 36, 3, 2);
-  panel.lineStyle(1.5, 0x22d3ee, 0.55);
+  panel.lineStyle(2.5, 0x22d3ee, 0.75);
   panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
   panel.lineStyle(1, 0xffffff, 0.10); // inner top rim
   panel.beginPath();

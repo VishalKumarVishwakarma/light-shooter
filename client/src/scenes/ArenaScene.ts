@@ -240,7 +240,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     // HP bar (top-left): metallic frame, ghost damage trail, gloss, segment ticks
     this.hpFrame = this.add.rectangle(10, 12, 232, 26, 0x0b1220, 0.85).setOrigin(0, 0.5)
-      .setStrokeStyle(1.5, 0x22d3ee, 0.6).setScrollFactor(0).setDepth(10);
+      .setStrokeStyle(2.5, 0x22d3ee, 0.8).setScrollFactor(0).setDepth(10);
     this.add.rectangle(14, 12, 224, 18, 0x020617, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
     this.hpGhost = this.add.rectangle(14, 12, 224, 18, 0xfca5a5).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
     this.hpFill = this.add.rectangle(14, 12, 224, 18, 0x22c55e).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
@@ -270,7 +270,9 @@ export class ArenaScene extends Phaser.Scene {
     ammoCard.fillRoundedRect(800, 344, 156, 72, 12);
     ammoCard.fillStyle(0xffffff, 0.05);
     ammoCard.fillRoundedRect(802, 346, 152, 26, 10);
-    ammoCard.lineStyle(1.5, 0x22d3ee, 0.35);
+    ammoCard.lineStyle(4, 0x020617, 0.8);
+    ammoCard.strokeRoundedRect(799, 343, 158, 74, 13);
+    ammoCard.lineStyle(2.5, 0x22d3ee, 0.6);
     ammoCard.strokeRoundedRect(800, 344, 156, 72, 12);
     this.add.image(820, 384, 'gun').setScale(0.7).setScrollFactor(0).setDepth(10).setAlpha(0.95);
     this.ammoTitle = this.add.text(806, 350, 'PISTOL', {
@@ -290,7 +292,7 @@ export class ArenaScene extends Phaser.Scene {
     this.reloadBar = this.add.rectangle(946, 406, 0, 4, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
     // tappable RELOAD button (touch + mouse; R key works too)
     this.reloadBg = this.add.rectangle(906, 428, 80, 22, 0x0b1220, 0.92)
-      .setStrokeStyle(1.5, 0xeab308, 0.9).setScrollFactor(0).setDepth(10);
+      .setStrokeStyle(2.5, 0xeab308, 0.95).setScrollFactor(0).setDepth(10);
     this.reloadTx = this.add.text(906, 428, '⟳ RELOAD', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -305,7 +307,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     // stance toggle (touch + mouse; Q works too): shield = knife-only, gun = fire
     this.guardBg = this.add.rectangle(75, 448, 130, 30, 0x0b1220, 0.92)
-      .setStrokeStyle(1.5, 0x4ade80, 0.9).setScrollFactor(0).setDepth(10);
+      .setStrokeStyle(2.5, 0x4ade80, 0.95).setScrollFactor(0).setDepth(10);
     this.guardTx = this.add.text(75, 448, '🛡 SHIELD', {
       fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#4ade80',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -329,7 +331,7 @@ export class ArenaScene extends Phaser.Scene {
     slots.forEach(([key, nm, w], i) => {
       const x = 480 + (i - 2.5) * 42;
       const bg = this.add.rectangle(x, 500, 38, 32, 0x020617, 0.78)
-        .setStrokeStyle(1.5, 0x334155, 0.9).setScrollFactor(0).setDepth(10);
+        .setStrokeStyle(2, 0x334155, 0.95).setScrollFactor(0).setDepth(10);
       const tx = this.add.text(x, 500, `${key}\n${nm}`, {
         fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -347,13 +349,15 @@ export class ArenaScene extends Phaser.Scene {
       this.loadSlots.push({ bg, tx });
     });
     // buff chips (under the HP bar): shield points + haste timers with mini bars
-    this.shChipBg = this.add.rectangle(10, 50, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.shChipBg = this.add.rectangle(10, 50, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false)
+      .setStrokeStyle(2, 0x38bdf8, 0.7);
     this.shChipFill = this.add.rectangle(12, 50, 0, 10, 0x38bdf8).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
     this.shChipTx = this.add.text(16, 50, '', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#bae6fd',
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
     this.shChipTx.setStroke('#020617', 2);
-    this.spChipBg = this.add.rectangle(10, 68, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.spChipBg = this.add.rectangle(10, 68, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false)
+      .setStrokeStyle(2, 0xfde047, 0.7);
     this.spChipFill = this.add.rectangle(12, 68, 0, 10, 0xfde047).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
     this.spChipTx = this.add.text(16, 68, '', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#fef08a',
@@ -374,7 +378,9 @@ export class ArenaScene extends Phaser.Scene {
     clockCard.fillRoundedRect(421, 1, 118, 27, 13);
     clockCard.fillStyle(0xffffff, 0.06);
     clockCard.fillRoundedRect(423, 3, 114, 11, 6);
-    clockCard.lineStyle(1.5, 0xfacc15, 0.45);
+    clockCard.lineStyle(4, 0x020617, 0.8);
+    clockCard.strokeRoundedRect(420, 0, 120, 29, 14);
+    clockCard.lineStyle(2.5, 0xfacc15, 0.65);
     clockCard.strokeRoundedRect(421, 1, 118, 27, 13);
     const liveDot = this.add.circle(434, 14, 5, 0xef4444).setScrollFactor(0).setDepth(11);
     this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
@@ -418,9 +424,11 @@ export class ArenaScene extends Phaser.Scene {
     const mmFrame = this.add.graphics().setScrollFactor(0).setDepth(10);
     mmFrame.fillStyle(0x020617, 0.55);
     mmFrame.fillRoundedRect(795, 471, 160, 122, 10);
-    mmFrame.lineStyle(1.5, 0x22d3ee, 0.55);
+    mmFrame.lineStyle(4, 0x020617, 0.8);
+    mmFrame.strokeRoundedRect(794, 470, 162, 124, 11);
+    mmFrame.lineStyle(2.5, 0x22d3ee, 0.75);
     mmFrame.strokeRoundedRect(795, 471, 160, 122, 10);
-    mmFrame.lineStyle(1, 0xffffff, 0.10);
+    mmFrame.lineStyle(1.5, 0xffffff, 0.12);
     mmFrame.strokeRoundedRect(798, 474, 154, 116, 8);
 
     // impact spray, blood, movement dust
@@ -659,7 +667,7 @@ export class ArenaScene extends Phaser.Scene {
       });
       const bg = this.add.rectangle(10, rowY(0), 330, 19, 0x020617, 0.72)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9)
-        .setStrokeStyle(1, 0x22d3ee, 0.35);
+        .setStrokeStyle(2, 0x22d3ee, 0.5);
       const kk = this.add.text(16, rowY(0), k.killer, {
         fontFamily: MONO, fontSize: '13px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
@@ -977,7 +985,7 @@ export class ArenaScene extends Phaser.Scene {
     const guarded = !!p.guard;
     this.guardTx.setText(guarded ? '🛡 SHIELD' : '🔫 GUN');
     this.guardTx.setColor(guarded ? '#4ade80' : '#60a5fa');
-    this.guardBg.setStrokeStyle(1.5, guarded ? 0x4ade80 : 0x60a5fa, 0.9);
+    this.guardBg.setStrokeStyle(2.5, guarded ? 0x4ade80 : 0x60a5fa, 0.95);
     this.drawLoadout(p);
   }
 
@@ -998,13 +1006,13 @@ export class ArenaScene extends Phaser.Scene {
       const cur = w === 'shield' ? !!p.guard : p.weapon === w;
       s.tx.setText(`${i + 1}\n${names[w]}`);
       if (cur) {
-        s.bg.setFillStyle(0x0e2a3a, 0.95).setStrokeStyle(2, 0x22d3ee, 1);
+        s.bg.setFillStyle(0x0e2a3a, 0.95).setStrokeStyle(2.5, 0x22d3ee, 1);
         s.tx.setColor('#ffffff');
       } else if (owned) {
-        s.bg.setFillStyle(0x020617, 0.78).setStrokeStyle(1.5, 0x475569, 0.9);
+        s.bg.setFillStyle(0x020617, 0.78).setStrokeStyle(2, 0x475569, 0.95);
         s.tx.setColor(cols[w]);
       } else {
-        s.bg.setFillStyle(0x020617, 0.5).setStrokeStyle(1, 0x1e293b, 0.7);
+        s.bg.setFillStyle(0x020617, 0.5).setStrokeStyle(1.5, 0x1e293b, 0.8);
         s.tx.setColor('#334155');
       }
     });
@@ -1124,7 +1132,7 @@ export class ArenaScene extends Phaser.Scene {
         );
       }
     });
-    g.lineStyle(1.5, 0x22d3ee, 0.6);
+    g.lineStyle(2.5, 0x22d3ee, 0.8);
     g.strokeRect(x0, y0, 150, h);
   }
 
@@ -1365,7 +1373,7 @@ export class ArenaScene extends Phaser.Scene {
     }
     const h = 148 + rows.length * 24;
     this.board.add(this.add.rectangle(0, 0, 480, h, 0x020617, 0.94)
-      .setStrokeStyle(1.5, 0x22d3ee, 0.6));
+      .setStrokeStyle(2.5, 0x22d3ee, 0.8));
     this.board.add(this.add.text(0, -h / 2 + 24, `SCOREBOARD · FIRST TO ${target} (TAB to close)`, {
       fontFamily: MONO, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5));

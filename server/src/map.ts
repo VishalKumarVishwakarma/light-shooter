@@ -10,10 +10,12 @@ export const MUZZLE = 46;
 // weapon rules: single source of truth (server enforces, client mirrors timing)
 export const WEAPONS: Record<string, {
   dmg: number; interval: number; speed: number; life: number;
-  auto: boolean; clip: number; reload: number;
+  auto: boolean; clip: number; reload: number; pellets?: number; spread?: number;
 }> = {
   pistol: { dmg: 25, interval: 0.28, speed: 700, life: 1.2, auto: false, clip: 12, reload: 1.2 },
   rifle: { dmg: 15, interval: 0.11, speed: 850, life: 1.0, auto: true, clip: 30, reload: 2 },
+  shotgun: { dmg: 12, interval: 0.9, speed: 750, life: 0.6, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
+  sniper: { dmg: 100, interval: 1.6, speed: 1200, life: 1.5, auto: false, clip: 5, reload: 3 },
 };
 
 export const SPAWNS: Array<[number, number]> = [
@@ -63,12 +65,14 @@ export const BUSH: Rect[] = [
 ];
 
 // fixed pickup spawns: [kind, x, y]
-export const PICKUP_POINTS: Array<['health' | 'rifle' | 'ammo', number, number]> = [
+export const PICKUP_POINTS: Array<['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper', number, number]> = [
   ['rifle', 400, 200],
   ['health', 200, 450],
   ['rifle', 1200, 1000],
   ['ammo', 800, 420],
   ['health', 1200, 200],
+  ['shotgun', 300, 200],
+  ['sniper', 1300, 200],
 ];
 
 export function clamp(v: number, lo: number, hi: number) {

@@ -64,5 +64,10 @@ ok(s3.vx > 160 && s3.vx < 260, `ice slides out (${s3.vx.toFixed(0)}px/s)`);
 const s4 = stepMove(680, 600, 0, 0, 1, 0, 0.05, STEEL, false);
 ok(Math.abs(s4.x - 684) < 0.01, `fortress blocks (x=${s4.x.toFixed(1)})`);
 
+// 10. swept sampling helper math: a 120px step still samples every <=18px
+const span = Math.hypot(850 * 0.14, 0);
+const steps = Math.max(1, Math.ceil(span / 18));
+ok(steps >= 6 && span / steps <= 18, `swept steps cover fast bullets (${steps} samples)`);
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -17,6 +17,8 @@ async function waitPhase(room, want, timeout = 8000) {
   return room.state.phase === want;
 }
 
+// settle: wait until a player is actually still. CALLER MUST HAVE STOPPED
+// all inputs first, or this burns the full window while the bot keeps walking.
 async function settle(room, id) {
   // wait until the server-side body actually stops (stop-command latency)
   for (let i = 0; i < 12; i++) {
@@ -34,9 +36,9 @@ async function main() {
     ok((await res.text()).includes('shooter-server'), 'server HTTP ok');
   } catch (e) { ok(false, `server HTTP: ${e.message}`); }
 
-  // 1. CREATE generates a lobby code, creator is host
+  // 1. CREATE generates a lobby code, creator is host (kill target 2 for a fast duel)
   const host = new Client(URL);
-  const hr = await host.create('shooter', { name: 'host1' });
+  const hr = await host.create('shooter', { name: 'host1', killTarget: 2 });
   await sleep(300);
   ok(typeof hr.id === 'string' && hr.id.length >= 5, `create returns lobby code (${hr.id})`);
   ok(hr.state.hostId === hr.sessionId, 'creator is host');
@@ -56,7 +58,7 @@ async function main() {
   ok(gr.id === hr.id, 'join-by-code lands in same lobby');
   ok(Object.keys(hr.state.players.toJSON()).length === 2, '2 players in lobby');
   ok(hr.state.phase === 'lobby', `starts in lobby (phase=${hr.state.phase})`);
-  ok(hr.state.timeLeft === 120, `lobby previews match length (${hr.state.timeLeft}s)`);
+  ok(hr.state.timeLeft === 300, `lobby previews match length (${hr.state.timeLeft}s)`);
 
   // 3. Bad code rejected
   try {
@@ -81,56 +83,62 @@ async function main() {
   const m1 = hr.state.players.get(hr.sessionId).toJSON();
   ok(m1.x > m0.x, `movement live x ${m0.x.toFixed(1)} -> ${m1.x.toFixed(1)}`);
 
-  // 7. Last-man-standing: route around cover, gun the guest down -> ended + winner
-  const pos = () => ({
-    h: hr.state.players.get(hr.sessionId).toJSON(),
-    g: hr.state.players.get(gr.sessionId)?.toJSON(),
-  });
-  const gapOf = (p) => (p.g ? Math.hypot(p.g.x - p.h.x, p.g.y - p.h.y) : 1e9);
-  let p = pos();
-  // leg 1: push east until in range or blocked by cover
-  let stall = 0, lastX = p.h.x;
-  for (let i = 0; i < 40 && gapOf(p) > 450 && stall < 3; i++) {
-    hr.send('move', { dx: 1, dy: 0, angle: 0 });
-    await sleep(200);
-    p = pos();
-    stall = Math.abs(p.h.x - lastX) < 3 ? stall + 1 : 0;
-    lastX = p.h.x;
+  // 7. FFA duel: chase bot guns the guest down twice (kill target 2) -> ended + winner
+  const pos = (room, id) => room.state.players.get(id)?.toJSON();
+  async function duelKill(shooter, victim, wantKills, timeoutMs = 90000) {
+    // shooter chases + fires, victim holds still; wall unstick via sidestep
+    let stall = 0, lx = 0, ly = 0, mode = 'chase', modeN = 0, side = 1;
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const s = pos(shooter.room, shooter.id);
+      const v = pos(victim.room, victim.id);
+      if (!s || !v || shooter.room.state.phase !== 'playing') { await sleep(300); continue; }
+      if (s.kills >= wantKills) return true;
+      const dx = v.x - s.x, dy = v.y - s.y, d = Math.hypot(dx, dy) || 1;
+      const ang = Math.atan2(dy, dx);
+      if (mode === 'chase') {
+        shooter.room.send('move', { dx: dx / d, dy: dy / d, angle: ang });
+        if (Math.hypot(s.x - lx, s.y - ly) < 4) stall++; else stall = 0;
+        lx = s.x; ly = s.y;
+        if (stall >= 4) { mode = 'slide'; modeN = 0; side = -side; }
+      } else {
+        shooter.room.send('move', { dx: -dy / d * side, dy: dx / d * side, angle: ang });
+        if (++modeN >= 5) { mode = 'chase'; stall = 0; }
+      }
+      shooter.room.send('shoot', { angle: ang });
+      await sleep(300);
+    }
+    return pos(shooter.room, shooter.id)?.kills >= wantKills;
   }
-  // leg 2: blocked -> dip south below the upper covers (bottom edge 370 + margin)
-  for (let i = 0; i < 20 && gapOf(p) > 450 && p.h.y < 410; i++) {
-    hr.send('move', { dx: 0, dy: 1, angle: Math.PI / 2 });
-    await sleep(200);
-    p = pos();
-  }
-  // leg 3: east along the y~410 lane, past cover3 (ends x1220), then stop
-  for (let i = 0; i < 60 && p.h.x < 1225; i++) {
-    hr.send('move', { dx: 1, dy: 0, angle: 0 });
-    await sleep(200);
-    p = pos();
-  }
-  hr.send('move', { dx: 0, dy: 0, angle: 0 });
-  p = { h: await settle(hr, hr.sessionId), g: await settle(gr, gr.sessionId) };
-  ok(p.g && gapOf(p) < 600, `closed in for duel (gap=${gapOf(p).toFixed(0)})`);
   const feed = [];
   const hits = [];
   hr.onMessage('kill', (k) => feed.push(k));
   hr.onMessage('hit', (h) => hits.push(h));
-  const aim = Math.atan2(p.g.y - p.h.y, p.g.x - p.h.x);
-  for (let i = 0; i < 60 && hr.state.phase === 'playing'; i++) {
-    hr.send('shoot', { angle: aim });
-    await sleep(250);
-  }
-  ok(hr.state.phase === 'ended', `game ends with one survivor (phase=${hr.state.phase})`);
-  ok(hr.state.winnerName === 'host1', `winner is survivor (${hr.state.winnerName})`);
+  ok(await duelKill({ room: hr, id: hr.sessionId }, { room: gr, id: gr.sessionId }, 1),
+    'chase bot scores kill #1');
   ok(feed.length >= 1 && feed[0].killer === 'host1' && feed[0].victim === 'guest1',
     `kill feed broadcast (${JSON.stringify(feed[0] || null)})`);
   ok(hits.length >= 4, `hit sparks broadcast (${hits.length} impacts)`);
   ok(hr.state.players.get(hr.sessionId).damage >= 100, `damage tracked (${hr.state.players.get(hr.sessionId).damage})`);
-  ok(hr.state.players.get(hr.sessionId).wins === 1, 'round win scored (1W)');
+  ok(hr.state.players.get(hr.sessionId).kills === 1, 'kill counter increments');
   ok(hr.state.players.get(hr.sessionId).cash === 120, 'elimination pays $120');
   ok(hr.state.players.get(hr.sessionId).streak === 1, 'kill streak tracked (1)');
+  ok(hr.state.phase === 'playing', 'no elimination end in FFA (respawn instead)');
+  // victim respawns with full hp and keeps playing
+  let back = false;
+  for (let i = 0; i < 25; i++) {
+    const g = pos(gr, gr.sessionId);
+    if (g && g.alive && g.hp === 100) { back = true; break; }
+    await sleep(300);
+  }
+  ok(back, 'victim respawns full-hp mid-match');
   ok(gr.state.players.get(gr.sessionId).streak === 0, 'victim streak reset');
+  // kill #2 hits the target -> match ends, winner declared
+  ok(await duelKill({ room: hr, id: hr.sessionId }, { room: gr, id: gr.sessionId }, 2),
+    'chase bot scores kill #2 (kill target reached)');
+  ok(hr.state.phase === 'ended', `match ends at kill target (phase=${hr.state.phase})`);
+  ok(hr.state.winnerName === 'host1', `winner is kill leader (${hr.state.winnerName})`);
+  ok(hr.state.players.get(hr.sessionId).cash === 240, 'second payout lands ($240)');
 
   // 8. Rematch: guest cannot, host can -> back to lobby, winner cleared
   gr.send('rematch');
@@ -139,7 +147,6 @@ async function main() {
   hr.send('rematch');
   ok(await waitPhase(hr, 'lobby', 3000), 'host rematch returns to lobby');
   ok(hr.state.winnerName === '', 'winner cleared for next game');
-  ok(hr.state.players.get(hr.sessionId).wins === 1, 'wins carry across rounds');
 
   // 9. Lobby browser lists the live room with phase + counts
   const lobbies = await (await fetch('http://localhost:2567/lobbies')).json();
@@ -170,6 +177,36 @@ async function main() {
   ok(await waitPhase(t1r, 'ended', 15000), 'timer expiry ends match');
   ok(t1r.state.winnerName === 'DRAW', `idle timeout is a draw (${t1r.state.winnerName})`);
   await t1r.leave(); await t2r.leave();
+
+  // 8b. Timeout with a kills leader: leader wins (not a draw)
+  const k1 = new Client(URL);
+  const k1r = await k1.create('shooter', { name: 'lead1', matchSeconds: 12, killTarget: 50 });
+  const k2 = new Client(URL);
+  const k2r = await k2.joinById(k1r.id, { name: 'lead2' });
+  await sleep(400);
+  k1r.send('startGame');
+  ok(await waitPhase(k1r, 'playing', 9000), 'leader match goes live');
+  for (let i = 0; i < 15; i++) { // host east to nook, guest west toward mid
+    const a = k1r.state.players.get(k1r.sessionId).toJSON();
+    if (a.x > 540) break;
+    k1r.send('move', { dx: 1, dy: 0, angle: 0 });
+    const b = k2r.state.players.get(k2r.sessionId).toJSON();
+    if (b.x > 1030) k2r.send('move', { dx: -1, dy: 0, angle: Math.PI });
+    await sleep(200);
+  }
+  k1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  k2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
+  for (let i = 0; i < 25; i++) { // one kill, then the clock decides
+    const kk = k1r.state.players.get(k1r.sessionId).toJSON();
+    if (kk.kills >= 1) break;
+    const gg = k2r.state.players.get(k2r.sessionId).toJSON();
+    k1r.send('shoot', { angle: Math.atan2(gg.y - kk.y, gg.x - kk.x) });
+    await sleep(300);
+  }
+  ok(k1r.state.players.get(k1r.sessionId).kills === 1, 'leader banks one kill');
+  ok(await waitPhase(k1r, 'ended', 20000), 'timeout ends the match');
+  ok(k1r.state.winnerName === 'lead1', `kills leader wins on time (${k1r.state.winnerName})`);
+  await k1r.leave(); await k2r.leave();
 
   // 11. Host migration: fresh lobby, host leaves, guest becomes host and can start
   const h2 = new Client(URL);
@@ -389,6 +426,127 @@ async function main() {
   ok(healed.hp === 100, `health pack heals to full (hp=${healed.hp})`);
   await sleep(2600); // pickupSeconds=2 -> respawns
   await u1r.leave(); await u2r.leave();
+
+  // 18. Shotgun spread, sniper one-shot, knife melee + cooldown (no shield here)
+  const s1 = new Client(URL);
+  const s1r = await s1.create('shooter', { name: 'boom1', killTarget: 30, shieldSeconds: 0 });
+  const s2 = new Client(URL);
+  const s2r = await s2.joinById(s1r.id, { name: 'boom2' });
+  await sleep(400);
+  s1r.send('startGame');
+  ok(await waitPhase(s1r, 'playing', 9000), 'arms-race match goes live');
+  for (let i = 0; i < 8; i++) { // host grabs shotgun 100px east of spawn
+    const p = s1r.state.players.get(s1r.sessionId).toJSON();
+    if (p.x > 270) break;
+    s1r.send('move', { dx: 1, dy: 0, angle: 0 });
+    await sleep(200);
+  }
+  s1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  s1r.send('interact', {});
+  await sleep(400);
+  const sg = s1r.state.players.get(s1r.sessionId).toJSON();
+  ok(sg.weapon === 'shotgun' && sg.sammo === 6, `shotgun equipped (${sg.weapon} ${sg.sammo}/6)`);
+  for (let i = 0; i < 20; i++) { // host east to the open pocket x~740 (clear lane y=200)
+    const a = s1r.state.players.get(s1r.sessionId).toJSON();
+    if (a.x > 720) break;
+    s1r.send('move', { dx: 1, dy: 0, angle: 0 });
+    await sleep(200);
+  }
+  s1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  for (let i = 0; i < 20; i++) { // guest west to x~860 (clear of everything)
+    const b = s2r.state.players.get(s2r.sessionId).toJSON();
+    if (b.x < 880) break;
+    s2r.send('move', { dx: -1, dy: 0, angle: Math.PI });
+    await sleep(200);
+  }
+  s2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
+  // blast until pellets land (re-aimed retries defeat poll/stop-lag variance)
+  let lastGap = -1;
+  for (let round = 0; round < 4; round++) {
+    const sa = await settle(s1r, s1r.sessionId);
+    const sb = await settle(s2r, s2r.sessionId);
+    const gap = Math.hypot(sb.x - sa.x, sb.y - sa.y);
+    lastGap = gap;
+    console.log(`  sg-round ${round}: h=(${sa.x.toFixed(0)},${sa.y.toFixed(0)}) g=(${sb.x.toFixed(0)},${sb.y.toFixed(0)}) gap=${gap.toFixed(0)}`);
+    if (gap < 70) { // too close: muzzle would spawn past the target
+      s1r.send('move', { dx: sa.x >= sb.x ? 1 : -1, dy: 0, angle: 0 });
+      await sleep(300);
+      s1r.send('move', { dx: 0, dy: 0, angle: 0 }); // stop, or settle() below never converges
+      continue;
+    }
+    s1r.send('shoot', { angle: Math.atan2(sb.y - sa.y, sb.x - sa.x) });
+    await sleep(700);
+    if (s2r.state.players.get(s2r.sessionId).hp <= 76) break;
+  }
+  const spread = s2r.state.players.get(s2r.sessionId).toJSON();
+  ok(spread.hp <= 76, `shotgun spread lands (guest hp=${spread.hp} gap=${lastGap.toFixed(0)})`);
+  for (let i = 0; i < 18; i++) { // guest retreats east to the sniper nest
+    const b = s2r.state.players.get(s2r.sessionId).toJSON();
+    if (b.x > 1285) break;
+    s2r.send('move', { dx: 1, dy: 0, angle: 0 });
+    await sleep(200);
+  }
+  // home precisely onto the nest (interact radius is 30px)
+  for (let i = 0; i < 12; i++) {
+    const b = s2r.state.players.get(s2r.sessionId).toJSON();
+    const dx = 1300 - b.x, dy = 200 - b.y, d = Math.hypot(dx, dy);
+    if (d < 22) break;
+    s2r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  s2r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(300);
+  s2r.send('interact', {});
+  await sleep(400);
+  const sn = s2r.state.players.get(s2r.sessionId).toJSON();
+  ok(sn.weapon === 'sniper' && sn.nammo === 5, `sniper equipped (${sn.weapon} ${sn.nammo}/5)`);
+  const snipeFeed = [];
+  s1r.onMessage('kill', (k) => snipeFeed.push(k));
+  for (let round = 0; round < 3; round++) {
+    const v1 = await settle(s1r, s1r.sessionId);
+    const v2 = await settle(s2r, s2r.sessionId);
+    s2r.send('shoot', { angle: Math.atan2(v1.y - v2.y, v1.x - v2.x) });
+    await sleep(1200); // sniper interval is 1.6s: spacing keeps every retry live
+    if (!s1r.state.players.get(s1r.sessionId).alive) break;
+  }
+  const down = s1r.state.players.get(s1r.sessionId).toJSON();
+  ok(down.alive === false && down.hp === 0, 'sniper one-shots full hp');
+  ok(snipeFeed.some((k) => k.w === 'sniper'), 'sniper kill in feed');
+  let alive = false; // respawn path still works after the new weapons
+  for (let i = 0; i < 20; i++) {
+    const r = s1r.state.players.get(s1r.sessionId).toJSON();
+    if (r.alive && r.hp === 100) { alive = true; break; }
+    await sleep(300);
+  }
+  ok(alive, 'host respawns after sniper death');
+  // knife: close to <45 (margin inside the 70 range), face, F. Retry: it must land.
+  let landed = false, kBefore = 0, kAfter = 0;
+  for (let round = 0; round < 3 && !landed; round++) {
+    for (let i = 0; i < 30; i++) {
+      const a = s1r.state.players.get(s1r.sessionId).toJSON();
+      const b = s2r.state.players.get(s2r.sessionId).toJSON();
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 45) break;
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+      s1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+      await sleep(200);
+    }
+    s1r.send('move', { dx: 0, dy: 0, angle: 0 });
+    await sleep(300);
+    const pre = s2r.state.players.get(s2r.sessionId).toJSON();
+    const pf = s1r.state.players.get(s1r.sessionId).toJSON();
+    s1r.send('move', { dx: 0, dy: 0, angle: Math.atan2(pre.y - pf.y, pre.x - pf.x) });
+    await sleep(250); // face the victim (melee is a frontal arc)
+    s1r.send('melee', {});
+    await sleep(400);
+    const post = s2r.state.players.get(s2r.sessionId).toJSON();
+    if (pre.hp - post.hp === 50) { landed = true; kBefore = pre.hp; kAfter = post.hp; }
+  }
+  ok(landed, `knife deals 50 (${kBefore} -> ${kAfter})`);
+  s1r.send('melee', {});
+  await sleep(400);
+  const q2 = s2r.state.players.get(s2r.sessionId).toJSON();
+  ok(q2.hp === kAfter, `knife cooldown blocks instant second swing (hp=${q2.hp})`);
+  await s1r.leave(); await s2r.leave();
 
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

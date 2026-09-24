@@ -10,16 +10,21 @@ export class Player extends Schema {
   @type('number') deaths = 0;
   @type('string') name = 'p';
   @type('boolean') ready = false;
-  @type('number') wins = 0;
   @type('number') streak = 0;
   @type('number') cash = 0;
   @type('number') damage = 0;
+  @type('number') shots = 0;
+  @type('number') hitsMade = 0;
   @type('number') reloadLeft = 0;
   @type('number') shield = 0;
   @type('string') weapon = 'pistol';
   @type('number') ammo = 0;
   @type('number') pammo = 12;
+  @type('number') sammo = 0;
+  @type('number') nammo = 0;
   @type('boolean') rifle = false;
+  @type('boolean') shotgun = false;
+  @type('boolean') sniper = false;
   @type('boolean') reloading = false;
 }
 
@@ -59,5 +64,5 @@ export class ShooterState extends Schema {
   @type('string') winnerId = '';
   @type('string') winnerName = '';
   @type('number') timeLeft = 0;
-  @type('string') champion = '';
+  @type('number') killTarget = 15;
 }

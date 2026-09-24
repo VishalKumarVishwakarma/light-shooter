@@ -202,10 +202,12 @@ export class MenuScene extends Phaser.Scene {
     const rows = [
       ['✋', 'Move with WASD or arrow keys.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
-      ['🔫', 'Grab the gold rifle with E — 30 fast rounds.'],
+      ['🔫', 'Grab rifles/shotguns/snipers with E — R reloads, 1-4 or wheel swaps.'],
+      ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown.'],
       ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],
-      ['🧱', 'Walls block you AND bullets. Flank around cover.'],
-      ['🏆', 'Last one alive wins the round. First to 3 takes it.'],
+      ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],
+      ['🌊', 'Rivers block you (not bullets). Ice is slippery. Bushes hide you.'],
+      ['🏆', 'Most kills at the whistle — or first to the kill target — wins.'],
     ];
     rows.forEach(([icon, txt], i) => {
       m.body.add(this.add.text(-240, -130 + i * 38, `${icon}   ${txt}`, {

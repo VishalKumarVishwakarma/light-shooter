@@ -10,7 +10,7 @@ import type { Rect } from '../map.js';
 const TICK = 1000 / 20;
 let bulletSeq = 0, pickupSeq = 0;
 
-const MATCH_DEFAULT = 120, WIN_SCORE = 3;
+const MATCH_DEFAULT = 300, KILL_TARGET = 15;
 const RELOAD_DEFAULT = 2, PICKUP_DEFAULT = 15, RIFLE_DEFAULT = 25;
 const EMPTY_DEFAULT = 300; // empty rooms self-destruct after 5 min idle
 const SHIELD_DEFAULT = 2; // spawn protection, seconds
@@ -19,6 +19,7 @@ export class ShooterRoom extends Room<ShooterState> {
   maxClients = 8;
   private inputs = new Map<string, { dx: number; dy: number; angle: number }>();
   private matchSeconds = MATCH_DEFAULT;
+  private killTarget = KILL_TARGET;
   private reloadSeconds = RELOAD_DEFAULT;
   private pickupSeconds = PICKUP_DEFAULT;
   private rifleSeconds = RIFLE_DEFAULT;
@@ -26,6 +27,7 @@ export class ShooterRoom extends Room<ShooterState> {
   private shieldSeconds = SHIELD_DEFAULT;
   private lastShot = new Map<string, number>();
   private reloadT = new Map<string, number>();
+  private lastMelee = new Map<string, number>();
   private vel = new Map<string, { x: number; y: number }>();
   private emptyT = 0;
 
@@ -42,10 +44,11 @@ export class ShooterRoom extends Room<ShooterState> {
     };
   }
 
-  onCreate(opts: { matchSeconds?: number; reloadSeconds?: number; pickupSeconds?: number; rifleSeconds?: number; roomEmptySeconds?: number; shieldSeconds?: number }) {
+  onCreate(opts: { matchSeconds?: number; killTarget?: number; reloadSeconds?: number; pickupSeconds?: number; rifleSeconds?: number; roomEmptySeconds?: number; shieldSeconds?: number }) {
     (this as any).autoDispose = false;
     const s = Number(opts?.matchSeconds || MATCH_DEFAULT);
     this.matchSeconds = Math.max(5, Math.min(600, s));
+    this.killTarget = Math.max(1, Math.min(50, Number(opts?.killTarget || KILL_TARGET)));
     this.reloadSeconds = Math.max(0.5, Math.min(5, Number(opts?.reloadSeconds || RELOAD_DEFAULT)));
     this.pickupSeconds = Math.max(1, Math.min(60, Number(opts?.pickupSeconds || PICKUP_DEFAULT)));
     this.rifleSeconds = Math.max(1, Math.min(120, Number(opts?.rifleSeconds || RIFLE_DEFAULT)));
@@ -53,6 +56,7 @@ export class ShooterRoom extends Room<ShooterState> {
     this.shieldSeconds = Math.max(0, Math.min(60, Number(opts?.shieldSeconds ?? SHIELD_DEFAULT)));
     this.setState(new ShooterState());
     this.state.timeLeft = this.matchSeconds; // lobby previews full duration
+    this.state.killTarget = this.killTarget;
     this.spawnPickups();
     this.resetBricks();
     metrics.roomsCreated++;
@@ -71,16 +75,17 @@ export class ShooterRoom extends Room<ShooterState> {
       const w = WEAPONS[p.weapon] || WEAPONS.pistol;
       const now = Date.now() / 1000;
       if (now - (this.lastShot.get(c.sessionId) || 0) < w.interval) return; // fire-rate limit
-      if (p.weapon === 'rifle') {
-        if (!p.rifle) return;
-        if (p.ammo <= 0) { this.startReload(c.sessionId); return; }
-        p.ammo--;
-      } else {
-        if (p.pammo <= 0) { this.startReload(c.sessionId); return; }
-        p.pammo--;
-      }
+      if (!this.owns(p, p.weapon)) return;
+      if (this.ammoOf(p, p.weapon) <= 0) { this.startReload(c.sessionId); return; }
+      this.setAmmo(p, p.weapon, this.ammoOf(p, p.weapon) - 1);
       this.lastShot.set(c.sessionId, now);
-      this.spawnBullet(c, this.cleanNum(m?.angle), w);
+      p.shots++;
+      const base = this.cleanNum(m?.angle);
+      const n = w.pellets || 1;
+      for (let i = 0; i < n; i++) {
+        const off = n === 1 ? 0 : (i / (n - 1) - 0.5) * 2 * (w.spread || 0);
+        this.spawnBullet(c, base + off, w);
+      }
     });
     this.onMessage('reload', (c) => {
       if (this.state.phase !== 'playing') return;
@@ -90,11 +95,32 @@ export class ShooterRoom extends Room<ShooterState> {
       if (this.state.phase !== 'playing') return;
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive) return;
-      const want = m?.weapon === 'rifle' ? 'rifle' : 'pistol';
-      if (want === 'rifle' && !p.rifle) return; // must pick one up first
+      const want = ['pistol', 'rifle', 'shotgun', 'sniper'].includes(m?.weapon || '')
+        ? String(m?.weapon) : 'pistol';
+      if (!this.owns(p, want)) return; // must pick one up first
       p.weapon = want;
       p.reloading = false;
+      p.reloadLeft = 0;
       this.reloadT.delete(c.sessionId);
+    });
+    this.onMessage('melee', (c) => {
+      if (this.state.phase !== 'playing') return;
+      const p = this.state.players.get(c.sessionId);
+      if (!p || !p.alive) return;
+      const now = Date.now() / 1000;
+      if (now - (this.lastMelee.get(c.sessionId) || 0) < 0.8) return; // swing cooldown
+      this.lastMelee.set(c.sessionId, now);
+      // close-range arc in facing direction: 70px reach, 50 dmg
+      this.state.players.forEach((q, qid) => {
+        if (qid === c.sessionId || !q.alive) return;
+        const dx = q.x - p.x, dy = q.y - p.y;
+        if (dx * dx + dy * dy > 70 * 70) return;
+        let da = Math.atan2(dy, dx) - p.angle;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        if (Math.abs(da) > 0.7) return;
+        this.directHit(q, qid, 50, c.sessionId, p.x, p.y);
+      });
     });
     this.onMessage('interact', (c) => {
       if (this.state.phase !== 'playing') return;
@@ -149,6 +175,7 @@ export class ShooterRoom extends Room<ShooterState> {
     this.vel.delete(c.sessionId);
     this.lastShot.delete(c.sessionId);
     this.reloadT.delete(c.sessionId);
+    this.lastMelee.delete(c.sessionId);
     // host migration: oldest remaining player becomes host
     if (wasHost) {
       const next = this.state.players.keys().next();
@@ -198,20 +225,30 @@ export class ShooterRoom extends Room<ShooterState> {
     return out;
   }
 
+  private ammoOf(p: Player, w: string) {
+    return w === 'rifle' ? p.ammo : w === 'shotgun' ? p.sammo : w === 'sniper' ? p.nammo : p.pammo;
+  }
+
+  private setAmmo(p: Player, w: string, v: number) {
+    if (w === 'rifle') p.ammo = v;
+    else if (w === 'shotgun') p.sammo = v;
+    else if (w === 'sniper') p.nammo = v;
+    else p.pammo = v;
+  }
+
+  private owns(p: Player, w: string) {
+    return w === 'pistol' || (w === 'rifle' && p.rifle)
+      || (w === 'shotgun' && p.shotgun) || (w === 'sniper' && p.sniper);
+  }
+
   private startReload(id: string) {
     const p = this.state.players.get(id);
-    if (!p || !p.alive || p.reloading) return;
-    if (p.weapon === 'rifle') {
-      if (!p.rifle || p.ammo >= WEAPONS.rifle.clip) return;
-      p.reloading = true;
-      p.reloadLeft = this.reloadSeconds;
-      this.reloadT.set(id, this.reloadSeconds);
-    } else {
-      if (p.pammo >= WEAPONS.pistol.clip) return;
-      p.reloading = true;
-      p.reloadLeft = WEAPONS.pistol.reload;
-      this.reloadT.set(id, WEAPONS.pistol.reload);
-    }
+    if (!p || !p.alive || p.reloading || !this.owns(p, p.weapon)) return;
+    if (this.ammoOf(p, p.weapon) >= WEAPONS[p.weapon].clip) return;
+    p.reloading = true;
+    const t = p.weapon === 'rifle' ? this.reloadSeconds : WEAPONS[p.weapon].reload;
+    p.reloadLeft = t;
+    this.reloadT.set(id, t);
   }
 
   // E key (manual=true) or walk-over (manual=false). Weapons need E; health/ammo auto-collect.
@@ -225,21 +262,55 @@ export class ShooterRoom extends Room<ShooterState> {
       if (pk.kind === 'health') {
         if (p.hp >= 100) return;
         p.hp = Math.min(100, p.hp + 50);
-      } else if (pk.kind === 'rifle') {
+      } else if (pk.kind === 'rifle' || pk.kind === 'shotgun' || pk.kind === 'sniper') {
         if (!manual) return;
-        p.rifle = true; p.weapon = 'rifle';
-        p.ammo = WEAPONS.rifle.clip; p.reloading = false;
+        if (pk.kind === 'rifle') p.rifle = true;
+        if (pk.kind === 'shotgun') p.shotgun = true;
+        if (pk.kind === 'sniper') p.sniper = true;
+        p.weapon = pk.kind;
+        this.setAmmo(p, pk.kind, WEAPONS[pk.kind].clip);
+        p.reloading = false;
         this.reloadT.delete(id);
       } else if (pk.kind === 'ammo') {
-        if (!p.rifle) return;
-        if (p.ammo >= WEAPONS.rifle.clip) return;
-        p.ammo = WEAPONS.rifle.clip; p.reloading = false;
+        if (p.weapon === 'pistol' || !this.owns(p, p.weapon)) return;
+        if (this.ammoOf(p, p.weapon) >= WEAPONS[p.weapon].clip) return;
+        this.setAmmo(p, p.weapon, WEAPONS[p.weapon].clip);
+        p.reloading = false;
         this.reloadT.delete(id);
       }
       pk.active = false;
       pk.t = pk.kind === 'rifle' ? this.rifleSeconds : this.pickupSeconds;
       this.broadcast('collect', { name: p.name, kind: pk.kind, x: pk.x, y: pk.y });
     });
+  }
+
+  // shared melee/direct damage path (mirrors bullet-hit rules)
+  private directHit(q: Player, qid: string, dmg: number, killerId: string, ox: number, oy: number) {
+    const before = Math.max(0, q.hp);
+    if (q.shield > 0) {
+      this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg: 0, ox, oy, to: qid });
+      return;
+    }
+    q.hp -= dmg;
+    const owner = this.state.players.get(killerId);
+    this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg, ox, oy, to: qid });
+    if (owner) {
+      owner.damage += Math.min(dmg, before);
+      owner.hitsMade++;
+    }
+    if (q.hp <= 0) {
+      q.hp = 0; q.alive = false; (q as any)._deadT = 0;
+      q.streak = 0; q.deaths++;
+      if (owner) {
+        owner.kills++;
+        owner.streak++;
+        owner.cash += 120;
+        this.broadcast('kill', { killer: owner.name, victim: q.name, w: 'melee' });
+        if (owner.kills >= this.killTarget && this.state.phase === 'playing') {
+          this.matchWin(killerId, owner.name);
+        }
+      }
+    }
   }
 
   private syncMeta() {
@@ -258,9 +329,11 @@ export class ShooterRoom extends Room<ShooterState> {
       const s = SPAWNS[i++ % SPAWNS.length];
       p.x = s[0]; p.y = s[1]; p.hp = 100; p.alive = true; p.streak = 0;
       p.kills = 0; p.deaths = 0; p.cash = 0; p.damage = 0; p.reloadLeft = 0;
+      p.shots = 0; p.hitsMade = 0;
       p.shield = this.shieldSeconds; // spawn protection at match start
       p.weapon = 'pistol'; p.ammo = 0; p.pammo = WEAPONS.pistol.clip;
-      p.rifle = false; p.reloading = false;
+      p.sammo = 0; p.nammo = 0;
+      p.rifle = false; p.shotgun = false; p.sniper = false; p.reloading = false;
       (p as any)._deadT = 0;
     });
     this.vel.clear();
@@ -282,11 +355,6 @@ export class ShooterRoom extends Room<ShooterState> {
     this.state.countdown = 0;
     this.state.winnerId = '';
     this.state.winnerName = '';
-    // tournament over -> fresh scoreboard; otherwise wins carry to next round
-    if (this.state.champion) {
-      this.state.champion = '';
-      this.state.players.forEach((p) => { p.wins = 0; });
-    }
     this.state.bullets.clear();
     this.state.players.forEach((p) => { p.ready = false; });
     this.inputs.clear();
@@ -296,28 +364,24 @@ export class ShooterRoom extends Room<ShooterState> {
     this.syncMeta();
   }
 
-  private awardWin(id: string, name: string) {
+  private matchWin(id: string, name: string) {
+    if (this.state.phase !== 'playing') return;
     this.state.phase = 'ended';
     this.state.winnerId = id;
     this.state.winnerName = name;
-    const w = this.state.players.get(id);
-    if (w) {
-      w.wins++;
-      if (w.wins >= WIN_SCORE) this.state.champion = name;
-    }
     metrics.matchesCompleted++;
-    log('info', 'match ended', { roomId: this.roomId, winner: name });
+    log('info', 'match ended', { roomId: this.roomId, winner: name, reason: 'kill-target' });
     this.syncMeta();
   }
 
   private timeoutWinner() {
-    // most kills, tiebreak highest hp; unbreakable tie -> DRAW
+    // most kills wins; tiebreak total damage; unbreakable tie -> DRAW
     let best: Player | null = null, bestId = '', tied = false;
     this.state.players.forEach((p, pid) => {
       if (!best) { best = p; bestId = pid; tied = false; return; }
-      if (p.kills > best.kills || (p.kills === best.kills && p.hp > best.hp)) {
+      if (p.kills > best.kills || (p.kills === best.kills && p.damage > best.damage)) {
         best = p; bestId = pid; tied = false;
-      } else if (p.kills === best.kills && p.hp === best.hp) {
+      } else if (p.kills === best.kills && p.damage === best.damage) {
         tied = true;
       }
     });
@@ -326,10 +390,15 @@ export class ShooterRoom extends Room<ShooterState> {
       this.state.winnerId = '';
       this.state.winnerName = 'DRAW';
       metrics.matchesCompleted++;
-      log('info', 'match ended', { roomId: this.roomId, winner: 'DRAW' });
+      log('info', 'match ended', { roomId: this.roomId, winner: 'DRAW', reason: 'timeout-tie' });
       this.syncMeta();
     } else {
-      this.awardWin(bestId, (best as Player).name);
+      this.state.phase = 'ended';
+      this.state.winnerId = bestId;
+      this.state.winnerName = (best as Player).name;
+      metrics.matchesCompleted++;
+      log('info', 'match ended', { roomId: this.roomId, winner: (best as Player).name, reason: 'timeout' });
+      this.syncMeta();
     }
   }
 
@@ -378,6 +447,8 @@ export class ShooterRoom extends Room<ShooterState> {
           p.shield = this.shieldSeconds; // spawn protection
           p.pammo = WEAPONS.pistol.clip;
           if (p.rifle) p.ammo = WEAPONS.rifle.clip;
+          if (p.shotgun) p.sammo = WEAPONS.shotgun.clip;
+          if (p.sniper) p.nammo = WEAPONS.sniper.clip;
           const i = Math.floor(Math.random() * SPAWNS.length);
           p.x = SPAWNS[i][0]; p.y = SPAWNS[i][1];
           (p as any)._deadT = 0;
@@ -392,8 +463,7 @@ export class ShooterRoom extends Room<ShooterState> {
           this.reloadT.delete(id);
           p.reloading = false;
           p.reloadLeft = 0;
-          if (p.weapon === 'rifle') p.ammo = WEAPONS.rifle.clip;
-          else p.pammo = WEAPONS.pistol.clip;
+          this.setAmmo(p, p.weapon, WEAPONS[p.weapon].clip);
         } else {
           this.reloadT.set(id, left);
           p.reloadLeft = left;
@@ -422,47 +492,66 @@ export class ShooterRoom extends Room<ShooterState> {
     const hits: Array<{ x: number; y: number; by: string; dmg: number; ox: number; oy: number; to: string }> = [];
     const chips: Array<{ x: number; y: number; kind: string }> = [];
     this.state.bullets.forEach((b) => {
-      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-      if (b.life <= 0 || b.x < 0 || b.x > W || b.y < 0 || b.y > H) { dead.push(b.id); return; }
-      if (pointInWall(b.x, b.y, STEEL)) { // steel: spark + absorb
+      if (this.state.phase !== 'playing') return; // ended mid-tick by a kill target
+      const ox = b.x, oy = b.y;
+      const nx = ox + b.vx * dt, ny = oy + b.vy * dt;
+      b.life -= dt;
+      if (b.life <= 0 || nx < 0 || nx > W || ny < 0 || ny > H) { dead.push(b.id); return; }
+      // swept collision: sample along the path so fast bullets can't tunnel
+      // through players or thin walls between ticks (lag-proof hit detection)
+      const dist = Math.hypot(nx - ox, ny - oy);
+      const steps = Math.max(1, Math.ceil(dist / 18));
+      let consumed = false;
+      const killAt = (px: number, py: number) => {
+        b.x = px; b.y = py;
         dead.push(b.id);
-        chips.push({ x: b.x, y: b.y, kind: 'steel' });
-        return;
-      }
-      let hitBrick = false; // bricks: crumble + absorb
-      BRICKS.forEach((rc, i) => {
-        if (hitBrick) return;
-        const br = this.state.bricks.get(`br_${i}`);
-        if (!br || br.hp <= 0) return;
-        if (b.x >= rc.x && b.x <= rc.x + rc.w && b.y >= rc.y && b.y <= rc.y + rc.h) {
-          br.hp--;
-          hitBrick = true;
+        consumed = true;
+      };
+      for (let s = 1; s <= steps && !consumed; s++) {
+        const px = ox + ((nx - ox) * s) / steps;
+        const py = oy + ((ny - oy) * s) / steps;
+        if (pointInWall(px, py, STEEL)) { // steel: spark + absorb
+          killAt(px, py);
+          chips.push({ x: px, y: py, kind: 'steel' });
+          break;
         }
-      });
-      if (hitBrick) {
-        dead.push(b.id);
-        chips.push({ x: b.x, y: b.y, kind: 'brick' });
-        return;
-      }
-      this.state.players.forEach((p, pid) => {
-        if (pid === b.ownerId || !p.alive) return;
-        const dx = p.x - b.x, dy = p.y - b.y;
-        if (dx * dx + dy * dy < 22 * 22) {
+        let hitBrick = false; // bricks: crumble + absorb
+        BRICKS.forEach((rc, i) => {
+          if (hitBrick) return;
+          const br = this.state.bricks.get(`br_${i}`);
+          if (!br || br.hp <= 0) return;
+          if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+            br.hp--;
+            hitBrick = true;
+          }
+        });
+        if (hitBrick) {
+          killAt(px, py);
+          chips.push({ x: px, y: py, kind: 'brick' });
+          break;
+        }
+        this.state.players.forEach((p, pid) => {
+          if (consumed || pid === b.ownerId || !p.alive) return;
+          const dx = p.x - px, dy = p.y - py;
+          if (dx * dx + dy * dy >= 22 * 22) return;
           const before = Math.max(0, p.hp);
           // spawn shield absorbs everything while active (fairness rule)
           if (p.shield > 0) {
-            dead.push(b.id);
-            hits.push({ x: b.x, y: b.y, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            killAt(px, py);
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
             return;
           }
           p.hp -= b.dmg;
-          dead.push(b.id);
+          killAt(px, py);
           const owner = this.state.players.get(b.ownerId);
           hits.push({
-            x: b.x, y: b.y, by: b.ownerId, dmg: b.dmg,
-            ox: owner ? owner.x : b.x, oy: owner ? owner.y : b.y, to: pid,
+            x: px, y: py, by: b.ownerId, dmg: b.dmg,
+            ox: owner ? owner.x : px, oy: owner ? owner.y : py, to: pid,
           });
-          if (owner) owner.damage += Math.min(b.dmg, before);
+          if (owner) {
+            owner.damage += Math.min(b.dmg, before);
+            owner.hitsMade++;
+          }
           if (p.hp <= 0) {
             p.hp = 0; p.alive = false; (p as any)._deadT = 0;
             p.streak = 0; p.deaths++;
@@ -472,34 +561,20 @@ export class ShooterRoom extends Room<ShooterState> {
               killer.streak++;
               killer.cash += 120; // GTA payout per elimination
               feed.push({ killer: killer.name, victim: p.name, w: killer.weapon });
+              if (killer.kills >= this.killTarget) {
+                this.matchWin(b.ownerId, killer.name);
+              }
             }
           }
-        }
-      });
+        });
+      }
+      if (!consumed) { b.x = nx; b.y = ny; }
     });
     dead.forEach((id) => this.state.bullets.delete(id));
     feed.forEach((k) => this.broadcast('kill', k));
     hits.forEach((h) => this.broadcast('hit', h));
     chips.forEach((c) => this.broadcast('chip', c));
-    // last-man-standing: sole survivor with any hp wins immediately
-    if (this.state.players.size >= 2) {
-      let alive = 0, lastName = '', lastId = '';
-      this.state.players.forEach((p, pid) => {
-        if (p.alive && p.hp > 0) { alive++; lastName = p.name; lastId = pid; }
-      });
-      if (alive === 1) {
-        this.awardWin(lastId, lastName);
-        return;
-      } else if (alive === 0) {
-        this.state.phase = 'ended';
-        this.state.winnerId = '';
-        this.state.winnerName = 'DRAW';
-        metrics.matchesCompleted++;
-        log('info', 'match ended', { roomId: this.roomId, winner: 'DRAW' });
-        this.syncMeta();
-        return;
-      }
-    }
+    if (this.state.phase !== 'playing') return; // a kill target may have just ended it
     // match timer: expiry -> best score wins
     this.state.timeLeft -= dt;
     if (this.state.timeLeft <= 0) {

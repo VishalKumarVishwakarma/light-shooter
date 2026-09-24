@@ -130,6 +130,8 @@ export class ArenaScene extends Phaser.Scene {
     this.pkDots.clear();
     this.feedRows.forEach((r) => { r.bg.destroy(); r.k.destroy(); r.m.destroy(); r.v.destroy(); });
     this.feedRows = [];
+    if (this.board) { this.board.destroy(true); this.board = null; }
+    this.boardVisible = false;
     this.waterTiles = [];
     this.lastCd = -1;
     this.cdBanner = null;
@@ -153,8 +155,8 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,ONE,TWO') as any;
-    this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE'); // stop page scroll
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,ONE,TWO,THREE,FOUR,F,TAB') as any;
+    this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
       this.kbWired = true;
@@ -163,10 +165,24 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-E', () => Session.room?.send('interact'));
       kb.on('keydown-ONE', () => Session.room?.send('switch', { weapon: 'pistol' }));
       kb.on('keydown-TWO', () => Session.room?.send('switch', { weapon: 'rifle' }));
+      kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
+      kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
+      kb.on('keydown-TAB', () => this.toggleBoard());
+      kb.on('keydown-F', () => {
+        Session.room?.send('melee');
+        const me = this.players.get(this.meId);
+        if (me) this.slash(me.gfx.x, me.gfx.y, this.lastAim);
+      });
     }
     this.input.on('wheel', () => {
-      const w = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '')?.weapon;
-      Session.room?.send('switch', { weapon: w === 'rifle' ? 'pistol' : 'rifle' });
+      const st: any = (Session.room as any)?.state;
+      const me = st?.players.get(Session.room?.sessionId || '');
+      const owned = ['pistol'];
+      if (me?.rifle) owned.push('rifle');
+      if (me?.shotgun) owned.push('shotgun');
+      if (me?.sniper) owned.push('sniper');
+      const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
+      Session.room?.send('switch', { weapon: next });
     });
     // HP bar (top-left): metallic frame, ghost damage trail, gloss, segment ticks
     this.hpFrame = this.add.rectangle(10, 12, 232, 26, 0x0b1220, 0.85).setOrigin(0, 0.5)
@@ -377,6 +393,15 @@ export class ArenaScene extends Phaser.Scene {
     this.time.delayedCall(60, () => f.destroy());
   }
 
+  private slash(x: number, y: number, ang: number) {
+    const g = this.add.graphics().setDepth(7);
+    g.lineStyle(5, 0xfef08a, 0.95);
+    g.beginPath();
+    g.arc(x, y, 52, ang - 0.7, ang + 0.7);
+    g.strokePath();
+    this.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+  }
+
   private recoil(gun: Phaser.GameObjects.Image) {
     this.tweens.killTweensOf(gun);
     gun.x = 8 - 4;
@@ -397,13 +422,13 @@ export class ArenaScene extends Phaser.Scene {
         this.backToLobby = true;
         this.scene.start('lobby');
       }
-      if (room.state.phase === 'ended') this.showEnd(room.state.winnerName, room.state.champion);
+      if (room.state.phase === 'ended') this.showEnd(room.state.winnerName);
       if (room.state.phase === 'countdown') this.showCountdown(Math.ceil(room.state.countdown));
       if (room.state.phase === 'playing' && this.lastCd !== -99) this.showFight();
       this.drawScore();
     });
     // entering arena mid-state (e.g. reloaded scene) — show banner if already ended
-    if (room.state.phase === 'ended') this.showEnd(room.state.winnerName, room.state.champion);
+    if (room.state.phase === 'ended') this.showEnd(room.state.winnerName);
     this.drawScore();
 
     room.onMessage('kill', (k: { killer: string; victim: string; w?: string }) => {
@@ -484,8 +509,8 @@ export class ArenaScene extends Phaser.Scene {
     room.onMessage('collect', (c: { name: string; kind: string; x: number; y: number }) => {
       if (!live()) return;
       sfx.pickup();
-      const txt = c.kind === 'health' ? '+50 HP' : c.kind === 'rifle' ? 'RIFLE!' : 'AMMO FULL';
-      const col = c.kind === 'health' ? '#4ade80' : c.kind === 'rifle' ? '#facc15' : '#fdba74';
+      const txt = c.kind === 'health' ? '+50 HP' : c.kind === 'ammo' ? 'AMMO FULL' : c.kind.toUpperCase() + '!';
+      const col = c.kind === 'health' ? '#4ade80' : c.kind === 'ammo' ? '#fdba74' : '#facc15';
       const f = this.add.text(c.x, c.y - 24, `${c.name} ${txt}`, {
         fontFamily: MONO, fontSize: '14px', color: col,
       }).setOrigin(0.5).setDepth(8);
@@ -563,7 +588,7 @@ export class ArenaScene extends Phaser.Scene {
         o.label.setText(`${p.name} ${p.hp}`);
         if (id === this.meId) {
           this.drawHp(p.hp, p.kills);
-          this.drawAmmo(p.weapon, p.pammo, p.ammo, p.rifle, p.reloading, p.reloadLeft);
+          this.drawAmmo(p);
           this.checkStreak(p.streak);
         }
         // kill-streak aura (2+): golden ring under hot players
@@ -670,27 +695,28 @@ export class ArenaScene extends Phaser.Scene {
     this.scene.start('menu');
   }
 
-  private drawAmmo(weapon: string, pammo: number, ammo: number, hasRifle: boolean, reloading: boolean, reloadLeft: number) {
-    const rifle = weapon === 'rifle';
-    this.ammoTitle.setText(rifle ? 'RIFLE' : 'PISTOL');
-    this.ammoTitle.setColor(rifle ? '#facc15' : '#94a3b8');
-    const clip = rifle ? WEAPONS.rifle.clip : WEAPONS.pistol.clip;
-    const left = rifle ? ammo : pammo;
-    if (reloading) {
+  private drawAmmo(p: any) {
+    const W = WEAPONS[p.weapon] || WEAPONS.pistol;
+    const colors: Record<string, string> = { pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc' };
+    this.ammoTitle.setText(p.weapon.toUpperCase());
+    this.ammoTitle.setColor(colors[p.weapon] || '#94a3b8');
+    const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
+      : p.weapon === 'sniper' ? p.nammo : p.pammo;
+    if (p.reloading) {
       this.ammoCount.setText('…');
       this.ammoCount.setColor('#fb923c');
-      const total = rifle ? 2 : WEAPONS.pistol.reload;
-      this.reloadBar.displayWidth = Math.max(1, 110 * (1 - Math.max(0, reloadLeft) / total));
+      const total = p.weapon === 'rifle' ? 2 : W.reload;
+      this.reloadBar.displayWidth = Math.max(1, 110 * (1 - Math.max(0, p.reloadLeft) / total));
     } else {
       this.reloadBar.displayWidth = 1;
-      const low = left > 0 && left / clip <= 0.25;
-      this.ammoCount.setText(low ? `LOW ${left}/${clip}` : `${left}/${clip}`);
+      const low = left > 0 && left / W.clip <= 0.25;
+      this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
       this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText(rifle ? 'R reload · 1/2 swap' : hasRifle ? '1/2 swap · E grabs rifle' : 'find the rifle pickup');
-    const needReload = !reloading && left < clip && (rifle ? hasRifle : true);
-    this.reloadBg.setAlpha(reloading ? 0.45 : needReload ? 1 : 0.55);
-    this.reloadTx.setAlpha(reloading ? 0.45 : needReload ? 1 : 0.55);
+    this.ammoHint.setText('R reload · 1-4 swap · F knife');
+    const needReload = !p.reloading && left < W.clip;
+    this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
+    this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
   }
 
   private lastStreak = 0;
@@ -814,13 +840,14 @@ export class ArenaScene extends Phaser.Scene {
       const h1 = this.add.rectangle(0, 0, 20, 7, 0x22c55e);
       const h2 = this.add.rectangle(0, 0, 7, 20, 0x22c55e);
       inner = [glow, h1, h2];
-    } else if (kind === 'rifle') {
-      const ring = this.add.image(0, 0, 'ring').setScale(0.75);
-      const gun = this.add.image(0, 0, 'gun').setScale(0.9);
-      inner = [ring, gun];
-    } else {
+    } else if (kind === 'ammo') {
       const box = this.add.rectangle(0, 0, 18, 13, 0xeab308).setStrokeStyle(2, 0x92400e);
       inner = [box];
+    } else { // rifle / shotgun / sniper: gold ring + tinted rifle
+      const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc };
+      const ring = this.add.image(0, 0, 'ring').setScale(0.75);
+      const gun = this.add.image(0, 0, 'gun').setScale(0.9).setTint(tints[kind] ?? 0xffffff);
+      inner = [ring, gun];
     }
     const c = this.add.container(0, 0, inner);
     this.tweens.add({ targets: c, scaleX: 1.12, scaleY: 1.12, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
@@ -854,20 +881,23 @@ export class ArenaScene extends Phaser.Scene {
     this.clockText.setText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
     this.clockText.setColor(t <= 10 ? '#ef4444' : t <= 30 ? '#fb923c' : '#facc15');
     this.clockText.setScale(t <= 10 ? 1.18 : 1);
-    // scoreboard: crown for champion, ★ pips for round wins, kill tallies
-    const lines: string[] = [];
-    let myCash = 0, myStreak = 0, totalWins = 0;
+    // ranked ticker: #rank name K/D + kill-target race line
+    const rows: Array<{ name: string; kills: number; deaths: number; damage: number; id: string }> = [];
+    st.players.forEach((p: any, id: string) => rows.push({
+      name: p.name, kills: p.kills || 0, deaths: p.deaths || 0, damage: p.damage || 0, id,
+    }));
+    rows.sort((a, b) => b.kills - a.kills || b.damage - a.damage);
+    const target = st.killTarget || 15;
+    const lead = rows[0];
+    this.scoreText.setText(rows.map((r, i) => `#${i + 1} ${r.name} ${r.kills}K/${r.deaths}D`).join('\n'));
+    this.roundText.setText(lead && lead.kills > 0
+      ? `TARGET ${target} · ${lead.name} LEADS ${lead.kills}K`
+      : `FIRST TO ${target} KILLS`);
+    let myCash = 0, myStreak = 0;
     st.players.forEach((p: any, id: string) => {
-      const won = Math.min(3, p.wins || 0);
-      const pips = '★'.repeat(won) + '☆'.repeat(3 - won);
-      const crown = st.champion && st.champion === p.name ? '👑 ' : '';
-      lines.push(`${crown}${p.name}  ${pips}  ${p.kills}K/${p.deaths}D`);
-      totalWins += p.wins || 0;
       if (id === this.meId) { myCash = p.cash || 0; myStreak = p.streak || 0; }
     });
-    this.scoreText.setText(lines.join('\n'));
     this.cashText.setText('$' + myCash.toLocaleString('en-US'));
-    this.roundText.setText(`ROUND ${totalWins + 1} · FIRST TO 3`);
     // GTA wanted level from your streak (cap 5)
     const stars = Math.min(5, myStreak);
     this.wantedText.setText(stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
@@ -876,6 +906,7 @@ export class ArenaScene extends Phaser.Scene {
       this.tweens.add({ targets: this.wantedText, scaleX: 1, scaleY: 1, duration: 300, ease: 'Back.easeOut' });
     }
     this.prevStreak = myStreak;
+    if (this.boardVisible) this.drawBoard();
   }
 
   private showCountdown(n: number) {
@@ -916,44 +947,92 @@ export class ArenaScene extends Phaser.Scene {
     m.setScale(1.5);
   }
 
-  private showEnd(winnerName: string, champion: string) {
+  private showEnd(winnerName: string) {
     if (this.endShown) return;
     this.endShown = true;
+    if (this.board) { this.board.destroy(true); this.board = null; }
+    this.boardVisible = false;
     const myName = (Session.room as any)?.state?.players.get(this.meId)?.name;
-    if (winnerName !== 'DRAW' && (winnerName === myName || champion === myName)) sfx.win();
+    if (winnerName !== 'DRAW' && winnerName === myName) sfx.win();
     const cx = this.cameras.main.width / 2, cy = this.cameras.main.height / 2;
-    this.add.rectangle(cx, cy - 10, 560, 300, 0x000000, 0.85).setScrollFactor(0).setDepth(20);
-    const title = winnerName === 'DRAW' ? 'DRAW!' : champion ? `🏆 CHAMPION: ${champion}!` : `🏆 ${winnerName} WINS!`;
-    displayText(this, cx, cy - 120, title, 30, '#facc15', '#facc15', 21, true);
+    this.add.rectangle(cx, cy - 10, 600, 320, 0x000000, 0.85).setScrollFactor(0).setDepth(20);
+    const title = winnerName === 'DRAW' ? 'DRAW!' : `🏆 ${winnerName} WINS THE MATCH!`;
+    displayText(this, cx, cy - 128, title, 28, '#facc15', '#facc15', 21, true);
     const st: any = (Session.room as any)?.state;
-    // ranked table: wins → kills → damage, MVP crowned
-    const rows: Array<{ name: string; wins: number; kills: number; deaths: number; damage: number }> = [];
+    // ranked table: kills → damage, MVP crowned, accuracy shown
+    const rows: Array<{ name: string; kills: number; deaths: number; damage: number; shots: number; hits: number }> = [];
     st?.players.forEach((p: any) => rows.push({
-      name: p.name, wins: p.wins || 0, kills: p.kills || 0, deaths: p.deaths || 0, damage: p.damage || 0,
+      name: p.name, kills: p.kills || 0, deaths: p.deaths || 0,
+      damage: p.damage || 0, shots: p.shots || 0, hits: p.hitsMade || 0,
     }));
-    rows.sort((a, b) => b.wins - a.wins || b.kills - a.kills || b.damage - a.damage);
+    rows.sort((a, b) => b.kills - a.kills || b.damage - a.damage);
     const mvp = rows.length ? rows[0].name : '';
+    const acc = (r: { shots: number; hits: number }) =>
+      r.shots > 0 ? Math.round((r.hits / r.shots) * 100) + '%' : '—';
     rows.slice(0, 6).forEach((r, i) => {
-      this.add.text(cx, cy - 72 + i * 22,
-        `${r.name === mvp ? '★ ' : '#'+(i + 1)+' '}${r.name}   ${r.wins}W   ${r.kills}K/${r.deaths}D   ${r.damage} DMG`, {
+      this.add.text(cx, cy - 80 + i * 22,
+        `${r.name === mvp ? '★ ' : '#' + (i + 1) + ' '}${r.name}   ${r.kills}K/${r.deaths}D   ${r.damage} DMG   ${acc(r)}`, {
           fontFamily: MONO, fontSize: '14px', color: r.name === mvp ? '#facc15' : '#e2e8f0',
         }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
     });
-    this.add.text(cx, cy + 68, champion ? 'first to 3 — new tournament on rematch' : 'first to 3 wins the tournament', { fontFamily: BODY, fontSize: '13px', fontStyle: '600', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    this.add.text(cx, cy + 62, `kill target ${st?.killTarget || 15} · rematch for a new game`, { fontFamily: BODY, fontSize: '13px', fontStyle: '600', color: '#94a3b8' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
     if (Session.isHost) {
       makeButton(this, {
-        tex: 'btn220', x: cx, y: cy + 108, tint: 0x2563eb, label: 'REMATCH', fontSize: 15,
+        tex: 'btn220', x: cx, y: cy + 104, tint: 0x2563eb, label: 'REMATCH', fontSize: 15,
         depth: 21, scroll: true,
         onClick: () => Session.room?.send('rematch'),
       });
     } else {
-      this.add.text(cx, cy + 100, 'waiting for host…', { fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+      this.add.text(cx, cy + 96, 'waiting for host…', { fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
     }
-    const leave = this.add.text(cx, cy + 138, 'leave to menu', {
+    const leave = this.add.text(cx, cy + 136, 'leave to menu', {
       fontFamily: BODY, fontSize: '13px', color: '#64748b',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
     leave.setInteractive({ useHandCursor: true });
     leave.on('pointerdown', async () => { await Session.leave(); this.scene.start('menu'); });
+  }
+
+  private board: Phaser.GameObjects.Container | null = null;
+  private boardVisible = false;
+
+  toggleBoard() {
+    this.boardVisible = !this.boardVisible;
+    if (!this.boardVisible && this.board) {
+      this.board.destroy(true);
+      this.board = null;
+    } else if (this.boardVisible) {
+      this.drawBoard();
+    }
+  }
+
+  private drawBoard() {
+    const st: any = (Session.room as any)?.state;
+    if (!st) return;
+    const rows: Array<{ name: string; kills: number; deaths: number; damage: number; shots: number; hits: number; id: string }> = [];
+    st.players.forEach((p: any, id: string) => rows.push({
+      name: p.name, kills: p.kills || 0, deaths: p.deaths || 0,
+      damage: p.damage || 0, shots: p.shots || 0, hits: p.hitsMade || 0, id,
+    }));
+    rows.sort((a, b) => b.kills - a.kills || b.damage - a.damage);
+    const target = st.killTarget || 15;
+    if (!this.board) {
+      this.board = this.add.container(480, 300).setScrollFactor(0).setDepth(25);
+    } else {
+      this.board.removeAll(true);
+    }
+    const h = 120 + rows.length * 24;
+    this.board.add(this.add.rectangle(0, 0, 480, h, 0x020617, 0.94)
+      .setStrokeStyle(1.5, 0x22d3ee, 0.6));
+    this.board.add(this.add.text(0, -h / 2 + 24, `SCOREBOARD · FIRST TO ${target} (TAB to close)`, {
+      fontFamily: MONO, fontSize: '15px', fontStyle: '700', color: '#facc15',
+    }).setOrigin(0.5));
+    rows.forEach((r, i) => {
+      const acc = r.shots > 0 ? Math.round((r.hits / r.shots) * 100) + '%' : '—';
+      this.board!.add(this.add.text(0, -h / 2 + 52 + i * 24,
+        `#${i + 1}  ${r.name}${r.id === this.meId ? ' ← YOU' : ''}   ${r.kills}K / ${r.deaths}D   ${r.damage} DMG   ${acc}`, {
+          fontFamily: MONO, fontSize: '14px', color: i === 0 ? '#4ade80' : '#e2e8f0',
+        }).setOrigin(0.5));
+    });
   }
 
   update(_t: number, dtMs: number) {

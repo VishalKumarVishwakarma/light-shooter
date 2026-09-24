@@ -3,7 +3,7 @@ import { Session, fetchLobbies, randomName } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
 import { sfx } from '../audio';
-import { BODY, displayText } from '../fonts';
+import { BODY, displayText, kicker } from '../fonts';
 
 export class MenuScene extends Phaser.Scene {
   private errText!: Phaser.GameObjects.Text;
@@ -33,6 +33,13 @@ export class MenuScene extends Phaser.Scene {
 
     const title = displayText(this, 480, 106, 'LIGHT SHOOTER', 54);
     this.tweens.add({ targets: title, y: 100, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    kicker(this, 480, 60, 'T A C T I C A L   8 P   C O M B A T');
+    const titleHalo = this.add.image(480, 106, 'halo').setTint(0x22d3ee)
+      .setBlendMode(Phaser.BlendModes.ADD).setScale(9, 2.2).setAlpha(0.35).setDepth(1);
+    this.tweens.add({
+      targets: titleHalo, alpha: 0.55, scaleX: 9.6,
+      duration: 2400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
     // war-room radar (decorative sweep + drifting contacts)
     const rx = 842, ry = 96, rr = 56;
     const radar = this.add.graphics().setDepth(2);

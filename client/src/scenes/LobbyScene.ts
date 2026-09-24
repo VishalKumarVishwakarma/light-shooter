@@ -3,7 +3,7 @@ import { Session } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, MONO, displayText } from '../fonts';
+import { BODY, MONO, displayText, kicker } from '../fonts';
 import qrcode from 'qrcode-generator';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
@@ -68,6 +68,7 @@ export class LobbyScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     displayText(this, 480, 32, 'LOBBY', 30);
+    kicker(this, 480, 10, 'S Q U A D   M U S T E R');
 
     // code pill (click to copy)
     this.add.image(480, 74, 'pill');

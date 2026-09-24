@@ -23,8 +23,8 @@
       display: flex; flex-direction: column; align-items: center;
     }
     header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 18px 0 6px; user-select: none;
+      display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+      gap: 8px 12px; padding: 18px 0 6px; user-select: none; max-width: 96vw;
     }
     .logo {
       width: 34px; height: 34px; border-radius: 9px;
@@ -47,6 +47,11 @@
     .live i {
       width: 8px; height: 8px; border-radius: 50%; background: #4ade80;
       animation: pulse 1.6s infinite;
+    }
+    .tag {
+      width: 100%; text-align: center;
+      font-size: 11px; letter-spacing: 4px; color: #f59e0b;
+      margin: 2px 0 0; user-select: none;
     }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
     #frame {
@@ -83,6 +88,7 @@
     <div class="logo">8P</div>
     <h1>LIGHT <span>SHOOTER</span></h1>
     <div class="live"><i></i>REALTIME</div>
+    <div class="tag">TOP-DOWN COMBAT · 2–8 PLAYERS · NO INSTALL</div>
   </header>
   <div id="frame"><div id="game"></div></div>
   <div id="hud">

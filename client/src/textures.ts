@@ -298,6 +298,17 @@ function rubble() {
 }
 
 // faint scanlines overlay for the war-room HUD feel
+function halo() {
+  const { c, ctx } = cv(128, 128);
+  const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  g.addColorStop(0, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return c;
+}
+
 function scan() {
   const { c, ctx } = cv(4, 4);
   ctx.clearRect(0, 0, 4, 4);
@@ -432,6 +443,7 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'dot', dot());
   put(scene, 'shadow', shadow());
   put(scene, 'noise', noise());
+  put(scene, 'halo', halo());
   put(scene, 'vignette', vignette());
   put(scene, 'pool', pool());
   put(scene, 'ring', ring());

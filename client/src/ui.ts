@@ -10,7 +10,7 @@ export type Btn = {
   setEnabled: (b: boolean) => void;
 };
 
-// Realistic 3D button: hover swell, physical press travel, disabled grey-out.
+// Premium button: halo glow on hover, physical press travel, disabled grey-out.
 export function makeButton(
   scene: Phaser.Scene,
   o: {
@@ -20,6 +20,9 @@ export function makeButton(
   },
 ): Btn {
   const d = o.depth ?? 2;
+  const halo = scene.add.image(0, 0, 'halo').setDepth(d - 0.5).setAlpha(0)
+    .setBlendMode(Phaser.BlendModes.ADD).setScale(2.6, 1.1);
+  if (o.tint !== undefined) halo.setTint(o.tint);
   const bg = scene.add.image(0, 0, o.tex);
   if (o.tint !== undefined) bg.setTint(o.tint);
   bg.setDepth(d);
@@ -27,24 +30,27 @@ export function makeButton(
     fontFamily: BTN_FONT, fontSize: `${o.fontSize ?? 17}px`, fontStyle: '700', color: '#ffffff',
   }).setOrigin(0.5).setDepth(d + 1);
   label.setStroke('#00000088', 3);
-  const c = scene.add.container(o.x, o.y, [bg, label]).setDepth(d);
-  if (o.scroll) { bg.setScrollFactor(0); label.setScrollFactor(0); }
+  const c = scene.add.container(o.x, o.y, [halo, bg, label]).setDepth(d);
+  if (o.scroll) { halo.setScrollFactor(0); bg.setScrollFactor(0); label.setScrollFactor(0); }
   bg.setInteractive({ useHandCursor: true });
   let enabled = true;
   bg.on('pointerover', () => {
     if (!enabled) return;
     scene.tweens.add({ targets: c, scaleX: 1.06, scaleY: 1.06, duration: 110 });
+    scene.tweens.add({ targets: halo, alpha: 0.55, duration: 140 });
   });
   const release = () => {
     if (!enabled) return;
     c.y = o.y;
     scene.tweens.add({ targets: c, scaleX: 1, scaleY: 1, duration: 110 });
+    scene.tweens.add({ targets: halo, alpha: 0, duration: 160 });
   };
   bg.on('pointerout', release);
   bg.on('pointerup', release);
   bg.on('pointerdown', () => {
     if (!enabled) return;
     c.y = o.y + 3; // physical press travel
+    scene.tweens.add({ targets: halo, alpha: 0.85, duration: 80 });
     sfx.click();
     o.onClick();
   });
@@ -54,6 +60,7 @@ export function makeButton(
       enabled = b;
       c.y = o.y;
       c.setAlpha(b ? 1 : 0.45);
+      halo.setAlpha(0);
       if (b) bg.setInteractive({ useHandCursor: true });
       else bg.disableInteractive();
     },

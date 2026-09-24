@@ -5,6 +5,17 @@ export const DISPLAY = '"Anton", "Rajdhani", sans-serif';
 export const BODY = '"Rajdhani", system-ui, sans-serif';
 export const MONO = '"Share Tech Mono", monospace';
 
+// Small letterspaced kicker label (section eyebrows, broadcast tags).
+export function kicker(
+  scene: Phaser.Scene, x: number, y: number, str: string,
+  color = '#f59e0b', size = 13, depth = 2,
+) {
+  const t = scene.add.text(x, y, str.split('').join('  '), {
+    fontFamily: BODY, fontSize: `${size}px`, fontStyle: '700', color,
+  }).setOrigin(0.5).setDepth(depth);
+  return t;
+}
+
 // Big extruded title: dark offset base + glowing face.
 export function displayText(
   scene: Phaser.Scene,

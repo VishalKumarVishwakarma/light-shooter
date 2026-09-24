@@ -4,7 +4,7 @@ import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS
 import { ensureTextures, avatarTex } from '../textures';
 import { makeButton, quality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, MONO, displayText } from '../fonts';
+import { BODY, MONO, displayText, kicker } from '../fonts';
 
 const RADIUS = 16;
 type PObj = {
@@ -246,7 +246,9 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.grabBtn.c.setVisible(false);
     this.add.rectangle(480, 14, 110, 26, 0x000000, 0.55).setScrollFactor(0).setDepth(10);
-    this.clockText = this.add.text(480, 14, '2:00', {
+    const liveDot = this.add.circle(434, 14, 5, 0xef4444).setScrollFactor(0).setDepth(11);
+    this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
+    this.clockText = this.add.text(484, 14, '2:00', {
       fontFamily: MONO, fontSize: '16px', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.compassText = this.add.text(480, 44, 'HDG 090 · E', {
@@ -957,7 +959,9 @@ export class ArenaScene extends Phaser.Scene {
     const cx = this.cameras.main.width / 2, cy = this.cameras.main.height / 2;
     this.add.rectangle(cx, cy - 10, 600, 320, 0x000000, 0.85).setScrollFactor(0).setDepth(20);
     const title = winnerName === 'DRAW' ? 'DRAW!' : `🏆 ${winnerName} WINS THE MATCH!`;
-    displayText(this, cx, cy - 128, title, 28, '#facc15', '#facc15', 21, true);
+    displayText(this, cx, cy - 128, title, 34, '#facc15', '#facc15', 21, true);
+    const rk = kicker(this, cx, cy - 152, 'M A T C H   R E S U L T', '#7dd3fc', 12);
+    rk.setScrollFactor(0).setDepth(21);
     const st: any = (Session.room as any)?.state;
     // ranked table: kills → damage, MVP crowned, accuracy shown
     const rows: Array<{ name: string; kills: number; deaths: number; damage: number; shots: number; hits: number }> = [];

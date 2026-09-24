@@ -17,6 +17,8 @@ export class Player extends Schema {
   @type('number') hitsMade = 0;
   @type('number') reloadLeft = 0;
   @type('number') shield = 0;
+  @type('number') shieldPts = 0;
+  @type('number') speedT = 0;
   @type('string') weapon = 'pistol';
   @type('number') ammo = 0;
   @type('number') pammo = 12;

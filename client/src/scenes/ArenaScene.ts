@@ -10,12 +10,12 @@ const RADIUS = 16;
 type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
-  ring: Phaser.GameObjects.Image;
+  ring: Phaser.GameObjects.Image; ringB: Phaser.GameObjects.Image;
   legs: Phaser.GameObjects.Container;
   bootL: Phaser.GameObjects.Image; bootR: Phaser.GameObjects.Image;
   stepPhase: number;
   tx: number; ty: number; hp: number; alive: boolean;
-  shield: number;
+  shield: number; shieldPts: number; speedT: number;
   sx: number; sy: number; // last authoritative position (reconciliation anchor)
   pool?: Phaser.GameObjects.Image;
 };
@@ -512,7 +512,8 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       sfx.pickup();
       const txt = c.kind === 'health' ? '+50 HP' : c.kind === 'ammo' ? 'AMMO FULL' : c.kind.toUpperCase() + '!';
-      const col = c.kind === 'health' ? '#4ade80' : c.kind === 'ammo' ? '#fdba74' : '#facc15';
+      const col = c.kind === 'health' ? '#4ade80' : c.kind === 'ammo' ? '#fdba74'
+        : c.kind === 'shield' ? '#38bdf8' : c.kind === 'speed' ? '#fde047' : '#facc15';
       const f = this.add.text(c.x, c.y - 24, `${c.name} ${txt}`, {
         fontFamily: MONO, fontSize: '14px', color: col,
       }).setOrigin(0.5).setDepth(8);
@@ -564,6 +565,7 @@ export class ArenaScene extends Phaser.Scene {
       const idx = Math.min(8, this.players.size + 1); // squad number by join order
       const sh = this.add.image(0, 11, 'shadow').setAlpha(0.8);
       const ring = this.add.image(0, 0, 'ring').setVisible(false);
+      const ringB = this.add.image(0, 0, 'ring').setTint(0x38bdf8).setVisible(false);
       const bootL = this.add.image(-7, 8, 'boot');
       const bootR = this.add.image(7, 8, 'boot');
       const legs = this.add.container(0, 0, [bootL, bootR]);
@@ -572,10 +574,11 @@ export class ArenaScene extends Phaser.Scene {
       gun.setOrigin(0.15, 0.5);
       const label = this.add.text(-20, -36, p.name, { fontSize: '12px', fontStyle: '600', color: '#fff', fontFamily: BODY });
       label.setStroke('#000000', 3);
-      const gfx = this.add.container(p.x, p.y, [sh, legs, ring, body, gun, label]);
+      const gfx = this.add.container(p.x, p.y, [sh, legs, ring, ringB, body, gun, label]);
       this.players.set(id, {
-        gfx, body, gun, label, ring, legs, bootL, bootR, stepPhase: Math.random() * 6,
-        tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive, shield: p.shield || 0,
+        gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
+        tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
+        shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
       });
       if (!p.alive) body.setTint(0x666677);
       p.onChange(() => {
@@ -585,16 +588,19 @@ export class ArenaScene extends Phaser.Scene {
         o.tx = p.x; o.ty = p.y;
         o.sx = p.x; o.sy = p.y;
         o.shield = p.shield || 0;
+        o.shieldPts = p.shieldPts || 0;
+        o.speedT = p.speedT || 0;
         o.gfx.setRotation(0);
         o.gun.setRotation(p.angle);
-        o.label.setText(`${p.name} ${p.hp}`);
+        o.label.setText(`${p.name} ${p.hp}${o.speedT > 0 ? ' ⚡' : ''}${o.shieldPts > 0 ? ' 🛡' : ''}`);
         if (id === this.meId) {
           this.drawHp(p.hp, p.kills);
           this.drawAmmo(p);
           this.checkStreak(p.streak);
         }
-        // kill-streak aura (2+): golden ring under hot players
+        // kill-streak aura (2+): golden ring under hot players; blue ring while shielded
         o.ring.setVisible(p.streak >= 2 && p.alive);
+        o.ringB.setVisible(p.shieldPts > 0 && p.alive);
         // fresh hit -> white flash + blood puff (+ hurt cue for self)
         if (p.hp < o.hp && p.alive) {
           o.body.setTintFill(0xffffff);
@@ -811,7 +817,11 @@ export class ArenaScene extends Phaser.Scene {
     for (const rc of BUSH) dot(rc);
     this.pkDots.forEach((pk) => { // live pickups
       if (!pk.active) return;
-      g.fillStyle(pk.kind === 'health' ? 0x4ade80 : pk.kind === 'rifle' ? 0xfacc15 : 0xfdba74, 1);
+      const cols: Record<string, number> = {
+        health: 0x4ade80, rifle: 0xfacc15, ammo: 0xfdba74,
+        shotgun: 0xfb923c, sniper: 0xc084fc, shield: 0x38bdf8, speed: 0xfde047,
+      };
+      g.fillStyle(cols[pk.kind] ?? 0xffffff, 1);
       g.fillCircle(x0 + pk.x * s, y0 + pk.y * s, 1.8);
     });
     this.players.forEach((o, id) => {
@@ -850,6 +860,13 @@ export class ArenaScene extends Phaser.Scene {
       const ring = this.add.image(0, 0, 'ring').setScale(0.75);
       const gun = this.add.image(0, 0, 'gun').setScale(0.9).setTint(tints[kind] ?? 0xffffff);
       inner = [ring, gun];
+    }
+    if (kind === 'shield' || kind === 'speed') {
+      const ring = this.add.image(0, 0, 'ring').setScale(0.7)
+        .setTint(kind === 'shield' ? 0x38bdf8 : 0xfde047);
+      const dot = this.add.image(0, 0, 'dot').setScale(1.6)
+        .setTint(kind === 'shield' ? 0x38bdf8 : 0xfde047);
+      inner = [ring, dot];
     }
     const c = this.add.container(0, 0, inner);
     this.tweens.add({ targets: c, scaleX: 1.12, scaleY: 1.12, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
@@ -1060,6 +1077,11 @@ export class ArenaScene extends Phaser.Scene {
         o.ring.setScale(s);
         o.ring.setAlpha(0.75 + 0.25 * Math.sin(_t / 240 + h));
       }
+      if (o.ringB.visible) {
+        const s2 = 1.1 + 0.1 * Math.sin(_t / 300 + h);
+        o.ringB.setScale(s2);
+        o.ringB.setAlpha(0.7 + 0.3 * Math.sin(_t / 300 + h));
+      }
       let vx: number, vy: number;
       if (id === this.meId) {
         vx = this.myMove.dx * SPEED; vy = this.myMove.dy * SPEED;
@@ -1091,8 +1113,9 @@ export class ArenaScene extends Phaser.Scene {
       const ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
       this.lastAim = ang;
       // client prediction (shared stepMove integrator: walls + ice drift like server)
+      const mult = me.speedT > 0 ? 1.4 : 1;
       const s = stepMove(me.gfx.x, me.gfx.y, this.myVel.x, this.myVel.y,
-        dx, dy, dt, this.solids(), inRect(me.gfx.x, me.gfx.y, ICE));
+        dx, dy, dt, this.solids(), inRect(me.gfx.x, me.gfx.y, ICE), mult);
       me.gfx.x = s.x; me.gfx.y = s.y;
       this.myVel = { x: s.vx, y: s.vy };
       me.tx = me.gfx.x; me.ty = me.gfx.y;

@@ -519,6 +519,18 @@ async function main() {
     await sleep(300);
   }
   ok(alive, 'host respawns after sniper death');
+  // top-up: guest walks west through the health point (+50, the pickup rule)
+  const tu0 = s2r.state.players.get(s2r.sessionId).hp;
+  for (let i = 0; i < 15; i++) {
+    const b = s2r.state.players.get(s2r.sessionId).toJSON();
+    if (b.x < 1150) break;
+    s2r.send('move', { dx: -1, dy: 0, angle: Math.PI });
+    await sleep(200);
+  }
+  s2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
+  await sleep(500);
+  const tu1 = s2r.state.players.get(s2r.sessionId).hp;
+  ok(tu1 === Math.min(100, tu0 + 50), `guest tops up +50 before melee (${tu0} -> ${tu1})`);
   // knife: close to <45 (margin inside the 70 range), face, F. Retry: it must land.
   let landed = false, kBefore = 0, kAfter = 0;
   for (let round = 0; round < 3 && !landed; round++) {
@@ -547,6 +559,60 @@ async function main() {
   const q2 = s2r.state.players.get(s2r.sessionId).toJSON();
   ok(q2.hp === kAfter, `knife cooldown blocks instant second swing (hp=${q2.hp})`);
   await s1r.leave(); await s2r.leave();
+
+  // 19. Shield + speed powerups: absorb, haste, timers
+  const f1 = new Client(URL);
+  const f1r = await f1.create('shooter', { name: 'buff1', killTarget: 30, shieldSeconds: 0 });
+  const f2 = new Client(URL);
+  const f2r = await f2.joinById(f1r.id, { name: 'buff2' });
+  await sleep(400);
+  f1r.send('startGame');
+  ok(await waitPhase(f1r, 'playing', 9000), 'buff match goes live');
+  for (let i = 0; i < 10; i++) { // host south to the shield pad (200,320)
+    const p = f1r.state.players.get(f1r.sessionId).toJSON();
+    if (p.y > 300) break;
+    f1r.send('move', { dx: 0, dy: 1, angle: Math.PI / 2 });
+    await sleep(200);
+  }
+  f1r.send('move', { dx: 0, dy: 0, angle: Math.PI / 2 });
+  await sleep(400);
+  ok(f1r.state.players.get(f1r.sessionId).shieldPts === 100, 'shield pad grants 100pts');
+  for (let i = 0; i < 10; i++) { // guest south to the speed pad (1400,450)
+    const p = f2r.state.players.get(f2r.sessionId).toJSON();
+    if (p.y > 430) break;
+    f2r.send('move', { dx: 0, dy: 1, angle: Math.PI / 2 });
+    await sleep(200);
+  }
+  f2r.send('move', { dx: 0, dy: 0, angle: Math.PI / 2 });
+  await sleep(400);
+  const spd = f2r.state.players.get(f2r.sessionId).speedT;
+  ok(spd > 0 && spd <= 8, `speed pad grants haste (${spd.toFixed(1)}s)`);
+  // guest sprints west 2s boosted: must outrun the 520px unboosted ceiling
+  const g0 = f2r.state.players.get(f2r.sessionId).toJSON();
+  for (let i = 0; i < 10; i++) {
+    f2r.send('move', { dx: -1, dy: 0, angle: Math.PI });
+    await sleep(200);
+  }
+  f2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
+  await sleep(300);
+  const g1 = f2r.state.players.get(f2r.sessionId).toJSON();
+  ok(g0.x - g1.x > 600, `haste outruns base speed (${(g0.x - g1.x).toFixed(0)}px)`);
+  // formation for the absorb shot: host east lane, guest holds west
+  for (let i = 0; i < 20; i++) {
+    const a = f1r.state.players.get(f1r.sessionId).toJSON();
+    if (a.x > 540 && a.y < 250) break;
+    f1r.send('move', { dx: a.x < 540 ? 1 : 0, dy: a.y > 210 ? -1 : 0, angle: 0 });
+    await sleep(200);
+  }
+  f1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(400);
+  const fa = f1r.state.players.get(f1r.sessionId).toJSON();
+  const fb = f2r.state.players.get(f2r.sessionId).toJSON();
+  f2r.send('shoot', { angle: Math.atan2(fa.y - fb.y, fa.x - fb.x) });
+  await sleep(600);
+  const after = f1r.state.players.get(f1r.sessionId).toJSON();
+  ok(after.hp === 100 && after.shieldPts === 75, `shield absorbs pistol hit (hp=${after.hp} pts=${after.shieldPts})`);
+  await f1r.leave(); await f2r.leave();
 
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

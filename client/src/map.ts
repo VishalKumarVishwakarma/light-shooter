@@ -65,7 +65,9 @@ export const BUSH: Rect[] = [
 ];
 
 // fixed pickup spawns: [kind, x, y]
-export const PICKUP_POINTS: Array<['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper', number, number]> = [
+export const PICKUP_POINTS: Array<
+  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'shield' | 'speed', number, number]
+> = [
   ['rifle', 400, 200],
   ['health', 200, 450],
   ['rifle', 1200, 1000],
@@ -73,6 +75,8 @@ export const PICKUP_POINTS: Array<['health' | 'rifle' | 'ammo' | 'shotgun' | 'sn
   ['health', 1200, 200],
   ['shotgun', 300, 200],
   ['sniper', 1300, 200],
+  ['shield', 200, 320],
+  ['speed', 1400, 450],
 ];
 
 export function clamp(v: number, lo: number, hi: number) {
@@ -116,14 +120,14 @@ export function pointInWall(x: number, y: number, rects: Rect[] = STEEL) {
 }
 
 // One movement integrator shared by server + client prediction.
-// Ice: velocity eases toward input (drift). Everywhere else: instant.
+// Ice: velocity eases toward input (drift). mult: speed buffs. Everywhere else: instant.
 export function stepMove(
   px: number, py: number, vx: number, vy: number,
-  dx: number, dy: number, dt: number, solids: Rect[], onIce: boolean,
+  dx: number, dy: number, dt: number, solids: Rect[], onIce: boolean, mult = 1,
 ) {
   const k = onIce ? Math.min(1, dt * 5) : 1;
-  const nvx = vx + (dx * SPEED - vx) * k;
-  const nvy = vy + (dy * SPEED - vy) * k;
+  const nvx = vx + (dx * SPEED * mult - vx) * k;
+  const nvy = vy + (dy * SPEED * mult - vy) * k;
   const nx = clamp(px + nvx * dt, 20, W - 20);
   const ny = clamp(py + nvy * dt, 20, H - 20);
   const f = collideCircle(nx, ny, RADIUS, solids);

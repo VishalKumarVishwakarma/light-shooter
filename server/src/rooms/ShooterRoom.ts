@@ -277,6 +277,10 @@ export class ShooterRoom extends Room<ShooterState> {
         this.setAmmo(p, p.weapon, WEAPONS[p.weapon].clip);
         p.reloading = false;
         this.reloadT.delete(id);
+      } else if (pk.kind === 'shield') {
+        p.shieldPts = 100;
+      } else if (pk.kind === 'speed') {
+        p.speedT = 8;
       }
       pk.active = false;
       pk.t = pk.kind === 'rifle' ? this.rifleSeconds : this.pickupSeconds;
@@ -291,11 +295,18 @@ export class ShooterRoom extends Room<ShooterState> {
       this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg: 0, ox, oy, to: qid });
       return;
     }
-    q.hp -= dmg;
+    const absorbed = Math.min(dmg, q.shieldPts);
+    const eff = dmg - absorbed;
+    q.shieldPts -= absorbed;
+    if (eff <= 0) {
+      this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg: 0, ox, oy, to: qid });
+      return;
+    }
+    q.hp -= eff;
     const owner = this.state.players.get(killerId);
-    this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg, ox, oy, to: qid });
+    this.broadcast('hit', { x: q.x, y: q.y, by: killerId, dmg: eff, ox, oy, to: qid });
     if (owner) {
-      owner.damage += Math.min(dmg, before);
+      owner.damage += Math.min(eff, before);
       owner.hitsMade++;
     }
     if (q.hp <= 0) {
@@ -329,7 +340,7 @@ export class ShooterRoom extends Room<ShooterState> {
       const s = SPAWNS[i++ % SPAWNS.length];
       p.x = s[0]; p.y = s[1]; p.hp = 100; p.alive = true; p.streak = 0;
       p.kills = 0; p.deaths = 0; p.cash = 0; p.damage = 0; p.reloadLeft = 0;
-      p.shots = 0; p.hitsMade = 0;
+      p.shots = 0; p.hitsMade = 0; p.shieldPts = 0; p.speedT = 0;
       p.shield = this.shieldSeconds; // spawn protection at match start
       p.weapon = 'pistol'; p.ammo = 0; p.pammo = WEAPONS.pistol.clip;
       p.sammo = 0; p.nammo = 0;
@@ -440,11 +451,13 @@ export class ShooterRoom extends Room<ShooterState> {
     // players
     this.state.players.forEach((p, id) => {
       if (p.shield > 0) p.shield = Math.max(0, p.shield - dt);
+      if (p.speedT > 0) p.speedT = Math.max(0, p.speedT - dt);
       if (!p.alive) {
         (p as any)._deadT = ((p as any)._deadT || 0) + dt;
         if ((p as any)._deadT > 3) {
           p.alive = true; p.hp = 100;
           p.shield = this.shieldSeconds; // spawn protection
+          p.shieldPts = 0; p.speedT = 0; // buffs die with you
           p.pammo = WEAPONS.pistol.clip;
           if (p.rifle) p.ammo = WEAPONS.rifle.clip;
           if (p.shotgun) p.sammo = WEAPONS.shotgun.clip;
@@ -474,7 +487,8 @@ export class ShooterRoom extends Room<ShooterState> {
       const inp = this.inputs.get(id);
       if (inp) {
         const v = this.vel.get(id) || { x: 0, y: 0 };
-        const s = stepMove(p.x, p.y, v.x, v.y, inp.dx, inp.dy, dt, this.solids(), inRect(p.x, p.y, ICE));
+        const mult = p.speedT > 0 ? 1.4 : 1;
+        const s = stepMove(p.x, p.y, v.x, v.y, inp.dx, inp.dy, dt, this.solids(), inRect(p.x, p.y, ICE), mult);
         p.x = s.x; p.y = s.y;
         this.vel.set(id, { x: s.vx, y: s.vy });
         p.angle = inp.angle;
@@ -541,15 +555,24 @@ export class ShooterRoom extends Room<ShooterState> {
             hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
             return;
           }
-          p.hp -= b.dmg;
+          // power shield absorbs up to shieldPts first
+          const absorbed = Math.min(b.dmg, p.shieldPts);
+          const eff = b.dmg - absorbed;
+          p.shieldPts -= absorbed;
+          if (eff <= 0) {
+            killAt(px, py);
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            return;
+          }
+          p.hp -= eff;
           killAt(px, py);
           const owner = this.state.players.get(b.ownerId);
           hits.push({
-            x: px, y: py, by: b.ownerId, dmg: b.dmg,
+            x: px, y: py, by: b.ownerId, dmg: eff,
             ox: owner ? owner.x : px, oy: owner ? owner.y : py, to: pid,
           });
           if (owner) {
-            owner.damage += Math.min(b.dmg, before);
+            owner.damage += Math.min(eff, before);
             owner.hitsMade++;
           }
           if (p.hp <= 0) {

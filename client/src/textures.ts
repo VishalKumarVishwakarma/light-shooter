@@ -525,12 +525,27 @@ export function ensureTextures(scene: Phaser.Scene) {
 }
 
 // Numbered squad avatar, generated lazily per team/index (join order 1-8).
+// Self is always cyan; every foe gets a distinct uniform from the wheel.
+const FOE_COLORS: Array<[string, string, string, string, number]> = [
+  // base, dark, light, label-css, blip-num
+  ['#ef4444', '#991b1b', '#fecaca', '#f87171', 0xef4444], // red
+  ['#f97316', '#9a3412', '#fed7aa', '#fb923c', 0xf97316], // orange
+  ['#a855f7', '#6b21a8', '#ddd6fe', '#c084fc', 0xa855f7], // violet
+  ['#eab308', '#854d0e', '#fef08a', '#facc15', 0xeab308], // gold
+  ['#ec4899', '#9d174d', '#fbcfe8', '#f9a8d4', 0xec4899], // pink
+  ['#84cc16', '#3f6212', '#d9f99d', '#bef264', 0x84cc16], // lime
+  ['#3b82f6', '#1e3a8a', '#bfdbfe', '#93c5fd', 0x3b82f6], // blue
+  ['#10b981', '#065f46', '#a7f3d0', '#6ee7b7', 0x10b981], // emerald
+];
+export function foeColor(idx: number): [string, string, string, string, number] {
+  return FOE_COLORS[(Math.max(1, idx) - 1) % FOE_COLORS.length];
+}
 export function avatarTex(scene: Phaser.Scene, team: 'me' | 'foe', idx: number) {
   const key = `soldier_${team}_${idx}`;
   if (!scene.textures.exists(key)) {
-    const args = team === 'me'
+    const args: string[] = team === 'me'
       ? ['#22d3ee', '#0e7490', '#a5f3fc', '#083344']
-      : ['#ef4444', '#991b1b', '#fecaca', '#450a0a'];
+      : foeColor(idx).slice(0, 4).map(String);
     put(scene, key, soldier(args[0], args[1], args[2], args[3], String(idx)));
   }
   return key;

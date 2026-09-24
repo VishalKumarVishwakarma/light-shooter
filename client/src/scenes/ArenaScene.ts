@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Session } from '../net/Session';
 import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS, inRect, pointInWall, stepMove } from '../map';
-import { ensureTextures, avatarTex } from '../textures';
+import { ensureTextures, avatarTex, foeColor } from '../textures';
 import { makeButton, quality, setQuality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
@@ -18,6 +18,7 @@ type PObj = {
   shield: number; shieldPts: number; speedT: number;
   sx: number; sy: number; // last authoritative position (reconciliation anchor)
   hist: Array<{ t: number; x: number; y: number }>; // remote snapshot buffer (interp)
+  col: number; // squad color (minimap blip + label glow)
   pool?: Phaser.GameObjects.Image;
 };
 
@@ -679,6 +680,8 @@ export class ArenaScene extends Phaser.Scene {
       }
       const mine = id === this.meId;
       const idx = Math.min(8, this.players.size + 1); // squad number by join order
+      const col = mine ? 0x22d3ee : foeColor(idx)[4];
+      const glowCss = mine ? '#22d3ee' : foeColor(idx)[3];
       const sh = this.add.image(0, 11, 'shadow').setAlpha(0.8);
       const ring = this.add.image(0, 0, 'ring').setVisible(false);
       const ringB = this.add.image(0, 0, 'ring').setTint(0x38bdf8).setVisible(false);
@@ -690,13 +693,13 @@ export class ArenaScene extends Phaser.Scene {
       gun.setOrigin(0.15, 0.5);
       const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
       label.setStroke('#020617', 4);
-      label.setShadow(0, 0, mine ? '#22d3ee' : '#ef4444', 6, false, true);
+      label.setShadow(0, 0, glowCss, 6, false, true);
       const gfx = this.add.container(p.x, p.y, [sh, legs, ring, ringB, body, gun, label]);
       this.players.set(id, {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
         shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
-        hist: [],
+        hist: [], col,
       });
       if (!p.alive) body.setTint(0x666677);
       p.onChange(() => {
@@ -982,10 +985,10 @@ export class ArenaScene extends Phaser.Scene {
         g.fillStyle(0x475569, 1);
         g.fillCircle(px, py, 2.6);
       } else {
-        // GTA blip: facing wedge instead of a dot
+        // squad blip: facing wedge in the player's own color
         const a = o.gun.rotation;
         const dxm = Math.cos(a), dym = Math.sin(a);
-        g.fillStyle(id === this.meId ? 0x22d3ee : 0xef4444, 1);
+        g.fillStyle(id === this.meId ? 0x22d3ee : o.col, 1);
         g.fillTriangle(
           px + dxm * 4.6, py + dym * 4.6,
           px - dym * 2.6 - dxm * 2.4, py + dxm * 2.6 - dym * 2.4,

@@ -1,7 +1,7 @@
 // Unit tests for arena geometry. Run after `npm run build`: node test-map.cjs
 const M = require('./dist/map.js');
 const { STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, SPAWNS, PICKUP_POINTS, WEAPONS, WORLD } = M;
-const { collideCircle, pointInWall, inRect, stepMove } = M;
+const { collideCircle, pointInWall, inRect, stepMove, randomSpot } = M;
 let pass = 0, fail = 0;
 const ok = (cond, msg) => {
   if (cond) { pass++; console.log(`PASS: ${msg}`); }
@@ -89,6 +89,28 @@ ok(range('pistol') < range('rifle'), `pistol shorter than rifle (${range('pistol
 ok(range('rifle') < range('sniper'), `rifle shorter than sniper (${range('rifle') | 0} < ${range('sniper') | 0})`);
 ok(range('laser') > range('rifle') && range('laser') < range('sniper'),
   `laser sits rifle-to-sniper (${range('laser') | 0})`);
+
+// 12. Random respawn spots: seeded samples always land on open ground,
+// spread out (not one nest), and stay in-bounds.
+let seed = 42;
+const rng = () => {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+};
+const seen = new Set();
+let spotOk = true;
+for (let i = 0; i < 50; i++) {
+  const s = randomSpot(rng, SOLIDS);
+  if (s.x < 60 || s.x > WORLD.w - 60 || s.y < 60 || s.y > WORLD.h - 60) spotOk = false;
+  for (const wl of SOLIDS) {
+    const cx = Math.max(wl.x, Math.min(s.x, wl.x + wl.w));
+    const cy = Math.max(wl.y, Math.min(s.y, wl.y + wl.h));
+    if (Math.hypot(s.x - cx, s.y - cy) < 30) { spotOk = false; console.log('  bad spot', s); break; }
+  }
+  seen.add(`${s.x | 0},${s.y | 0}`);
+}
+ok(spotOk, '50 seeded spots all on open ground');
+ok(seen.size > 40, `spots spread out (${seen.size}/50 unique)`);
 ok(range('sniper') > WORLD.w, `sniper crosses the map (${range('sniper') | 0} > ${WORLD.w})`);
 ok(range('pistol') < diag / 2, `pistol can't cross half the map (${range('pistol') | 0})`);
 ok(range('shotgun') < 400, `shotgun is a room broom (${range('shotgun') | 0})`);

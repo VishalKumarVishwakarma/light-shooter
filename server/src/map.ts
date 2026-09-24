@@ -135,6 +135,28 @@ export function pointInWall(x: number, y: number, rects: Rect[] = STEEL) {
   return inRect(x, y, rects);
 }
 
+// Random open respawn spot: rejection-sample against solids with a body margin.
+// rng is injectable for tests; server passes Math.random (synced via state).
+export function randomSpot(
+  rng: () => number, solids: Rect[],
+  w = W, h = H, margin = 34, tries = 40,
+): { x: number; y: number } {
+  let fx = w / 2, fy = h / 2;
+  for (let i = 0; i < tries; i++) {
+    const x = 60 + rng() * (w - 120);
+    const y = 60 + rng() * (h - 120);
+    let clear = true;
+    for (const rc of solids) {
+      const cx = Math.max(rc.x, Math.min(x, rc.x + rc.w));
+      const cy = Math.max(rc.y, Math.min(y, rc.y + rc.h));
+      if (Math.hypot(x - cx, y - cy) < margin) { clear = false; break; }
+    }
+    fx = x; fy = y;
+    if (clear) return { x, y };
+  }
+  return { x: fx, y: fy };
+}
+
 // One movement integrator shared by server + client prediction.
 // Ice: velocity eases toward input (drift). mult: speed buffs. Everywhere else: instant.
 export function stepMove(

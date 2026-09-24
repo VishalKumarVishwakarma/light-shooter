@@ -30,6 +30,53 @@ async function settle(room, id) {
   return room.state.players.get(id).toJSON();
 }
 
+// closeIn: chase a (possibly moving) target with wall unstick (slide on stall).
+// Stops inside `want` px facing the target. Returns true when it got there.
+async function closeIn(room, id, tx, ty, want, cap = 40) {
+  const at = (k) => (typeof k === 'function' ? k() : k);
+  let stall = 0, lx = 0, ly = 0, mode = 'chase', modeN = 0, side = 1;
+  for (let i = 0; i < cap; i++) {
+    const p = room.state.players.get(id).toJSON();
+    const gx = at(tx), gy = at(ty);
+    const dx = gx - p.x, dy = gy - p.y, d = Math.hypot(dx, dy) || 1;
+    if (d < want) {
+      room.send('move', { dx: 0, dy: 0, angle: Math.atan2(dy, dx) });
+      await sleep(150);
+      return true;
+    }
+    if (mode === 'chase') {
+      room.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+      if (Math.hypot(p.x - lx, p.y - ly) < 4) stall++; else stall = 0;
+      lx = p.x; ly = p.y;
+      if (stall >= 4) { mode = 'slide'; modeN = 0; side = -side; }
+    } else {
+      room.send('move', { dx: -dy / d * side, dy: dx / d * side, angle: Math.atan2(dy, dx) });
+      if (++modeN >= 5) { mode = 'chase'; stall = 0; }
+    }
+    await sleep(200);
+  }
+  room.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(150);
+  return false;
+}
+
+// postUp: stand `want` px from the victim (±tol) for fixed-flight throws.
+// Retries from the current spot — one bad path never ruins the test.
+async function postUp(r, rid, v, vid, want = 170, tol = 30, tries = 4) {
+  let gap = 0;
+  for (let t = 0; t < tries; t++) {
+    const a = r.state.players.get(rid).toJSON();
+    const b = v.state.players.get(vid).toJSON();
+    gap = Math.hypot(b.x - a.x, b.y - a.y);
+    if (gap > want - tol && gap < want + tol) return gap;
+    const dx = (a.x - b.x) / (gap || 1), dy = (a.y - b.y) / (gap || 1);
+    await closeIn(r, rid, b.x + dx * want, b.y + dy * want, 25, 30);
+  }
+  const a = r.state.players.get(rid).toJSON();
+  const b = v.state.players.get(vid).toJSON();
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
 // gunMode: everyone spawns shielded (guard=true, knife-only). Bots that need
 // to shoot must lower first; victims must lower to be damageable.
 async function gunMode(room) {
@@ -286,6 +333,13 @@ async function main() {
     const ap = a1r.state.players.get(a1r.sessionId).toJSON();
     if (ap.x > 540) break;
     a1r.send('move', { dx: 1, dy: 0, angle: 0 });
+    await sleep(200);
+  }
+  for (let i = 0; i < 12; i++) { // lane correction: never descend onto the maze walls
+    const ap = a1r.state.players.get(a1r.sessionId).toJSON();
+    if (ap.x < 590 || (ap.x > 755 && ap.x < 845) || ap.x > 1035) break;
+    const dir = ap.x < 800 ? -1 : 1; // west to x560 lane, east to x1040 lane
+    a1r.send('move', { dx: dir, dy: 0, angle: dir > 0 ? 0 : Math.PI });
     await sleep(200);
   }
   for (let i = 0; i < 20; i++) { // south to y~880 (river gap x>440)
@@ -558,19 +612,25 @@ async function main() {
   const tu1 = s2r.state.players.get(s2r.sessionId).hp;
   ok(tu1 >= 78, `guest healthy for melee (hp=${tu1}, was ${tu0})`);
   // knife: close to <45 (margin inside the 70 range), face, F. Retry: it must land.
+  // victim must be alive with hp to give: wait out any respawn first (diagnoses phantom deaths).
   let landed = false, kBefore = 0, kAfter = 0;
   for (let round = 0; round < 3 && !landed; round++) {
-    for (let i = 0; i < 30; i++) {
-      const a = s1r.state.players.get(s1r.sessionId).toJSON();
-      const b = s2r.state.players.get(s2r.sessionId).toJSON();
-      if (Math.hypot(b.x - a.x, b.y - a.y) < 45) break;
-      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-      s1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
-      await sleep(200);
-    }
-    s1r.send('move', { dx: 0, dy: 0, angle: 0 });
+    // chase with wall unstick (straight homing stalls on the fortress)
+    await closeIn(s1r, s1r.sessionId,
+      () => s2r.state.players.get(s2r.sessionId).x,
+      () => s2r.state.players.get(s2r.sessionId).y, 45);
     await sleep(300);
-    const pre = s2r.state.players.get(s2r.sessionId).toJSON();
+    let pre = s2r.state.players.get(s2r.sessionId).toJSON();
+    if (!pre.alive || pre.hp < 50) {
+      console.log(`  knife round ${round}: victim not hittable (alive=${pre.alive} hp=${pre.hp}), waiting out respawn`);
+      for (let w = 0; w < 20; w++) {
+        await sleep(300);
+        pre = s2r.state.players.get(s2r.sessionId).toJSON();
+        if (pre.alive && pre.hp === 100) break;
+      }
+      console.log(`  knife round ${round}: victim now (alive=${pre.alive} hp=${pre.hp})`);
+      if (!pre.alive || pre.hp < 50) continue;
+    }
     const pf = s1r.state.players.get(s1r.sessionId).toJSON();
     s1r.send('move', { dx: 0, dy: 0, angle: Math.atan2(pre.y - pf.y, pre.x - pf.x) });
     await sleep(250); // face the victim (melee is a frontal arc)
@@ -738,18 +798,10 @@ async function main() {
   await sleep(400);
   const ammoAfter = d1r.state.players.get(d1r.sessionId).pammo;
   ok(ammoBefore === ammoAfter, `shielded guns stay silent (ammo ${ammoBefore})`);
-  // knives pierce: close to <45, face, swing
-  d1r.send('guard', {});
-  await sleep(300);
-  for (let i = 0; i < 30; i++) {
-    const a = d1r.state.players.get(d1r.sessionId).toJSON();
-    const b = d2r.state.players.get(d2r.sessionId).toJSON();
-    if (Math.hypot(b.x - a.x, b.y - a.y) < 45) break;
-    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-    d1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
-    await sleep(200);
-  }
-  d1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  // knives pierce: close in with wall unstick, face, swing
+  await closeIn(d1r, d1r.sessionId,
+    () => d2r.state.players.get(d2r.sessionId).x,
+    () => d2r.state.players.get(d2r.sessionId).y, 45);
   await sleep(300);
   const kPre = d2r.state.players.get(d2r.sessionId).toJSON();
   const kPf = d1r.state.players.get(d1r.sessionId).toJSON();
@@ -781,15 +833,10 @@ async function main() {
   const nd1 = n1r.state.players.get(n1r.sessionId).toJSON();
   ok(nd1.grenades === 1 && nd1.smokes === 1 && nd1.mollies === 1, 'spawn loaded 1/1/1');
   ok(await gunMode(n1r), 'thrower in gun mode (victim stays shielded)');
-  for (let i = 0; i < 30; i++) { // close to <120 for the toss
-    const a = n1r.state.players.get(n1r.sessionId).toJSON();
-    const b = n2r.state.players.get(n2r.sessionId).toJSON();
-    if (Math.hypot(b.x - a.x, b.y - a.y) < 120) break;
-    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-    n1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
-    await sleep(200);
-  }
-  n1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  // throws fly ~235-275px with tick slop (grenade rolls ~170-200): post up at
+  // ~205px so every landing falls on the victim, whatever the spawn luck.
+  const postGap = await postUp(n1r, n1r.sessionId, n2r, n2r.sessionId, 205, 20);
+  ok(postGap > 185 && postGap < 225, `posted up at ${postGap.toFixed(0)}px`);
   await sleep(400);
   const na = n1r.state.players.get(n1r.sessionId).toJSON();
   const nv = n2r.state.players.get(n2r.sessionId).toJSON();
@@ -806,20 +853,7 @@ async function main() {
   ok(nbAfter.hp < 100, `grenade pierces the shield (hp=${nbAfter.hp})`);
   ok(bang.length >= 1, 'explosion broadcast');
   ok(Object.keys(n1r.state.throws.toJSON()).length === 0, 'spent throw cleaned up');
-  // smoke hides the victim, molly burns through the stance.
-  // throws fly a fixed ~234px: seek a 150-200px band so clouds land on top.
-  for (let i = 0; i < 40; i++) {
-    const a = n1r.state.players.get(n1r.sessionId).toJSON();
-    const b = n2r.state.players.get(n2r.sessionId).toJSON();
-    const gap = Math.hypot(b.x - a.x, b.y - a.y);
-    if (gap > 150 && gap < 200) break;
-    const dir = gap >= 200 ? 1 : -1;
-    const dx = (b.x - a.x) / (gap || 1), dy = (b.y - a.y) / (gap || 1);
-    n1r.send('move', { dx: dx * dir, dy: dy * dir, angle: Math.atan2(dy, dx) });
-    await sleep(200);
-  }
-  n1r.send('move', { dx: 0, dy: 0, angle: 0 });
-  await sleep(400);
+  // smoke hides the victim, molly burns through the stance (same band: on top).
   const sa = n1r.state.players.get(n1r.sessionId).toJSON();
   const sb = n2r.state.players.get(n2r.sessionId).toJSON();
   n1r.send('throw', { kind: 'smoke', angle: Math.atan2(sb.y - sa.y, sb.x - sa.x) });
@@ -828,8 +862,14 @@ async function main() {
   const fa2 = n1r.state.players.get(n1r.sessionId).toJSON();
   const fb2 = n2r.state.players.get(n2r.sessionId).toJSON();
   const hpBeforeFire = fb2.hp;
+  const mollyGap = Math.hypot(fb2.x - fa2.x, fb2.y - fa2.y);
   n1r.send('throw', { kind: 'molly', angle: Math.atan2(fb2.y - fa2.y, fb2.x - fa2.x) });
-  await sleep(3000); // flight + several 0.5s burn ticks
+  await sleep(900); // flight 0.45s + bloom (checking earlier only sees the canister)
+  const mollyLeft = n1r.state.players.get(n1r.sessionId).mollies;
+  const clouds = Object.values(n1r.state.clouds.toJSON());
+  ok(mollyLeft === 0, `molly leaves the hand (${mollyLeft})`);
+  ok(clouds.some((c) => c.kind === 'fire'), `fire cloud blooms (gap=${mollyGap.toFixed(0)})`);
+  await sleep(2400); // several 0.5s burn ticks
   const fbAfter = n2r.state.players.get(n2r.sessionId).toJSON();
   ok(fbAfter.hp < hpBeforeFire, `molly burns through the shield (${hpBeforeFire} -> ${fbAfter.hp})`);
   // restock: walk the west grenade pad (walk-over auto-collect)

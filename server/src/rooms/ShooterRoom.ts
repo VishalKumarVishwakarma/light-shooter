@@ -2,7 +2,7 @@ import { Room, Client } from 'colyseus';
 import { ShooterState, Player, Bullet, Pickup, Brick, Throw, Cloud } from '../schema/ShooterState.js';
 import {
   W, H, SPAWNS, MUZZLE, WEAPONS, PICKUP_POINTS, BRICK_HP,
-  STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove, clamp,
+  STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove, clamp, randomSpot,
 } from '../map.js';
 import { log, metrics } from '../ops.js';
 import type { Rect } from '../map.js';
@@ -583,11 +583,15 @@ export class ShooterRoom extends Room<ShooterState> {
         p.angle = inp.angle;
       }
     });
-    // pickup respawn timers
+    // pickup respawn timers: come back at a RANDOM open spot, never the same nest
     this.state.pickups.forEach((pk) => {
       if (pk.active) return;
       pk.t -= dt;
-      if (pk.t <= 0) { pk.active = true; pk.t = 0; }
+      if (pk.t <= 0) {
+        const s = randomSpot(Math.random, this.solids());
+        pk.x = Math.round(s.x); pk.y = Math.round(s.y);
+        pk.active = true; pk.t = 0;
+      }
     });
     // bullets
     const dead: string[] = [];

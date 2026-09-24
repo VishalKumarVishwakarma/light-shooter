@@ -101,6 +101,15 @@ export class ArenaScene extends Phaser.Scene {
   private reloadTx!: Phaser.GameObjects.Text;
   private guardBg!: Phaser.GameObjects.Rectangle;
   private guardTx!: Phaser.GameObjects.Text;
+  private loadSlots: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text }> = [];
+  private shChipBg!: Phaser.GameObjects.Rectangle;
+  private shChipFill!: Phaser.GameObjects.Rectangle;
+  private shChipTx!: Phaser.GameObjects.Text;
+  private spChipBg!: Phaser.GameObjects.Rectangle;
+  private spChipFill!: Phaser.GameObjects.Rectangle;
+  private spChipTx!: Phaser.GameObjects.Text;
+  private raceBg!: Phaser.GameObjects.Rectangle;
+  private raceFill!: Phaser.GameObjects.Rectangle;
   private grabBtn: Btn | null = null;
 
   constructor() { super('arena'); }
@@ -311,6 +320,48 @@ export class ArenaScene extends Phaser.Scene {
       this.guardBg.setAlpha(0.6);
       this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
     });
+    // loadout strip (bottom-center): 6 tappable slots — guns + shield, live states
+    const slots: Array<[string, string, string]> = [
+      ['1', 'PISTOL', 'pistol'], ['2', 'RIFLE', 'rifle'], ['3', 'SG', 'shotgun'],
+      ['4', 'SNP', 'sniper'], ['5', 'LSR', 'laser'], ['6', 'SHD', 'shield'],
+    ];
+    this.loadSlots = [];
+    slots.forEach(([key, nm, w], i) => {
+      const x = 480 + (i - 2.5) * 48;
+      const bg = this.add.rectangle(x, 500, 44, 36, 0x020617, 0.78)
+        .setStrokeStyle(1.5, 0x334155, 0.9).setScrollFactor(0).setDepth(10);
+      const tx = this.add.text(x, 500, `${key}\n${nm}`, {
+        fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+      tx.setStroke('#020617', 2);
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', () => {
+        if (w === 'shield') {
+          Session.room?.send('guard', { on: true });
+          sfx.guard(true);
+        } else {
+          Session.room?.send('switch', { weapon: w });
+          sfx.click();
+        }
+      });
+      this.loadSlots.push({ bg, tx });
+    });
+    // buff chips (under the HP bar): shield points + haste timers with mini bars
+    this.shChipBg = this.add.rectangle(10, 50, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.shChipFill = this.add.rectangle(12, 50, 0, 10, 0x38bdf8).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.shChipTx = this.add.text(16, 50, '', {
+      fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#bae6fd',
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
+    this.shChipTx.setStroke('#020617', 2);
+    this.spChipBg = this.add.rectangle(10, 68, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.spChipFill = this.add.rectangle(12, 68, 0, 10, 0xfde047).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.spChipTx = this.add.text(16, 68, '', {
+      fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#fef08a',
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
+    this.spChipTx.setStroke('#020617', 2);
+    // kill-target race bar (top-center, under the clock)
+    this.raceBg = this.add.rectangle(480, 33, 150, 6, 0x020617, 0.72).setScrollFactor(0).setDepth(10);
+    this.raceFill = this.add.rectangle(405, 33, 0, 6, 0xfacc15).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     // actionable pickup button: appears near a rifle, click/tap to grab (E works too)
     this.grabBtn = makeButton(this, {
       tex: 'btn220', x: 480, y: 556, tint: 0xca8a04, label: 'Ⓔ PICK UP RIFLE', fontSize: 15,
@@ -400,6 +451,7 @@ export class ArenaScene extends Phaser.Scene {
         && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
       if (Math.abs(pt.x - 895) < 60 && Math.abs(pt.y - 448) < 20) return; // reload btn
       if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
+      if (pt.y > 478 && pt.y < 522 && Math.abs(pt.x - 480) < 150) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -926,6 +978,36 @@ export class ArenaScene extends Phaser.Scene {
     this.guardTx.setText(guarded ? '🛡 SHIELD' : '🔫 GUN');
     this.guardTx.setColor(guarded ? '#4ade80' : '#60a5fa');
     this.guardBg.setStrokeStyle(1.5, guarded ? 0x4ade80 : 0x60a5fa, 0.9);
+    this.drawLoadout(p);
+  }
+
+  private drawLoadout(p: any) {
+    const keys = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser', 'shield'];
+    const cols: Record<string, string> = {
+      pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
+      sniper: '#c084fc', laser: '#22d3ee', shield: '#4ade80',
+    };
+    const names: Record<string, string> = {
+      pistol: 'PISTOL', rifle: 'RIFLE', shotgun: 'SG',
+      sniper: 'SNP', laser: 'LSR', shield: 'SHD',
+    };
+    keys.forEach((w, i) => {
+      const s = this.loadSlots[i];
+      if (!s) return;
+      const owned = w === 'pistol' || w === 'shield' || p[w] === true;
+      const cur = w === 'shield' ? !!p.guard : p.weapon === w;
+      s.tx.setText(`${i + 1}\n${names[w]}`);
+      if (cur) {
+        s.bg.setFillStyle(0x0e2a3a, 0.95).setStrokeStyle(2, 0x22d3ee, 1);
+        s.tx.setColor('#ffffff');
+      } else if (owned) {
+        s.bg.setFillStyle(0x020617, 0.78).setStrokeStyle(1.5, 0x475569, 0.9);
+        s.tx.setColor(cols[w]);
+      } else {
+        s.bg.setFillStyle(0x020617, 0.5).setStrokeStyle(1, 0x1e293b, 0.7);
+        s.tx.setColor('#334155');
+      }
+    });
   }
 
   private lastStreak = 0;
@@ -1126,6 +1208,28 @@ export class ArenaScene extends Phaser.Scene {
       if (id === this.meId) { myCash = p.cash || 0; myStreak = p.streak || 0; }
     });
     this.cashText.setText('$' + myCash.toLocaleString('en-US'));
+    // kill-target race bar: leader's progress to the target
+    const race = lead ? Math.min(1, lead.kills / target) : 0;
+    this.raceFill.displayWidth = Math.max(1, 150 * race);
+    this.raceFill.setFillStyle(race >= 0.8 ? 0x4ade80 : 0xfacc15);
+    // buff chips: shield points + haste countdown for me
+    const mine = st.players.get(this.meId);
+    const pts = mine?.shieldPts || 0;
+    this.shChipBg.setVisible(pts > 0);
+    this.shChipFill.setVisible(pts > 0);
+    this.shChipTx.setVisible(pts > 0);
+    if (pts > 0) {
+      this.shChipTx.setText(`🛡 ${Math.ceil(pts)} PTS`);
+      this.shChipFill.displayWidth = Math.max(1, 146 * Math.min(1, pts / 100));
+    }
+    const haste = mine?.speedT || 0;
+    this.spChipBg.setVisible(haste > 0);
+    this.spChipFill.setVisible(haste > 0);
+    this.spChipTx.setVisible(haste > 0);
+    if (haste > 0) {
+      this.spChipTx.setText(`⚡ ${haste.toFixed(1)}s HASTE`);
+      this.spChipFill.displayWidth = Math.max(1, 146 * Math.min(1, haste / 8));
+    }
     // GTA wanted level from your streak (cap 5)
     const stars = Math.min(5, myStreak);
     this.wantedText.setText(stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
@@ -1199,6 +1303,10 @@ export class ArenaScene extends Phaser.Scene {
     const mvp = rows.length ? rows[0].name : '';
     const acc = (r: { shots: number; hits: number }) =>
       r.shots > 0 ? Math.round((r.hits / r.shots) * 100) + '%' : '—';
+    const rhdr = this.add.text(cx, cy - 102, '#   NAME              K/D      DMG      ACC', {
+      fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: '#67e8f9',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    rhdr.setStroke('#020617', 3);
     rows.slice(0, 6).forEach((r, i) => {
       const row = this.add.text(cx, cy - 80 + i * 22,
         `${r.name === mvp ? '★ ' : '#' + (i + 1) + ' '}${r.name}   ${r.kills}K/${r.deaths}D   ${r.damage} DMG   ${acc(r)}`, {
@@ -1255,18 +1363,33 @@ export class ArenaScene extends Phaser.Scene {
     } else {
       this.board.removeAll(true);
     }
-    const h = 120 + rows.length * 24;
+    const h = 148 + rows.length * 24;
     this.board.add(this.add.rectangle(0, 0, 480, h, 0x020617, 0.94)
       .setStrokeStyle(1.5, 0x22d3ee, 0.6));
     this.board.add(this.add.text(0, -h / 2 + 24, `SCOREBOARD · FIRST TO ${target} (TAB to close)`, {
       fontFamily: MONO, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5));
+    const hdr = this.add.text(0, -h / 2 + 46, '#   NAME              K/D      DMG      ACC', {
+      fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: '#67e8f9',
+    }).setOrigin(0.5);
+    this.board.add(hdr);
     rows.forEach((r, i) => {
       const acc = r.shots > 0 ? Math.round((r.hits / r.shots) * 100) + '%' : '—';
-      this.board!.add(this.add.text(0, -h / 2 + 52 + i * 24,
-        `#${i + 1}  ${r.name}${r.id === this.meId ? ' ← YOU' : ''}   ${r.kills}K / ${r.deaths}D   ${r.damage} DMG   ${acc}`, {
-          fontFamily: MONO, fontSize: '14px', color: i === 0 ? '#4ade80' : '#e2e8f0',
-        }).setOrigin(0.5));
+      const y = -h / 2 + 70 + i * 24;
+      const meRow = r.id === this.meId;
+      if (i % 2 === 0) {
+        this.board!.add(this.add.rectangle(0, y, 440, 22, 0xffffff, 0.045));
+      }
+      if (meRow) {
+        this.board!.add(this.add.rectangle(-218, y, 5, 22, 0x22d3ee, 1));
+      }
+      const rowTx = `#${i + 1}  ${r.name}${meRow ? ' ← YOU' : ''}   ${r.kills}K / ${r.deaths}D   ${r.damage} DMG   ${acc}`;
+      const row = this.add.text(0, y, rowTx, {
+        fontFamily: MONO, fontSize: '14px', fontStyle: '700',
+        color: i === 0 ? '#4ade80' : meRow ? '#a5f3fc' : '#e2e8f0',
+      }).setOrigin(0.5);
+      row.setStroke('#020617', 3);
+      this.board!.add(row);
     });
   }
 

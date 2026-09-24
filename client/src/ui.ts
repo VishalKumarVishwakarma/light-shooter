@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import { BODY, DISPLAY } from './fonts';
+import { COND, DISPLAY, track } from './fonts';
 import { sfx } from './audio';
 
-const BTN_FONT = BODY;
+const BTN_FONT = COND;
 export type Btn = {
   c: Phaser.GameObjects.Container;
   bg: Phaser.GameObjects.Image;
@@ -27,7 +27,7 @@ export function makeButton(
   if (o.tint !== undefined) bg.setTint(o.tint);
   bg.setDepth(d);
   const label = scene.add.text(0, -1, o.label, {
-    fontFamily: BTN_FONT, fontSize: `${o.fontSize ?? 17}px`, fontStyle: '700', color: '#ffffff',
+    fontFamily: BTN_FONT, fontSize: `${(o.fontSize ?? 17) + 1}px`, fontStyle: '700', color: '#ffffff',
   }).setOrigin(0.5).setDepth(d + 1);
   label.setStroke('#0b1220', 4);
   label.setShadow(0, 2, '#000000', 5, false, true);
@@ -115,7 +115,7 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   panel.moveTo(-w / 2 + 14, -h / 2 + 8);
   panel.lineTo(w / 2 - 14, -h / 2 + 8);
   panel.strokePath();
-  const head = scene.add.text(0, -h / 2 + 34, title, {
+  const head = scene.add.text(0, -h / 2 + 34, track(title.toUpperCase()), {
     fontFamily: DISPLAY, fontSize: '24px', color: '#fff',
   }).setOrigin(0.5);
   head.setShadow(0, 0, '#22d3ee', 14, false, true);

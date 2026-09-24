@@ -4,7 +4,7 @@ import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS
 import { ensureTextures, avatarTex } from '../textures';
 import { makeButton, quality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
-import { BODY, MONO, displayText, kicker } from '../fonts';
+import { BODY, COND, MONO, displayText, kicker } from '../fonts';
 
 const RADIUS = 16;
 type PObj = {
@@ -215,9 +215,10 @@ export class ArenaScene extends Phaser.Scene {
       this.add.rectangle(14 + 224 * f, 12, 2, 18, 0x000000, 0.55).setScrollFactor(0).setDepth(11);
     }
     this.hpLabel = this.add.text(126, 12, 'HP 100 · 0 K', {
-      fontFamily: MONO, fontSize: '14px', color: '#fff',
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#fff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
     this.hpLabel.setStroke('#000000', 3);
+    this.hpLabel.setShadow(0, 0, '#22c55e', 8, false, true);
     this.pingText = this.add.text(10, 34, 'PING …', {
       fontFamily: MONO, fontSize: '11px', color: '#64748b',
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
@@ -238,12 +239,13 @@ export class ArenaScene extends Phaser.Scene {
     ammoCard.strokeRoundedRect(796, 340, 160, 96, 12);
     this.add.image(872, 372, 'gun').setScale(0.8).setScrollFactor(0).setDepth(10).setAlpha(0.9);
     this.ammoTitle = this.add.text(950, 352, 'PISTOL', {
-      fontFamily: MONO, fontSize: '13px', color: '#94a3b8',
+      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: '#94a3b8',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.ammoCount = this.add.text(950, 366, '12/12', {
-      fontFamily: MONO, fontSize: '30px', color: '#fff',
+      fontFamily: COND, fontSize: '32px', fontStyle: '700', color: '#fff',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount.setStroke('#000000', 4);
+    this.ammoCount.setStroke('#020617', 5);
+    this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
     this.ammoHint = this.add.text(950, 402, 'R reload · 1/2 swap', {
       fontFamily: BODY, fontSize: '12px', color: '#64748b',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
@@ -254,7 +256,7 @@ export class ArenaScene extends Phaser.Scene {
     this.reloadBg = this.add.rectangle(895, 448, 110, 30, 0x0b1220, 0.92)
       .setStrokeStyle(1.5, 0xeab308, 0.9).setScrollFactor(0).setDepth(10);
     this.reloadTx = this.add.text(895, 448, '⟳ RELOAD', {
-      fontFamily: BODY, fontSize: '14px', fontStyle: '700', color: '#facc15',
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.reloadBg.setInteractive({ useHandCursor: true });
     this.reloadBg.on('pointerover', () => this.reloadBg.setFillStyle(0x334155));
@@ -282,13 +284,16 @@ export class ArenaScene extends Phaser.Scene {
     const liveDot = this.add.circle(434, 14, 5, 0xef4444).setScrollFactor(0).setDepth(11);
     this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
     this.clockText = this.add.text(484, 14, '2:00', {
-      fontFamily: MONO, fontSize: '16px', color: '#facc15',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.clockText.setStroke('#020617', 3);
+    this.clockText.setShadow(0, 0, '#facc15', 10, false, true);
     this.compassText = this.add.text(480, 44, 'HDG 090 · E', {
-      fontFamily: MONO, fontSize: '12px', color: '#7dd3fc',
+      fontFamily: COND, fontSize: '13px', fontStyle: '700', color: '#7dd3fc',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.compassText.setStroke('#020617', 3);
     this.wantedText = this.add.text(480, 66, '', {
-      fontFamily: MONO, fontSize: '15px', color: '#facc15',
+      fontFamily: COND, fontSize: '16px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.wantedText.setStroke('#000000', 3);
     this.roundText = this.add.text(480, 88, '', {
@@ -304,9 +309,10 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaBorn = Date.now();
     // GTA cash counter top-right, scoreboard below it
     this.cashText = this.add.text(950, 8, '$0', {
-      fontFamily: MONO, fontSize: '20px', color: '#4ade80',
+      fontFamily: COND, fontSize: '22px', fontStyle: '700', color: '#4ade80',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
-    this.cashText.setStroke('#000000', 4);
+    this.cashText.setStroke('#020617', 4);
+    this.cashText.setShadow(0, 0, '#4ade80', 10, false, true);
     this.scoreText = this.add.text(950, 36, '', {
       fontFamily: MONO, fontSize: '14px', color: '#e2e8f0', align: 'right', lineSpacing: 3,
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
@@ -627,8 +633,9 @@ export class ArenaScene extends Phaser.Scene {
       const body = this.add.image(0, 0, avatarTex(this, mine ? 'me' : 'foe', idx));
       const gun = this.add.image(8, 0, 'gun');
       gun.setOrigin(0.15, 0.5);
-      const label = this.add.text(-20, -36, p.name, { fontSize: '12px', fontStyle: '600', color: '#fff', fontFamily: BODY });
-      label.setStroke('#000000', 3);
+      const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
+      label.setStroke('#020617', 4);
+      label.setShadow(0, 0, mine ? '#22d3ee' : '#ef4444', 6, false, true);
       const gfx = this.add.container(p.x, p.y, [sh, legs, ring, ringB, body, gun, label]);
       this.players.set(id, {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,

@@ -1,29 +1,71 @@
 import Phaser from 'phaser';
 
-// Central type system: GTA-condensed display, athletic body, terminal mono.
+// Premium type system:
+//   DISPLAY — Anton: condensed marquee titles (headers, banners, results).
+//   COND    — Chakra Petch: techy workhorse for buttons, kickers, HUD numbers.
+//   BODY    — Rajdhani: paragraphs, hints, roster prose.
+//   MONO    — Share Tech Mono: codes, hashes, data readouts.
 export const DISPLAY = '"Anton", "Rajdhani", sans-serif';
+export const COND = '"Chakra Petch", "Rajdhani", sans-serif';
 export const BODY = '"Rajdhani", system-ui, sans-serif';
 export const MONO = '"Share Tech Mono", monospace';
+
+// Wide tracking for eyebrow labels (Phaser has no letter-spacing, so we
+// letterspace with hair spaces — matches the existing kicker look).
+export function track(str: string): string {
+  return str.split('').join('  ');
+}
 
 // Small letterspaced kicker label (section eyebrows, broadcast tags).
 export function kicker(
   scene: Phaser.Scene, x: number, y: number, str: string,
   color = '#f59e0b', size = 13, depth = 2,
 ) {
-  const t = scene.add.text(x, y, str.split('').join('  '), {
-    fontFamily: BODY, fontSize: `${size}px`, fontStyle: '700', color,
+  const t = scene.add.text(x, y, track(str), {
+    fontFamily: COND, fontSize: `${size}px`, fontStyle: '700', color,
   }).setOrigin(0.5).setDepth(depth);
+  t.setStroke('#020617', 3);
+  t.setShadow(0, 0, color, 8, false, true);
   return t;
 }
 
-// Big extruded title: dark offset base + glowing face + top sheen.
+// Button / nav label: bold condensed caps with carved depth.
+export function label(
+  scene: Phaser.Scene, x: number, y: number, str: string,
+  size = 17, color = '#ffffff', depth = 2,
+) {
+  const t = scene.add.text(x, y, str, {
+    fontFamily: COND, fontSize: `${size}px`, fontStyle: '700', color,
+  }).setOrigin(0.5).setDepth(depth);
+  t.setStroke('#0b1220', 4);
+  t.setShadow(0, 2, '#000000', 5, false, true);
+  return t;
+}
+
+// HUD number: heavy condensed figure with glow + hard legibility stroke.
+export function num(
+  scene: Phaser.Scene, x: number, y: number, str: string,
+  size = 30, color = '#ffffff', glow = '#22d3ee', depth = 10,
+) {
+  const t = scene.add.text(x, y, str, {
+    fontFamily: COND, fontSize: `${size}px`, fontStyle: '700', color,
+  }).setOrigin(0.5).setDepth(depth);
+  t.setStroke('#020617', Math.max(3, Math.round(size / 8)));
+  t.setShadow(0, 0, glow, 12, false, true);
+  return t;
+}
+
+// Big extruded title: double-offset base + glowing face + top sheen.
 export function displayText(
   scene: Phaser.Scene,
   x: number, y: number, str: string, size: number,
   color = '#ffffff', glow = '#22d3ee', depth = 2, fixed = false,
 ) {
-  const back = scene.add.text(2, 3, str, {
+  const back = scene.add.text(3, 4.5, str, {
     fontFamily: DISPLAY, fontSize: `${size}px`, color: '#020617',
+  }).setOrigin(0.5).setAlpha(0.9);
+  const mid = scene.add.text(1.5, 2, str, {
+    fontFamily: DISPLAY, fontSize: `${size}px`, color: '#0b1220',
   }).setOrigin(0.5);
   const front = scene.add.text(0, 0, str, {
     fontFamily: DISPLAY, fontSize: `${size}px`, color,
@@ -33,6 +75,9 @@ export function displayText(
   const sheen = scene.add.text(0, -Math.max(1, size * 0.03), str, {
     fontFamily: DISPLAY, fontSize: `${size}px`, color: '#ffffff',
   }).setOrigin(0.5).setAlpha(0.16);
-  if (fixed) { back.setScrollFactor(0); front.setScrollFactor(0); sheen.setScrollFactor(0); }
-  return scene.add.container(x, y, [back, front, sheen]).setDepth(depth);
+  if (fixed) {
+    back.setScrollFactor(0); mid.setScrollFactor(0);
+    front.setScrollFactor(0); sheen.setScrollFactor(0);
+  }
+  return scene.add.container(x, y, [back, mid, front, sheen]).setDepth(depth);
 }

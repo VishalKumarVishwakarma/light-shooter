@@ -3,7 +3,7 @@ import { Session, fetchLobbies, randomName } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
 import { sfx } from '../audio';
-import { BODY, displayText, kicker } from '../fonts';
+import { BODY, COND, displayText, kicker } from '../fonts';
 
 export class MenuScene extends Phaser.Scene {
   private errText!: Phaser.GameObjects.Text;
@@ -152,8 +152,9 @@ export class MenuScene extends Phaser.Scene {
     // footer: settings / how-to / credits + version
     const foot = (x: number, label: string, fn: () => void) => {
       const t = this.add.text(x, 578, label, {
-        fontFamily: BODY, fontSize: '14px', fontStyle: '700', color: '#64748b',
+        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#64748b',
       }).setOrigin(0.5).setDepth(2);
+      t.setStroke('#020617', 3);
       t.setInteractive({ useHandCursor: true });
       t.on('pointerover', () => t.setColor('#22d3ee'));
       t.on('pointerout', () => t.setColor('#64748b'));
@@ -194,7 +195,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private linkButton(parent: Phaser.GameObjects.Container, x: number, y: number, label: string, selected: boolean, fn: () => void) {    const t = this.add.text(x, y, label, {
-      fontFamily: BODY, fontSize: '16px', fontStyle: '700', color: selected ? '#22d3ee' : '#64748b',
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: selected ? '#22d3ee' : '#64748b',
     }).setOrigin(0.5);
     t.setInteractive({ useHandCursor: true });
     t.on('pointerdown', fn);

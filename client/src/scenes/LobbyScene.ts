@@ -352,7 +352,9 @@ export class LobbyScene extends Phaser.Scene {
               : `ready ${ready}/${n} — press START when ready`,
       );
     };
-    room.state.players.onAdd(draw);
+    // roster redraws on join, leave, AND any player field change (ready toggles
+    // only flip a nested field — without per-player onChange the badges never update)
+    room.state.players.onAdd((p: any) => { p.onChange(draw); draw(); });
     room.state.players.onRemove((_p: any, id: string) => {
       const name = known.get(id);
       known.delete(id);

@@ -831,7 +831,7 @@ export class ArenaScene extends Phaser.Scene {
       const bootR = this.add.image(7, 8, 'boot');
       const legs = this.add.container(0, 0, [bootL, bootR]);
       const body = this.add.image(0, 0, avatarTex(this, mine ? 'me' : 'foe', idx));
-      const gun = this.add.image(8, 0, 'gun');
+      const gun = this.add.image(8, 0, 'gun').setScale(0.85); // barrel tip lands on MUZZLE
       gun.setOrigin(0.15, 0.5);
       const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
       label.setStroke('#020617', 4);

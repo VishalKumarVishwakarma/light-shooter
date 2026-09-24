@@ -26,7 +26,7 @@ function angLerp(a: number, b: number, t: number) {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
-type BObj = { img: Phaser.GameObjects.Image };
+type BObj = { img: Phaser.GameObjects.Image; vx: number; vy: number };
 
 export class ArenaScene extends Phaser.Scene {
   meId = '';
@@ -73,6 +73,7 @@ export class ArenaScene extends Phaser.Scene {
   private myMove = { dx: 0, dy: 0 };
   private firing = false;
   private lastFire = 0;
+  private camLocked = false; // camera follow issued once per arena entry
   private shotSfxAt = new Map<string, number>(); // per-shooter throttle: one boom per volley
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
@@ -142,6 +143,7 @@ export class ArenaScene extends Phaser.Scene {
     this.rubble.forEach((r) => r.destroy());
     this.rubble.clear();
     this.myVel = { x: 0, y: 0 };
+    this.camLocked = false;
     // fresh maps/arrays: display objects were destroyed on shutdown
     this.players.clear();
     this.bullets.clear();
@@ -727,7 +729,7 @@ export class ArenaScene extends Phaser.Scene {
       if (foe) img.setTint(0xfb923c);
       img.setRotation(Math.atan2(b.vy, b.vx));
       img.setScale(2.1, 0.85); // stretched tracer hides spawn pop
-      this.bullets.set(id, { img });
+      this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
       // muzzle flash + recoil at the shooter's barrel
       const own = this.players.get(b.ownerId);
       if (own) {
@@ -746,7 +748,15 @@ export class ArenaScene extends Phaser.Scene {
           sfx.shoot(typeof b.weapon === 'string' ? b.weapon : 'pistol', 1.1 - d / 850);
         }
       }
-      b.onChange(() => { if (!live()) return; img.setPosition(b.x, b.y); img.setRotation(Math.atan2(b.vy, b.vx)); });
+      b.onChange(() => {
+        if (!live()) return;
+        const o = this.bullets.get(id);
+        if (!o) return;
+        // authoritative tick correction (small — extrapolation covers the gaps)
+        o.img.setPosition(b.x, b.y);
+        o.vx = b.vx; o.vy = b.vy;
+        o.img.setRotation(Math.atan2(b.vy, b.vx));
+      });
       b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); });
     });
 
@@ -1206,8 +1216,13 @@ export class ArenaScene extends Phaser.Scene {
       this.myVel = { x: s.vx, y: s.vy };
       me.tx = me.gfx.x; me.ty = me.gfx.y;
       me.gun.setRotation(ang);
-      this.cameras.main.startFollow(me.gfx, true, 0.15, 0.15);
-      this.cameras.main.setZoom(1);
+      // lock the camera once: re-issuing startFollow every frame resets its
+      // lerp state and reads as micro-stutter
+      if (!this.camLocked) {
+        this.camLocked = true;
+        this.cameras.main.startFollow(me.gfx, true, 0.15, 0.15);
+        this.cameras.main.setZoom(1);
+      }
       (this as any)._acc = ((this as any)._acc || 0) + dt;
       if ((this as any)._acc > 1 / 20) {
         (this as any)._acc = 0;
@@ -1237,6 +1252,15 @@ export class ArenaScene extends Phaser.Scene {
       o.gfx.x += (o.tx - o.gfx.x) * Math.min(1, dt * 12);
       o.gfx.y += (o.ty - o.gfx.y) * Math.min(1, dt * 12);
     });
+    // dead-reckon bullets between 20Hz server ticks (sniper covers 65px/tick —
+    // snapping reads as stutter; ticks still correct via onChange)
+    if (dt > 0) {
+      const step = Math.min(dt, 0.05);
+      this.bullets.forEach((o) => {
+        o.img.x += o.vx * step;
+        o.img.y += o.vy * step;
+      });
+    }
     // fade kill feed after a few quiet seconds
     if (this.feedRows.length && Date.now() > this.feedExpiry) {
       for (const r of this.feedRows) {

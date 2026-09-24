@@ -29,6 +29,7 @@ export class Player extends Schema {
   @type('boolean') shotgun = false;
   @type('boolean') sniper = false;
   @type('boolean') laser = false;
+  @type('boolean') guard = true; // shield stance: blocks bullets, knife-only until lowered
   @type('boolean') reloading = false;
 }
 

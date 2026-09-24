@@ -72,6 +72,7 @@ export class ShooterRoom extends Room<ShooterState> {
       if (this.state.phase !== 'playing') return;
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive || p.reloading) return;
+      if (p.guard) return; // shield raised: knife only — lower it (Q) to fire
       const w = WEAPONS[p.weapon] || WEAPONS.pistol;
       const now = Date.now() / 1000;
       if (now - (this.lastShot.get(c.sessionId) || 0) < w.interval) return; // fire-rate limit
@@ -90,6 +91,12 @@ export class ShooterRoom extends Room<ShooterState> {
     this.onMessage('reload', (c) => {
       if (this.state.phase !== 'playing') return;
       this.startReload(c.sessionId);
+    });
+    this.onMessage('guard', (c) => {
+      if (this.state.phase !== 'playing') return;
+      const p = this.state.players.get(c.sessionId);
+      if (!p || !p.alive) return;
+      p.guard = !p.guard; // shield stance <-> gun stance (knives ignore stance)
     });
     this.onMessage('switch', (c, m: { weapon?: string }) => {
       if (this.state.phase !== 'playing') return;
@@ -349,6 +356,7 @@ export class ShooterRoom extends Room<ShooterState> {
       p.weapon = 'pistol'; p.ammo = 0; p.pammo = WEAPONS.pistol.clip;
       p.sammo = 0; p.nammo = 0; p.lammo = 0;
       p.rifle = false; p.shotgun = false; p.sniper = false; p.laser = false; p.reloading = false;
+      p.guard = true; // everyone spawns shielded — lower it (Q) to shoot
       (p as any)._deadT = 0;
     });
     this.vel.clear();
@@ -463,6 +471,7 @@ export class ShooterRoom extends Room<ShooterState> {
           p.alive = true; p.hp = 100;
           p.shield = this.shieldSeconds; // spawn protection
           p.shieldPts = 0; p.speedT = 0; // buffs die with you
+          p.guard = true; // respawn shielded
           p.pammo = WEAPONS.pistol.clip;
           if (p.rifle) p.ammo = WEAPONS.rifle.clip;
           if (p.shotgun) p.sammo = WEAPONS.shotgun.clip;
@@ -555,6 +564,12 @@ export class ShooterRoom extends Room<ShooterState> {
           const dx = p.x - px, dy = p.y - py;
           if (dx * dx + dy * dy >= 22 * 22) return;
           const before = Math.max(0, p.hp);
+          // raised shield stance blocks bullets entirely (knives bypass it)
+          if (p.guard) {
+            killAt(px, py);
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            return;
+          }
           // spawn shield absorbs everything while active (fairness rule)
           if (p.shield > 0) {
             killAt(px, py);

@@ -30,6 +30,17 @@ async function settle(room, id) {
   return room.state.players.get(id).toJSON();
 }
 
+// gunMode: everyone spawns shielded (guard=true, knife-only). Bots that need
+// to shoot must lower first; victims must lower to be damageable.
+async function gunMode(room) {
+  const me = room.state.players.get(room.sessionId).toJSON();
+  if (me.guard) {
+    room.send('guard', {});
+    await sleep(300);
+  }
+  return room.state.players.get(room.sessionId).toJSON().guard === false;
+}
+
 async function main() {
   try {
     const res = await fetch('http://localhost:2567/');
@@ -75,6 +86,7 @@ async function main() {
   hr.send('startGame');
   ok(await waitPhase(hr, 'countdown', 3000), 'host start begins countdown');
   ok(await waitPhase(hr, 'playing', 8000), 'game goes live');
+  ok(await gunMode(hr) && await gunMode(gr), 'duelists lower shields to gun mode');
 
   // 6. Combat live
   const m0 = hr.state.players.get(hr.sessionId).toJSON();
@@ -86,7 +98,8 @@ async function main() {
   // 7. FFA duel: chase bot guns the guest down twice (kill target 2) -> ended + winner
   const pos = (room, id) => room.state.players.get(id)?.toJSON();
   async function duelKill(shooter, victim, wantKills, timeoutMs = 90000) {
-    // shooter chases + fires, victim holds still; wall unstick via sidestep
+    // shooter chases + fires, victim holds still; wall unstick via sidestep.
+    // respawns come back shielded: keep both ends in gun mode every pass.
     let stall = 0, lx = 0, ly = 0, mode = 'chase', modeN = 0, side = 1;
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
@@ -94,6 +107,8 @@ async function main() {
       const v = pos(victim.room, victim.id);
       if (!s || !v || shooter.room.state.phase !== 'playing') { await sleep(300); continue; }
       if (s.kills >= wantKills) return true;
+      if (s.guard) { shooter.room.send('guard', {}); await sleep(300); continue; }
+      if (v.guard && v.alive) { victim.room.send('guard', {}); await sleep(300); continue; }
       const dx = v.x - s.x, dy = v.y - s.y, d = Math.hypot(dx, dy) || 1;
       const ang = Math.atan2(dy, dx);
       if (mode === 'chase') {
@@ -162,6 +177,7 @@ async function main() {
   await sleep(400);
   t1r.send('startGame');
   ok(await waitPhase(t1r, 'playing', 8000), 'timed match goes live');
+  ok(await gunMode(t1r), 'timer host in gun mode');
   ok(t1r.state.timeLeft > 0 && t1r.state.timeLeft <= 8, `timer running (${t1r.state.timeLeft.toFixed(1)}s)`);
   // muzzle origin: bullet appears at the gun tip, on the aim line
   const sh0 = t1r.state.players.get(t1r.sessionId).toJSON();
@@ -186,6 +202,7 @@ async function main() {
   await sleep(400);
   k1r.send('startGame');
   ok(await waitPhase(k1r, 'playing', 9000), 'leader match goes live');
+  ok(await gunMode(k1r) && await gunMode(k2r), 'leader duel in gun mode');
   for (let i = 0; i < 15; i++) { // host east to nook, guest west toward mid
     const a = k1r.state.players.get(k1r.sessionId).toJSON();
     if (a.x > 540) break;
@@ -264,6 +281,7 @@ async function main() {
   await sleep(400);
   a1r.send('startGame');
   ok(await waitPhase(a1r, 'playing', 9000), 'wall-test match goes live');
+  ok(await gunMode(a1r), 'wall-test host in gun mode');
   for (let i = 0; i < 20; i++) { // east to x~550 (clear of B5 above)
     const ap = a1r.state.players.get(a1r.sessionId).toJSON();
     if (ap.x > 540) break;
@@ -318,6 +336,7 @@ async function main() {
   await sleep(400);
   u1r.send('startGame');
   ok(await waitPhase(u1r, 'playing', 9000), 'arms match goes live');
+  ok(await gunMode(u1r) && await gunMode(u2r), 'arms room in gun mode');
   // pistol fire-rate limit: 8 instant shots -> only a couple of bullets
   for (let i = 0; i < 8; i++) u1r.send('shoot', { angle: 0 });
   await sleep(300);
@@ -435,6 +454,7 @@ async function main() {
   await sleep(400);
   s1r.send('startGame');
   ok(await waitPhase(s1r, 'playing', 9000), 'arms-race match goes live');
+  ok(await gunMode(s1r) && await gunMode(s2r), 'arms-race room in gun mode');
   for (let i = 0; i < 8; i++) { // host grabs shotgun 100px east of spawn
     const p = s1r.state.players.get(s1r.sessionId).toJSON();
     if (p.x > 270) break;
@@ -591,6 +611,7 @@ async function main() {
   await sleep(400);
   f1r.send('startGame');
   ok(await waitPhase(f1r, 'playing', 9000), 'buff match goes live');
+  ok(await gunMode(f1r) && await gunMode(f2r), 'buff room in gun mode');
   for (let i = 0; i < 10; i++) { // host south to the shield pad (200,320)
     const p = f1r.state.players.get(f1r.sessionId).toJSON();
     if (p.y > 300) break;
@@ -675,6 +696,70 @@ async function main() {
   const zw = z1r.state.players.get(z1r.sessionId).toJSON();
   ok(zw.rifle === true, 'kept the prize rifle');
   await z1r.leave(); await z2r.leave();
+
+  // 21. Shield stance: spawn guarded, bullets bounce off, guarded can't fire,
+  // lowering enables guns, knives pierce the stance.
+  const d1 = new Client(URL);
+  const d1r = await d1.create('shooter', { name: 'guard1', killTarget: 30, shieldSeconds: 0 });
+  const d2 = new Client(URL);
+  const d2r = await d2.joinById(d1r.id, { name: 'guard2' });
+  await sleep(400);
+  d1r.send('startGame');
+  ok(await waitPhase(d1r, 'playing', 9000), 'guard match goes live');
+  const dg1 = d1r.state.players.get(d1r.sessionId).toJSON();
+  const dg2 = d2r.state.players.get(d2r.sessionId).toJSON();
+  ok(dg1.guard === true && dg2.guard === true, 'everyone spawns shielded');
+  ok(await gunMode(d1r), 'shooter lowers to gun mode (victim stays raised)');
+  // close to <150px (inside pistol range, one clean lane), then fire
+  for (let i = 0; i < 30; i++) {
+    const a = d1r.state.players.get(d1r.sessionId).toJSON();
+    const b = d2r.state.players.get(d2r.sessionId).toJSON();
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 150) break;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+    d1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  d1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(400);
+  const ga = d1r.state.players.get(d1r.sessionId).toJSON();
+  const gb = d2r.state.players.get(d2r.sessionId).toJSON();
+  const blocked = [];
+  d1r.onMessage('hit', (m) => blocked.push(m));
+  d1r.send('shoot', { angle: Math.atan2(gb.y - ga.y, gb.x - ga.x) });
+  await sleep(600);
+  const gbAfter = d2r.state.players.get(d2r.sessionId).toJSON();
+  ok(gbAfter.hp === 100, `raised shield bounces bullets (hp=${gbAfter.hp})`);
+  ok(blocked.some((m) => m.dmg === 0), 'blocked impact reports 0 dmg');
+  // guarded shooter can't fire: raise, shoot, ammo untouched
+  d1r.send('guard', {});
+  await sleep(300);
+  const ammoBefore = d1r.state.players.get(d1r.sessionId).pammo;
+  d1r.send('shoot', { angle: 0 });
+  await sleep(400);
+  const ammoAfter = d1r.state.players.get(d1r.sessionId).pammo;
+  ok(ammoBefore === ammoAfter, `shielded guns stay silent (ammo ${ammoBefore})`);
+  // knives pierce: close to <45, face, swing
+  d1r.send('guard', {});
+  await sleep(300);
+  for (let i = 0; i < 30; i++) {
+    const a = d1r.state.players.get(d1r.sessionId).toJSON();
+    const b = d2r.state.players.get(d2r.sessionId).toJSON();
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 45) break;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+    d1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  d1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(300);
+  const kPre = d2r.state.players.get(d2r.sessionId).toJSON();
+  const kPf = d1r.state.players.get(d1r.sessionId).toJSON();
+  d1r.send('move', { dx: 0, dy: 0, angle: Math.atan2(kPre.y - kPf.y, kPre.x - kPf.x) });
+  await sleep(250);
+  d1r.send('melee', {});
+  await sleep(400);
+  const kPost = d2r.state.players.get(d2r.sessionId).toJSON();
+  ok(kPre.hp - kPost.hp === 50, `knife pierces the shield (${kPre.hp} -> ${kPost.hp})`);
+  await d1r.leave(); await d2r.leave();
 
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

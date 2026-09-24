@@ -98,6 +98,8 @@ export class ArenaScene extends Phaser.Scene {
   private reloadBar!: Phaser.GameObjects.Rectangle;
   private reloadBg!: Phaser.GameObjects.Rectangle;
   private reloadTx!: Phaser.GameObjects.Text;
+  private guardBg!: Phaser.GameObjects.Rectangle;
+  private guardTx!: Phaser.GameObjects.Text;
   private grabBtn: Btn | null = null;
 
   constructor() { super('arena'); }
@@ -185,7 +187,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,ONE,TWO,THREE,FOUR,FIVE,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,ONE,TWO,THREE,FOUR,FIVE,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -198,6 +200,11 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
       kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
       kb.on('keydown-FIVE', () => Session.room?.send('switch', { weapon: 'laser' }));
+      kb.on('keydown-Q', () => {
+        Session.room?.send('guard');
+        const g = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '');
+        sfx.guard(!g?.guard); // clank previews the stance we're entering
+      });
       kb.on('keydown-TAB', () => this.toggleBoard());
       kb.on('keydown-F', () => {
         Session.room?.send('melee');
@@ -281,6 +288,23 @@ export class ArenaScene extends Phaser.Scene {
       sfx.reload();
       this.reloadBg.setAlpha(0.6);
       this.time.delayedCall(150, () => this.reloadBg.setAlpha(1));
+    });
+    // stance toggle (touch + mouse; Q works too): shield = knife-only, gun = fire
+    this.guardBg = this.add.rectangle(75, 448, 130, 30, 0x0b1220, 0.92)
+      .setStrokeStyle(1.5, 0x4ade80, 0.9).setScrollFactor(0).setDepth(10);
+    this.guardTx = this.add.text(75, 448, '🛡 SHIELD', {
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#4ade80',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.guardTx.setStroke('#020617', 3);
+    this.guardBg.setInteractive({ useHandCursor: true });
+    this.guardBg.on('pointerover', () => this.guardBg.setFillStyle(0x1e293b));
+    this.guardBg.on('pointerout', () => this.guardBg.setFillStyle(0x0b1220));
+    this.guardBg.on('pointerdown', () => {
+      Session.room?.send('guard');
+      const g = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '');
+      sfx.guard(!g?.guard);
+      this.guardBg.setAlpha(0.6);
+      this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
     });
     // actionable pickup button: appears near a rifle, click/tap to grab (E works too)
     this.grabBtn = makeButton(this, {
@@ -370,6 +394,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.grabBtn?.c.visible
         && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
       if (Math.abs(pt.x - 895) < 60 && Math.abs(pt.y - 448) < 20) return; // reload btn
+      if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -390,6 +415,13 @@ export class ArenaScene extends Phaser.Scene {
     if (!room || (room as any).state?.phase !== 'playing') return;
     const me = this.players.get(this.meId);
     if (!me) return;
+    const st = (room as any).state?.players.get(this.meId);
+    if (st?.guard) { // shield raised: guns are dead — knife (F) or lower (Q)
+      sfx.empty();
+      this.guardBg.setAlpha(0.5);
+      this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
+      return;
+    }
     const w = WEAPONS[this.ownWeapon()] || WEAPONS.pistol;
     const now = this.time.now / 1000;
     if (now - this.lastFire < w.interval) return;
@@ -877,10 +909,15 @@ export class ArenaScene extends Phaser.Scene {
       this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
       this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText('R reload · 1-5 swap · F knife');
+    this.ammoHint.setText('R reload · 1-5 swap · F knife · Q guard');
     const needReload = !p.reloading && left < W.clip;
     this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
+    // stance badge mirrors the server guard flag (drawAmmo runs for me on change)
+    const guarded = !!p.guard;
+    this.guardTx.setText(guarded ? '🛡 SHIELD' : '🔫 GUN');
+    this.guardTx.setColor(guarded ? '#4ade80' : '#60a5fa');
+    this.guardBg.setStrokeStyle(1.5, guarded ? 0x4ade80 : 0x60a5fa, 0.9);
   }
 
   private lastStreak = 0;

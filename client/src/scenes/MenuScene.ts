@@ -241,7 +241,7 @@ export class MenuScene extends Phaser.Scene {
     });
     rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1/2 or wheel swap · E interact',
+      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-5 or wheel swap · E interact · Q shield',
       { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
     ctl.setStroke('#020617', 3);
     m.body.add(ctl);
@@ -256,14 +256,15 @@ export class MenuScene extends Phaser.Scene {
       ['✋', 'Move with WASD or arrow keys.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
       ['🔫', 'Grab rifles/shotguns/snipers/lasers with E — R reloads, 1-5 or wheel swaps.'],
-      ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown.'],
+      ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown. It pierces shields.'],
+      ['🛡️', 'Everyone spawns SHIELDED: bullets bounce off, but you can only knife. Q lowers it to fire.'],
       ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],
       ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],
       ['🌊', 'Rivers block you (not bullets). Ice is slippery. Bushes hide you.'],
       ['🏆', 'Most kills at the whistle — or first to the kill target — wins.'],
     ];
     rows.forEach(([icon, txt], i) => {
-      const row = this.add.text(-240, -130 + i * 38, `${icon}   ${txt}`, {
+      const row = this.add.text(-240, -136 + i * 34, `${icon}   ${txt}`, {
         fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT,
       }).setOrigin(0, 0.5);
       row.setStroke('#020617', 3);

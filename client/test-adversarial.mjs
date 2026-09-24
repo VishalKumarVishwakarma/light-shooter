@@ -8,6 +8,16 @@ const ok = (cond, msg) => {
   else { fail++; console.log(`FAIL: ${msg}`); }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// gunMode: everyone spawns shielded — bots that shoot must lower first.
+async function gunMode(room) {
+  const me = room.state.players.get(room.sessionId).toJSON();
+  if (me.guard) {
+    room.send('guard', {});
+    await sleep(300);
+  }
+  return room.state.players.get(room.sessionId).toJSON().guard === false;
+}
 const finite = (p) => Number.isFinite(p.x) && Number.isFinite(p.y);
 
 async function waitPhase(room, want, timeout = 9000) {
@@ -155,6 +165,7 @@ async function main() {
     ok(!hn.includes('<') && !hn.includes('>') && hn.length <= 12, `name sanitized ("${hn}")`);
     hr.send('startGame');
     ok(await waitPhase(hr, 'playing', 9000), 'shield match goes live');
+    ok(await gunMode(hr), 'shooter lowers shield (victim keeps spawn shield)');
     // ping round-trip (mod-1M timestamps stay 32-bit for the codec)
     let rtt = -1;
     hr.onMessage('pong', (m) => {

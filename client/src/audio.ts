@@ -135,6 +135,11 @@ class SFX {
   }
   // Knife: fast bandpass whoosh sweeping up.
   melee() { this.noise(0.16, 0.32, 900, 0, 'bandpass', 3800); }
+  // Shield stance: metallic shield clank (raise) + unlatch (lower).
+  guard(on: boolean) {
+    if (on) { this.tone(220, 0.12, 'square', 0.2, 60); this.noise(0.1, 0.25, 1800); }
+    else { this.tone(440, 0.09, 'square', 0.18, -160); this.noise(0.07, 0.2, 2600); }
+  }
   // Dry fire: empty chamber click.
   empty() { this.tone(950, 0.04, 'square', 0.12); this.tone(500, 0.05, 'square', 0.1, 0, 0.05); }
   reload() { this.tone(300, 0.07, 'square', 0.15); this.tone(450, 0.07, 'square', 0.15, 0, 0.12); }

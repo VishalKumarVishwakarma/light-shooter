@@ -57,8 +57,11 @@ for (const [kind, x, y] of PICKUP_POINTS) {
   if (inRect(x, y, SOLIDS)) { pkClear = false; console.log(`  pickup ${kind} inside solid`, x, y); }
 }
 ok(pkClear, `${PICKUP_POINTS.length} pickup points on open ground`);
-ok(PICKUP_POINTS.length === 12, '12 pickup points (maze prize + sniper twins + laser included)');
+ok(PICKUP_POINTS.length === 15, '15 pickup points (guns + stance + throwables)');
 ok(PICKUP_POINTS.filter(([k]) => k === 'sniper').length === 2, 'sniper spawns east + west');
+for (const k of ['grenade', 'smoke', 'molly']) {
+  ok(PICKUP_POINTS.some(([kk]) => kk === k), `${k} pad on the map`);
+}
 
 // 8. stepMove: full speed off ice, drift on ice
 const open = [];

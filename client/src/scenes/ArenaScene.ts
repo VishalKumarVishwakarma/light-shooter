@@ -20,6 +20,7 @@ type PObj = {
   sx: number; sy: number; // last authoritative position (reconciliation anchor)
   hist: Array<{ t: number; x: number; y: number }>; // remote snapshot buffer (interp)
   col: number; // squad color (minimap blip + label glow)
+  smoked: boolean; // inside smoke: dimmed + unlabeled on foe screens
   pool?: Phaser.GameObjects.Image;
 };
 
@@ -35,6 +36,9 @@ export class ArenaScene extends Phaser.Scene {
   meId = '';
   players = new Map<string, PObj>();
   bullets = new Map<string, BObj>();
+  throws = new Map<string, { img: Phaser.GameObjects.Image; vx: number; vy: number }>();
+  clouds = new Map<string, Phaser.GameObjects.Container>();
+  throwBtns: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text; kind: string; key: string; icon: string }> = [];
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -166,6 +170,9 @@ export class ArenaScene extends Phaser.Scene {
     // fresh maps/arrays: display objects were destroyed on shutdown
     this.players.clear();
     this.bullets.clear();
+    this.throws.clear();
+    this.clouds.clear();
+    this.throwBtns = [];
     this.pickups.clear();
     this.pkDots.clear();
     this.feedRows.forEach((r) => { r.bg.destroy(); r.k.destroy(); r.m.destroy(); r.v.destroy(); });
@@ -197,7 +204,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,ONE,TWO,THREE,FOUR,FIVE,SIX,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -214,6 +221,9 @@ export class ArenaScene extends Phaser.Scene {
         Session.room?.send('guard', { on: true }); // slot 6: raise the shield
         sfx.guard(true);
       });
+      kb.on('keydown-G', () => this.throwOrd('grenade'));
+      kb.on('keydown-X', () => this.throwOrd('molly'));
+      kb.on('keydown-C', () => this.throwOrd('smoke'));
       kb.on('keydown-Q', () => {
         Session.room?.send('guard');
         const g = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '');
@@ -304,6 +314,23 @@ export class ArenaScene extends Phaser.Scene {
       sfx.reload();
       this.reloadBg.setAlpha(0.6);
       this.time.delayedCall(150, () => this.reloadBg.setAlpha(1));
+    });
+    // throwable ordnance (bottom-left, above the guard button): tap to toss
+    const ords: Array<[string, string, string]> = [
+      ['G', '💣', 'grenade'], ['X', '🔥', 'molly'], ['C', '💨', 'smoke'],
+    ];
+    this.throwBtns = [];
+    ords.forEach(([key, icon, kind], i) => {
+      const x = 33 + i * 50;
+      const bg = this.add.rectangle(x, 410, 46, 26, 0x0b1220, 0.92)
+        .setStrokeStyle(2, 0x475569, 0.9).setScrollFactor(0).setDepth(10);
+      const tx = this.add.text(x, 410, `${key}${icon}·`, {
+        fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#e2e8f0',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+      tx.setStroke('#020617', 2);
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', () => this.throwOrd(kind));
+      this.throwBtns.push({ bg, tx, kind, key, icon });
     });
     // stance toggle (touch + mouse; Q works too): shield = knife-only, gun = fire
     this.guardBg = this.add.rectangle(75, 448, 130, 30, 0x0b1220, 0.92)
@@ -459,6 +486,7 @@ export class ArenaScene extends Phaser.Scene {
         && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
       if (Math.abs(pt.x - 906) < 45 && Math.abs(pt.y - 428) < 15) return; // reload btn
       if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
+      if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return; // ordnance btns
       if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 110) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
@@ -473,6 +501,20 @@ export class ArenaScene extends Phaser.Scene {
     const me = (Session.room as any)?.state?.players.get(this.meId);
     const w = me?.weapon;
     return w === 'rifle' || w === 'shotgun' || w === 'sniper' || w === 'laser' ? w : 'pistol';
+  }
+
+  // toss ordnance toward the cursor (shield must be lowered first)
+  private throwOrd(kind: string) {
+    const room = Session.room;
+    if (!room || (room as any).state?.phase !== 'playing') return;
+    const me = this.players.get(this.meId);
+    if (!me) return;
+    const st = (room as any).state?.players.get(this.meId);
+    if (st?.guard) { sfx.empty(); return; }
+    const pt = this.input.activePointer;
+    const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
+    room.send('throw', { kind, angle: Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x) });
+    sfx.melee();
   }
 
   private fireNow() {
@@ -799,7 +841,7 @@ export class ArenaScene extends Phaser.Scene {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
         shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
-        hist: [], col, gring,
+        hist: [], col, gring, smoked: !!p.smoked,
       });
       if (!p.alive) body.setTint(0x666677);
       p.onChange(() => {
@@ -808,6 +850,7 @@ export class ArenaScene extends Phaser.Scene {
         if (!o) return;
         o.tx = p.x; o.ty = p.y;
         o.sx = p.x; o.sy = p.y;
+        o.smoked = !!p.smoked;
         if (id !== this.meId) {
           // remote snapshot: respawns/teleports reset the buffer, else append
           const last = o.hist[o.hist.length - 1];
@@ -925,6 +968,77 @@ export class ArenaScene extends Phaser.Scene {
       b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); });
     });
 
+    room.state.throws.onAdd((th: any, id: string) => {
+      if (!live()) return;
+      const cols: Record<string, number> = { grenade: 0x9ca3af, smoke: 0xd1d5db, molly: 0xfb923c };
+      const img = this.add.image(th.x, th.y, 'dot')
+        .setTint(cols[th.kind] ?? 0xffffff).setDepth(5)
+        .setScale(th.kind === 'grenade' ? 1.5 : 1.1);
+      this.throws.set(id, { img, vx: th.vx, vy: th.vy });
+      if (th.kind === 'grenade') {
+        this.tweens.add({ targets: img, alpha: 0.35, duration: 180, yoyo: true, repeat: -1 });
+      }
+      th.onChange(() => {
+        if (!live()) return;
+        const o = this.throws.get(id);
+        if (!o) return;
+        o.img.setPosition(th.x, th.y);
+        o.vx = th.vx; o.vy = th.vy;
+      });
+      th.onRemove(() => {
+        if (!live()) return;
+        const o = this.throws.get(id);
+        if (o) this.tweens.killTweensOf(o.img);
+        o?.img.destroy();
+        this.throws.delete(id);
+      });
+    });
+
+    room.state.clouds.onAdd((cl: any, id: string) => {
+      if (!live()) return;
+      const c = this.add.container(cl.x, cl.y).setDepth(4);
+      if (cl.kind === 'smoke') {
+        for (let i = 0; i < 6; i++) {
+          c.add(this.add.image((Math.random() - 0.5) * 90, (Math.random() - 0.5) * 90, 'dot')
+            .setTint(0x9ca3af).setAlpha(0.5).setScale(3 + Math.random() * 3));
+        }
+      } else {
+        for (let i = 0; i < 5; i++) {
+          c.add(this.add.image((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 70, 'dot')
+            .setTint(i % 2 ? 0xfb923c : 0xfacc15).setAlpha(0.85).setScale(1.6 + Math.random()));
+        }
+        this.tweens.add({ targets: c, scaleX: 1.12, scaleY: 1.12, alpha: 0.85, duration: 320, yoyo: true, repeat: -1 });
+      }
+      this.clouds.set(id, c);
+      sfx.ignite();
+      cl.onChange(() => {
+        if (!live()) return;
+        const o = this.clouds.get(id);
+        if (o) o.setAlpha(cl.t < 1.5 ? Math.max(0, cl.t / 1.5) : 1);
+      });
+      cl.onRemove(() => {
+        if (!live()) return;
+        const o = this.clouds.get(id);
+        if (o) this.tweens.killTweensOf(o);
+        o?.destroy(true);
+        this.clouds.delete(id);
+      });
+    });
+
+    room.onMessage('boom', (m: { x?: number; y?: number; r?: number }) => {
+      if (!live()) return;
+      const x = m?.x || 0, y = m?.y || 0, r = m?.r || 100;
+      const f = this.add.image(x, y, 'muzzle').setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(7).setScale(Math.max(1.5, r / 26));
+      this.tweens.add({ targets: f, alpha: 0, duration: 350, onComplete: () => f.destroy() });
+      this.sparks.explode(Math.min(26, 8 + Math.round(r / 10)), x, y);
+      this.dust.explode(8, x, y);
+      const me = this.players.get(this.meId);
+      const d = me ? Math.hypot(me.gfx.x - x, me.gfx.y - y) : 400;
+      if (d < 550) this.cameras.main.shake(160, 0.005 * Math.max(0, 1 - d / 650));
+      sfx.boom(Math.max(0.15, 1 - d / 900));
+    });
+
     // server gone mid-match: don't freeze silently, route back to menu
     room.onLeave(() => {
       if (!live()) return;
@@ -987,6 +1101,14 @@ export class ArenaScene extends Phaser.Scene {
     this.guardTx.setColor(guarded ? '#4ade80' : '#60a5fa');
     this.guardBg.setStrokeStyle(2.5, guarded ? 0x4ade80 : 0x60a5fa, 0.95);
     this.drawLoadout(p);
+    // ordnance counts on the throw buttons
+    const ordN: Record<string, number> = {
+      grenade: p.grenades || 0, molly: p.mollies || 0, smoke: p.smokes || 0,
+    };
+    this.throwBtns.forEach((b) => {
+      b.tx.setText(`${b.key}${b.icon}${ordN[b.kind] ?? 0}`);
+      b.bg.setAlpha((ordN[b.kind] ?? 0) > 0 ? 1 : 0.45);
+    });
   }
 
   private drawLoadout(p: any) {
@@ -1111,11 +1233,13 @@ export class ArenaScene extends Phaser.Scene {
       const cols: Record<string, number> = {
         health: 0x4ade80, rifle: 0xfacc15, ammo: 0xfdba74,
         shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee, shield: 0x38bdf8, speed: 0xfde047,
+        grenade: 0x9ca3af, smoke: 0xd1d5db, molly: 0xf97316,
       };
       g.fillStyle(cols[pk.kind] ?? 0xffffff, 1);
       g.fillCircle(x0 + pk.x * s, y0 + pk.y * s, 1.8);
     });
     this.players.forEach((o, id) => {
+      if (id !== this.meId && o.smoked) return; // smoke hides foes from the map
       const px = x0 + o.gfx.x * s, py = y0 + o.gfx.y * s;
       if (!o.alive) {
         g.fillStyle(0x475569, 1);
@@ -1146,6 +1270,17 @@ export class ArenaScene extends Phaser.Scene {
     } else if (kind === 'ammo') {
       const box = this.add.rectangle(0, 0, 20, 14, 0xeab308).setStrokeStyle(2.5, 0x92400e);
       inner = [box];
+    } else if (kind === 'grenade' || kind === 'smoke' || kind === 'molly') {
+      // ordnance: chunky icon + name tag (auto-collect on walk-over)
+      const cols: Record<string, number> = { grenade: 0x4b5563, smoke: 0x9ca3af, molly: 0xea580c };
+      const names: Record<string, string> = { grenade: 'GRENADES', smoke: 'SMOKE', molly: 'MOLLY' };
+      const dot = this.add.image(0, 2, 'dot').setTint(cols[kind] ?? 0xffffff).setScale(2.2);
+      const ring = this.add.image(0, 2, 'ring').setScale(0.55).setTint(cols[kind] ?? 0xffffff);
+      const tag = this.add.text(0, -28, names[kind] ?? kind.toUpperCase(), {
+        fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#fdba74',
+      }).setOrigin(0.5);
+      tag.setStroke('#020617', 3);
+      inner = [ring, dot, tag];
     } else { // rifle / shotgun / sniper / laser: gold ring + tinted rifle + name tag
       const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee };
       const ring = this.add.image(0, 0, 'ring').setScale(0.85);
@@ -1412,11 +1547,15 @@ export class ArenaScene extends Phaser.Scene {
       let h = 0;
       for (let i = 0; i < id.length; i++) h = ((h * 31 + id.charCodeAt(i)) >>> 0);
       o.body.setScale(1 + 0.018 * Math.sin(_t / 380 + h));
+      const vanished = o.alive && id !== this.meId && o.smoked; // in smoke: ghost
       if (o.alive && o.shield > 0) {
         o.gfx.setAlpha(0.6 + 0.3 * Math.sin(_t / 130 + h));
+      } else if (vanished) {
+        o.gfx.setAlpha(0.28);
       } else if (o.alive && o.gfx.alpha !== 1) {
         o.gfx.setAlpha(1);
       }
+      o.label.setVisible(!vanished);
       if (o.ring.visible) {
         const s = 1 + 0.09 * Math.sin(_t / 240 + h);
         o.ring.setScale(s);
@@ -1534,6 +1673,10 @@ export class ArenaScene extends Phaser.Scene {
     if (dt > 0) {
       const step = Math.min(dt, 0.05);
       this.bullets.forEach((o) => {
+        o.img.x += o.vx * step;
+        o.img.y += o.vy * step;
+      });
+      this.throws.forEach((o) => {
         o.img.x += o.vx * step;
         o.img.y += o.vy * step;
       });

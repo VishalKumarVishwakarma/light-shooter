@@ -76,7 +76,7 @@ export const BUSH: Rect[] = [
 
 // fixed pickup spawns: [kind, x, y]
 export const PICKUP_POINTS: Array<
-  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'laser' | 'shield' | 'speed', number, number]
+  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'laser' | 'shield' | 'speed' | 'grenade' | 'smoke' | 'molly', number, number]
 > = [
   ['rifle', 400, 200],
   ['health', 200, 450],
@@ -87,6 +87,9 @@ export const PICKUP_POINTS: Array<
   ['sniper', 1350, 300], // east perch, clear of the bush so the ring shows
   ['sniper', 250, 1000], // west twin — both teams get a long gun
   ['laser', 800, 300], // center-north lab — fastest gun on the map
+  ['grenade', 200, 700], // west woods edge — pierces shields
+  ['smoke', 1400, 700], // east woods edge — hides you
+  ['molly', 800, 1100], // south gate — fire burns through shields
   ['shield', 200, 320],
   ['speed', 1400, 450],
   ['rifle', 800, 985], // maze-heart prize (grab it threading the south gap)

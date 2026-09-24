@@ -241,7 +241,7 @@ export class MenuScene extends Phaser.Scene {
     });
     rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-6 or wheel swap · E interact · Q/6 shield',
+      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-6 swap · E grab · Q/6 shield · G/X/C throw',
       { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
     ctl.setStroke('#020617', 3);
     m.body.add(ctl);
@@ -262,9 +262,11 @@ export class MenuScene extends Phaser.Scene {
       ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],
       ['🌊', 'Rivers block you (not bullets). Ice is slippery. Bushes hide you.'],
       ['🏆', 'Most kills at the whistle — or first to the kill target — wins.'],
+      ['💣', 'G lobs grenades — big damage even through shields.'],
+      ['🔥', 'X torches a molly (burns through shields), C drops hiding smoke.'],
     ];
     rows.forEach(([icon, txt], i) => {
-      const row = this.add.text(-240, -136 + i * 34, `${icon}   ${txt}`, {
+      const row = this.add.text(-240, -140 + i * 30, `${icon}   ${txt}`, {
         fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT,
       }).setOrigin(0, 0.5);
       row.setStroke('#020617', 3);

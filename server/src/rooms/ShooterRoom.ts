@@ -1,14 +1,26 @@
 import { Room, Client } from 'colyseus';
-import { ShooterState, Player, Bullet, Pickup, Brick } from '../schema/ShooterState.js';
+import { ShooterState, Player, Bullet, Pickup, Brick, Throw, Cloud } from '../schema/ShooterState.js';
 import {
   W, H, SPAWNS, MUZZLE, WEAPONS, PICKUP_POINTS, BRICK_HP,
-  STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove,
+  STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove, clamp,
 } from '../map.js';
 import { log, metrics } from '../ops.js';
 import type { Rect } from '../map.js';
 
 const TICK = 1000 / 30; // 30Hz authoritative sim (snappy remotes, cheap at 2-8p)
-let bulletSeq = 0, pickupSeq = 0;
+let bulletSeq = 0, pickupSeq = 0, throwSeq = 0, cloudSeq = 0;
+
+// Throwables: grenades pierce guard, smoke hides, fire burns through guard.
+const THROWABLE: Record<string, {
+  count: 'grenades' | 'smokes' | 'mollies'; give: number; cap: number;
+  speed: number; fuse: number; r: number;
+}> = {
+  grenade: { count: 'grenades', give: 2, cap: 3, speed: 520, fuse: 1.2, r: 130 },
+  smoke: { count: 'smokes', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 120 },
+  molly: { count: 'mollies', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 100 },
+};
+const SMOKE_DUR = 6, FIRE_DUR = 5, FIRE_TICK = 0.5, FIRE_DMG = 12;
+const NADE_MAX = 80, NADE_MIN = 15;
 
 const MATCH_DEFAULT = 300, KILL_TARGET = 15;
 const RELOAD_DEFAULT = 2, PICKUP_DEFAULT = 15, RIFLE_DEFAULT = 25;
@@ -98,6 +110,23 @@ export class ShooterRoom extends Room<ShooterState> {
       if (!p || !p.alive) return;
       // {on:true} raises (slot 6), {on:false} lowers, absent toggles (Q/button)
       p.guard = typeof m?.on === 'boolean' ? m.on : !p.guard;
+    });
+    this.onMessage('throw', (c, m?: { kind?: string; angle?: number }) => {
+      if (this.state.phase !== 'playing') return;
+      const p = this.state.players.get(c.sessionId);
+      if (!p || !p.alive || p.guard) return; // lower the shield to throw
+      const kind = String(m?.kind || '');
+      const T = THROWABLE[kind];
+      if (!T || p[T.count] <= 0) return;
+      p[T.count]--;
+      const a = this.cleanNum(m?.angle);
+      const th = new Throw();
+      th.id = `th_${Date.now()}_${throwSeq++}`;
+      th.kind = kind;
+      th.x = p.x + Math.cos(a) * 30; th.y = p.y + Math.sin(a) * 30;
+      th.vx = Math.cos(a) * T.speed; th.vy = Math.sin(a) * T.speed;
+      th.t = T.fuse; th.ownerId = c.sessionId;
+      this.state.throws.set(th.id, th);
     });
     this.onMessage('switch', (c, m: { weapon?: string }) => {
       if (this.state.phase !== 'playing') return;
@@ -294,6 +323,10 @@ export class ShooterRoom extends Room<ShooterState> {
         p.shieldPts = 100;
       } else if (pk.kind === 'speed') {
         p.speedT = 8;
+      } else if (pk.kind === 'grenade' || pk.kind === 'smoke' || pk.kind === 'molly') {
+        const T = THROWABLE[pk.kind]; // walk-over reload, capped
+        if (p[T.count] >= T.cap) return;
+        p[T.count] = Math.min(T.cap, p[T.count] + T.give);
       }
       pk.active = false;
       pk.t = pk.kind === 'rifle' ? this.rifleSeconds : this.pickupSeconds;
@@ -359,10 +392,13 @@ export class ShooterRoom extends Room<ShooterState> {
       p.sammo = 0; p.nammo = 0; p.lammo = 0;
       p.rifle = false; p.shotgun = false; p.sniper = false; p.laser = false; p.reloading = false;
       p.guard = true; // everyone spawns shielded — lower it (Q) to shoot
+      p.grenades = 1; p.smokes = 1; p.mollies = 1; p.smoked = false;
       (p as any)._deadT = 0;
     });
     this.vel.clear();
     this.state.bullets.clear();
+    this.state.throws.clear();
+    this.state.clouds.clear();
     this.state.pickups.forEach((pk) => { pk.active = true; pk.t = 0; });
     this.resetBricks();
     this.reloadT.clear();
@@ -381,7 +417,9 @@ export class ShooterRoom extends Room<ShooterState> {
     this.state.winnerId = '';
     this.state.winnerName = '';
     this.state.bullets.clear();
-    this.state.players.forEach((p) => { p.ready = false; });
+    this.state.throws.clear();
+    this.state.clouds.clear();
+    this.state.players.forEach((p) => { p.ready = false; p.smoked = false; });
     this.inputs.clear();
     this.vel.clear();
     this.lastShot.clear();
@@ -441,6 +479,40 @@ export class ShooterRoom extends Room<ShooterState> {
     b.life = w.life;
     b.dmg = w.dmg;
     this.state.bullets.set(b.id, b);
+  }
+
+  // grenade blast: radial falloff, pierces guard stance (spawn fairness holds)
+  private explode(
+    x: number, y: number, ownerId: string,
+    feed: Array<{ killer: string; victim: string; w: string }>,
+    hits: Array<{ x: number; y: number; by: string; dmg: number; ox: number; oy: number; to: string }>,
+  ) {
+    const R = THROWABLE.grenade.r;
+    this.state.players.forEach((q, qid) => {
+      if (!q.alive) return;
+      const d = Math.hypot(q.x - x, q.y - y);
+      if (d >= R) return;
+      const dmg = Math.max(NADE_MIN, Math.round(NADE_MAX * (1 - d / R)));
+      if (q.shield > 0) {
+        hits.push({ x: q.x, y: q.y, by: ownerId, dmg: 0, ox: x, oy: y, to: qid });
+        return;
+      }
+      const before = Math.max(0, q.hp);
+      q.hp -= dmg;
+      hits.push({ x: q.x, y: q.y, by: ownerId, dmg, ox: x, oy: y, to: qid });
+      const owner = this.state.players.get(ownerId);
+      if (owner) { owner.damage += Math.min(dmg, before); owner.hitsMade++; }
+      if (q.hp <= 0) {
+        q.hp = 0; q.alive = false; (q as any)._deadT = 0;
+        q.streak = 0; q.deaths++;
+        const killer = this.state.players.get(ownerId);
+        if (killer) {
+          killer.kills++; killer.streak++; killer.cash += 120;
+          feed.push({ killer: killer.name, victim: q.name, w: 'grenade' });
+          if (killer.kills >= this.killTarget) this.matchWin(ownerId, killer.name);
+        }
+      }
+    });
   }
 
   private tick(dt: number) {
@@ -617,6 +689,76 @@ export class ShooterRoom extends Room<ShooterState> {
       if (!consumed) { b.x = nx; b.y = ny; }
     });
     dead.forEach((id) => this.state.bullets.delete(id));
+    // thrown ordnance: grenades roll + blow, smoke/molly land into clouds
+    const deadT: string[] = [];
+    this.state.throws.forEach((th) => {
+      if (this.state.phase !== 'playing') return;
+      th.t -= dt;
+      th.x = clamp(th.x + th.vx * dt, 20, W - 20);
+      th.y = clamp(th.y + th.vy * dt, 20, H - 20);
+      if (th.kind === 'grenade') {
+        const fr = Math.max(0, 1 - 3 * dt);
+        th.vx *= fr; th.vy *= fr;
+        if (th.t <= 0) {
+          this.explode(th.x, th.y, th.ownerId, feed, hits);
+          this.broadcast('boom', { x: th.x, y: th.y, r: THROWABLE.grenade.r });
+          deadT.push(th.id);
+        }
+      } else if (th.t <= 0) {
+        const cl = new Cloud();
+        cl.id = `cl_${Date.now()}_${cloudSeq++}`;
+        cl.kind = th.kind === 'smoke' ? 'smoke' : 'fire';
+        cl.x = th.x; cl.y = th.y;
+        cl.r = th.kind === 'smoke' ? THROWABLE.smoke.r : THROWABLE.molly.r;
+        cl.t = th.kind === 'smoke' ? SMOKE_DUR : FIRE_DUR;
+        cl.tick = 0; cl.ownerId = th.ownerId;
+        this.state.clouds.set(cl.id, cl);
+        this.broadcast('boom', { x: th.x, y: th.y, r: 60 });
+        deadT.push(th.id);
+      }
+    });
+    deadT.forEach((id) => this.state.throws.delete(id));
+    // clouds: smoke hides steppers-in, fire ticks everything (guard pierced)
+    this.state.players.forEach((p) => { p.smoked = false; });
+    const deadC: string[] = [];
+    this.state.clouds.forEach((cl) => {
+      if (this.state.phase !== 'playing') return;
+      cl.t -= dt;
+      if (cl.t <= 0) { deadC.push(cl.id); return; }
+      if (cl.kind === 'smoke') {
+        this.state.players.forEach((p) => {
+          if (!p.alive) return;
+          if (Math.hypot(p.x - cl.x, p.y - cl.y) < cl.r) p.smoked = true;
+        });
+      } else {
+        cl.tick -= dt;
+        if (cl.tick > 0) return;
+        cl.tick = FIRE_TICK;
+        this.state.players.forEach((q, qid) => {
+          if (!q.alive || Math.hypot(q.x - cl.x, q.y - cl.y) >= cl.r) return;
+          const before = Math.max(0, q.hp);
+          if (q.shield > 0) { // spawn fairness outranks even fire
+            hits.push({ x: q.x, y: q.y, by: cl.ownerId, dmg: 0, ox: cl.x, oy: cl.y, to: qid });
+            return;
+          }
+          q.hp -= FIRE_DMG;
+          hits.push({ x: q.x, y: q.y, by: cl.ownerId, dmg: FIRE_DMG, ox: cl.x, oy: cl.y, to: qid });
+          const owner = this.state.players.get(cl.ownerId);
+          if (owner) { owner.damage += Math.min(FIRE_DMG, before); owner.hitsMade++; }
+          if (q.hp <= 0) {
+            q.hp = 0; q.alive = false; (q as any)._deadT = 0;
+            q.streak = 0; q.deaths++;
+            const killer = this.state.players.get(cl.ownerId);
+            if (killer) {
+              killer.kills++; killer.streak++; killer.cash += 120;
+              feed.push({ killer: killer.name, victim: q.name, w: 'molly' });
+              if (killer.kills >= this.killTarget) this.matchWin(cl.ownerId, killer.name);
+            }
+          }
+        });
+      }
+    });
+    deadC.forEach((id) => this.state.clouds.delete(id));
     feed.forEach((k) => this.broadcast('kill', k));
     hits.forEach((h) => this.broadcast('hit', h));
     chips.forEach((c) => this.broadcast('chip', c));

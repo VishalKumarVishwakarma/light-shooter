@@ -135,6 +135,14 @@ class SFX {
   }
   // Knife: fast bandpass whoosh sweeping up.
   melee() { this.noise(0.16, 0.32, 900, 0, 'bandpass', 3800); }
+  // Grenade boom: sub slam + wide blast + shell crack (g = distance gain).
+  boom(g = 1) {
+    this.tone(70, 0.4, 'sine', 0.55 * g, -30);
+    this.noise(0.5, 0.65 * g, 500);
+    this.noise(0.2, 0.3 * g, 3000);
+  }
+  // Ignite: soft crackle when smoke/fire blooms.
+  ignite() { this.noise(0.25, 0.18, 4200); this.tone(180, 0.2, 'sawtooth', 0.07, 120); }
   // Shield stance: metallic shield clank (raise) + unlatch (lower).
   guard(on: boolean) {
     if (on) { this.tone(220, 0.12, 'square', 0.2, 60); this.noise(0.1, 0.25, 1800); }

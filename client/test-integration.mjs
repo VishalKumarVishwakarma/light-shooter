@@ -769,6 +769,82 @@ async function main() {
   ok(hol.guard === false && hol.weapon === 'pistol', 'drawing a gun holsters the shield');
   await d1r.leave(); await d2r.leave();
 
+  // 22. Throwables: spawn loaded, grenade + molly pierce guard, smoke hides,
+  // empties are no-ops, pads restock.
+  const n1 = new Client(URL);
+  const n1r = await n1.create('shooter', { name: 'nade1', killTarget: 30, shieldSeconds: 0 });
+  const n2 = new Client(URL);
+  const n2r = await n2.joinById(n1r.id, { name: 'nade2' });
+  await sleep(400);
+  n1r.send('startGame');
+  ok(await waitPhase(n1r, 'playing', 9000), 'ordnance match goes live');
+  const nd1 = n1r.state.players.get(n1r.sessionId).toJSON();
+  ok(nd1.grenades === 1 && nd1.smokes === 1 && nd1.mollies === 1, 'spawn loaded 1/1/1');
+  ok(await gunMode(n1r), 'thrower in gun mode (victim stays shielded)');
+  for (let i = 0; i < 30; i++) { // close to <120 for the toss
+    const a = n1r.state.players.get(n1r.sessionId).toJSON();
+    const b = n2r.state.players.get(n2r.sessionId).toJSON();
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 120) break;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+    n1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  n1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(400);
+  const na = n1r.state.players.get(n1r.sessionId).toJSON();
+  const nv = n2r.state.players.get(n2r.sessionId).toJSON();
+  const bang = [];
+  n1r.onMessage('boom', (m) => bang.push(m));
+  n1r.send('throw', { kind: 'grenade', angle: Math.atan2(nv.y - na.y, nv.x - na.x) });
+  await sleep(300);
+  ok(n1r.state.players.get(n1r.sessionId).grenades === 0, 'grenade leaves the hand');
+  n1r.send('throw', { kind: 'grenade', angle: 0 });
+  await sleep(300);
+  ok(n1r.state.players.get(n1r.sessionId).grenades === 0, 'empty throw is a no-op');
+  await sleep(1800); // fuse 1.2s + settle
+  const nbAfter = n2r.state.players.get(n2r.sessionId).toJSON();
+  ok(nbAfter.hp < 100, `grenade pierces the shield (hp=${nbAfter.hp})`);
+  ok(bang.length >= 1, 'explosion broadcast');
+  ok(Object.keys(n1r.state.throws.toJSON()).length === 0, 'spent throw cleaned up');
+  // smoke hides the victim, molly burns through the stance.
+  // throws fly a fixed ~234px: seek a 150-200px band so clouds land on top.
+  for (let i = 0; i < 40; i++) {
+    const a = n1r.state.players.get(n1r.sessionId).toJSON();
+    const b = n2r.state.players.get(n2r.sessionId).toJSON();
+    const gap = Math.hypot(b.x - a.x, b.y - a.y);
+    if (gap > 150 && gap < 200) break;
+    const dir = gap >= 200 ? 1 : -1;
+    const dx = (b.x - a.x) / (gap || 1), dy = (b.y - a.y) / (gap || 1);
+    n1r.send('move', { dx: dx * dir, dy: dy * dir, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  n1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(400);
+  const sa = n1r.state.players.get(n1r.sessionId).toJSON();
+  const sb = n2r.state.players.get(n2r.sessionId).toJSON();
+  n1r.send('throw', { kind: 'smoke', angle: Math.atan2(sb.y - sa.y, sb.x - sa.x) });
+  await sleep(1200); // 0.45s flight + bloom
+  ok(n2r.state.players.get(n2r.sessionId).smoked === true, 'smoke hides the victim');
+  const fa2 = n1r.state.players.get(n1r.sessionId).toJSON();
+  const fb2 = n2r.state.players.get(n2r.sessionId).toJSON();
+  const hpBeforeFire = fb2.hp;
+  n1r.send('throw', { kind: 'molly', angle: Math.atan2(fb2.y - fa2.y, fb2.x - fa2.x) });
+  await sleep(3000); // flight + several 0.5s burn ticks
+  const fbAfter = n2r.state.players.get(n2r.sessionId).toJSON();
+  ok(fbAfter.hp < hpBeforeFire, `molly burns through the shield (${hpBeforeFire} -> ${fbAfter.hp})`);
+  // restock: walk the west grenade pad (walk-over auto-collect)
+  for (let i = 0; i < 40; i++) {
+    const a = n1r.state.players.get(n1r.sessionId).toJSON();
+    const dx = 200 - a.x, dy = 700 - a.y, d = Math.hypot(dx, dy);
+    if (d < 25) break;
+    n1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  n1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(500);
+  ok(n1r.state.players.get(n1r.sessionId).grenades === 2, `grenade pad restocks (+2 = ${n1r.state.players.get(n1r.sessionId).grenades})`);
+  await n1r.leave(); await n2r.leave();
+
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

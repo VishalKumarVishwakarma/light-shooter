@@ -30,6 +30,10 @@ export class Player extends Schema {
   @type('boolean') sniper = false;
   @type('boolean') laser = false;
   @type('boolean') guard = true; // shield stance: blocks bullets, knife-only until lowered
+  @type('number') grenades = 1;
+  @type('number') smokes = 1;
+  @type('number') mollies = 1;
+  @type('boolean') smoked = false; // inside enemy smoke: hidden on their screens
   @type('boolean') reloading = false;
 }
 
@@ -59,11 +63,37 @@ export class Brick extends Schema {
   @type('number') hp = 3;
 }
 
+// Thrown ordnance in flight: grenades roll with friction, smoke/molly fly flat.
+export class Throw extends Schema {
+  @type('string') id = '';
+  @type('string') kind = 'grenade'; // grenade | smoke | molly
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') vx = 0;
+  @type('number') vy = 0;
+  @type('number') t = 0; // fuse / flight time left
+  @type('string') ownerId = '';
+}
+
+// Lingering clouds: smoke hides, fire burns (both ignore guard stance).
+export class Cloud extends Schema {
+  @type('string') id = '';
+  @type('string') kind = 'smoke'; // smoke | fire
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') r = 100;
+  @type('number') t = 0; // lifetime left
+  @type('number') tick = 0; // fire damage accumulator
+  @type('string') ownerId = '';
+}
+
 export class ShooterState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type({ map: Bullet }) bullets = new MapSchema<Bullet>();
   @type({ map: Pickup }) pickups = new MapSchema<Pickup>();
   @type({ map: Brick }) bricks = new MapSchema<Brick>();
+  @type({ map: Throw }) throws = new MapSchema<Throw>();
+  @type({ map: Cloud }) clouds = new MapSchema<Cloud>();
   @type('string') phase: 'lobby' | 'countdown' | 'playing' | 'ended' = 'lobby';
   @type('number') countdown = 0;
   @type('string') hostId = '';

@@ -84,7 +84,7 @@ export class ShooterRoom extends Room<ShooterState> {
       const n = w.pellets || 1;
       for (let i = 0; i < n; i++) {
         const off = n === 1 ? 0 : (i / (n - 1) - 0.5) * 2 * (w.spread || 0);
-        this.spawnBullet(c, base + off, w);
+        this.spawnBullet(c, base + off, w, p.weapon);
       }
     });
     this.onMessage('reload', (c) => {
@@ -413,12 +413,13 @@ export class ShooterRoom extends Room<ShooterState> {
     }
   }
 
-  private spawnBullet(c: Client, angle: number, w: { dmg: number; speed: number; life: number }) {
+  private spawnBullet(c: Client, angle: number, w: { dmg: number; speed: number; life: number }, weapon = 'pistol') {
     const p = this.state.players.get(c.sessionId);
     if (!p || !p.alive) return;
     const b = new Bullet();
     b.id = `${Date.now()}_${bulletSeq++}`;
     b.ownerId = c.sessionId;
+    b.weapon = weapon;
     b.x = p.x + Math.cos(angle) * MUZZLE;
     b.y = p.y + Math.sin(angle) * MUZZLE;
     b.vx = Math.cos(angle) * w.speed;

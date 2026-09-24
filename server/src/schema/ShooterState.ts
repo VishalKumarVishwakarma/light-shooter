@@ -39,6 +39,7 @@ export class Bullet extends Schema {
   @type('string') ownerId = '';
   @type('number') life = 1;
   @type('number') dmg = 25;
+  @type('string') weapon = 'pistol'; // gun that fired it (drives remote shot audio)
 }
 
 export class Pickup extends Schema {

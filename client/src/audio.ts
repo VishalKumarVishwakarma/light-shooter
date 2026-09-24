@@ -49,7 +49,7 @@ class SFX {
     o.start(t0); o.stop(t0 + dur + 0.02);
   }
 
-  private noise(dur: number, vol: number, lowpass = 3000, delay = 0) {
+  private noise(dur: number, vol: number, lowpass = 3000, delay = 0, type: BiquadFilterType = 'lowpass', freqEnd = 0) {
     if (this.muted) return;
     const ctx = this.ac();
     if (!ctx) return;
@@ -61,7 +61,8 @@ class SFX {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const f = ctx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = lowpass;
+    f.type = type; f.frequency.setValueAtTime(lowpass, t0);
+    if (freqEnd > 0) f.frequency.exponentialRampToValueAtTime(freqEnd, t0 + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(vol * this.volume, t0);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
@@ -70,8 +71,40 @@ class SFX {
   }
 
   click() { this.tone(700, 0.06, 'square', 0.12); }
-  shootPistol() { this.noise(0.12, 0.5, 2500); this.tone(220, 0.1, 'square', 0.25, -140); }
-  shootRifle() { this.noise(0.09, 0.4, 3500); this.tone(330, 0.07, 'sawtooth', 0.2, -180); }
+  // Pistol: sharp mid crack (boxy square pop + tight noise snap).
+  shootPistol(g = 1) { this.noise(0.11, 0.5 * g, 2600); this.tone(210, 0.09, 'square', 0.28 * g, -130); }
+  // Rifle: brighter rapid bark (raspy saw + short hi-fi snap + metallic tick).
+  shootRifle(g = 1) {
+    this.noise(0.07, 0.42 * g, 4300);
+    this.tone(360, 0.06, 'sawtooth', 0.22 * g, -200);
+    this.tone(1250, 0.03, 'square', 0.08 * g);
+  }
+  // Shotgun: deep chest boom (sub thump + wide low blast + shell crack).
+  shootShotgun(g = 1) {
+    this.tone(95, 0.3, 'sine', 0.55 * g, -45);
+    this.noise(0.32, 0.6 * g, 750);
+    this.noise(0.09, 0.35 * g, 3200);
+  }
+  // Sniper: piercing crack with a canyon echo tail.
+  shootSniper(g = 1) {
+    this.tone(950, 0.16, 'sawtooth', 0.3 * g, -700);
+    this.noise(0.2, 0.55 * g, 5200);
+    this.noise(0.32, 0.16 * g, 2400, 0.16); // echo tail
+    this.tone(420, 0.22, 'triangle', 0.1 * g, -260, 0.16);
+  }
+  // Fire dispatcher: one call, correct gun every time (g = distance gain 0..1).
+  shoot(weapon: string, g = 1) {
+    const gain = Math.max(0, Math.min(1, g));
+    if (gain <= 0) return;
+    if (weapon === 'rifle') this.shootRifle(gain);
+    else if (weapon === 'shotgun') this.shootShotgun(gain);
+    else if (weapon === 'sniper') this.shootSniper(gain);
+    else this.shootPistol(gain);
+  }
+  // Knife: fast bandpass whoosh sweeping up.
+  melee() { this.noise(0.16, 0.32, 900, 0, 'bandpass', 3800); }
+  // Dry fire: empty chamber click.
+  empty() { this.tone(950, 0.04, 'square', 0.12); this.tone(500, 0.05, 'square', 0.1, 0, 0.05); }
   reload() { this.tone(300, 0.07, 'square', 0.15); this.tone(450, 0.07, 'square', 0.15, 0, 0.12); }
   hit() { this.tone(1100, 0.05, 'square', 0.18); }
   hurt() { this.tone(160, 0.2, 'sawtooth', 0.3, -60); }

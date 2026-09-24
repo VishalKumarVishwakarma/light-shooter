@@ -73,6 +73,7 @@ export class ArenaScene extends Phaser.Scene {
   private myMove = { dx: 0, dy: 0 };
   private firing = false;
   private lastFire = 0;
+  private shotSfxAt = new Map<string, number>(); // per-shooter throttle: one boom per volley
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
   private brickViews = new Map<string, { c: Phaser.GameObjects.Container; cracks: Phaser.GameObjects.Graphics }>();
@@ -190,6 +191,7 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-TAB', () => this.toggleBoard());
       kb.on('keydown-F', () => {
         Session.room?.send('melee');
+        sfx.melee();
         const me = this.players.get(this.meId);
         if (me) this.slash(me.gfx.x, me.gfx.y, this.lastAim);
       });
@@ -368,7 +370,8 @@ export class ArenaScene extends Phaser.Scene {
 
   private ownWeapon(): string {
     const me = (Session.room as any)?.state?.players.get(this.meId);
-    return me?.weapon === 'rifle' ? 'rifle' : 'pistol';
+    const w = me?.weapon;
+    return w === 'rifle' || w === 'shotgun' || w === 'sniper' ? w : 'pistol';
   }
 
   private fireNow() {
@@ -384,10 +387,12 @@ export class ArenaScene extends Phaser.Scene {
     const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
     const ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
     room.send('shoot', { angle: ang });
-    if (this.ownWeapon() === 'rifle') sfx.shootRifle(); else sfx.shootPistol();
+    const gw = this.ownWeapon();
+    sfx.shoot(gw);
     this.flash(me.gfx.x + Math.cos(ang) * MUZZLE, me.gfx.y + Math.sin(ang) * MUZZLE, ang, false);
     this.recoil(me.gun);
-    this.cameras.main.shake(60, 0.0015);
+    // heavier guns kick the camera harder
+    this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
   }
 
   // steel + standing bricks + water (mirrors server solids())
@@ -729,6 +734,17 @@ export class ArenaScene extends Phaser.Scene {
         const a = Math.atan2(b.vy, b.vx);
         this.flash(own.gfx.x + Math.cos(a) * MUZZLE, own.gfx.y + Math.sin(a) * MUZZLE, a, false);
         this.recoil(own.gun);
+      }
+      // distant guns stay audible: correct weapon, volume falls off with range.
+      // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.
+      if (foe) {
+        const nowMs = this.time.now;
+        if (nowMs - (this.shotSfxAt.get(b.ownerId) || 0) > 130) {
+          this.shotSfxAt.set(b.ownerId, nowMs);
+          const me = this.players.get(this.meId);
+          const d = me ? Math.hypot(me.gfx.x - b.x, me.gfx.y - b.y) : 500;
+          sfx.shoot(typeof b.weapon === 'string' ? b.weapon : 'pistol', 1.1 - d / 850);
+        }
       }
       b.onChange(() => { if (!live()) return; img.setPosition(b.x, b.y); img.setRotation(Math.atan2(b.vy, b.vx)); });
       b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); });

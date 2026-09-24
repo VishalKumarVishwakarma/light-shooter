@@ -1,6 +1,6 @@
 // Unit tests for arena geometry. Run after `npm run build`: node test-map.cjs
 const M = require('./dist/map.js');
-const { STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, SPAWNS, PICKUP_POINTS } = M;
+const { STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, SPAWNS, PICKUP_POINTS, WEAPONS, WORLD } = M;
 const { collideCircle, pointInWall, inRect, stepMove } = M;
 let pass = 0, fail = 0;
 const ok = (cond, msg) => {
@@ -75,6 +75,17 @@ ok(Math.abs(s4.x - 684) < 0.01, `fortress blocks (x=${s4.x.toFixed(1)})`);
 const span = Math.hypot(850 * 0.14, 0);
 const steps = Math.max(1, Math.ceil(span / 18));
 ok(steps >= 6 && span / steps <= 18, `swept steps cover fast bullets (${steps} samples)`);
+
+// 11. Per-gun fire range (speed x life): shotgun < pistol < rifle < sniper,
+// sniper crosses the map, pistol can't snipe across it.
+const range = (w) => WEAPONS[w].speed * WEAPONS[w].life;
+const diag = Math.hypot(WORLD.w, WORLD.h);
+ok(range('shotgun') < range('pistol'), `shotgun shorter than pistol (${range('shotgun') | 0} < ${range('pistol') | 0})`);
+ok(range('pistol') < range('rifle'), `pistol shorter than rifle (${range('pistol') | 0} < ${range('rifle') | 0})`);
+ok(range('rifle') < range('sniper'), `rifle shorter than sniper (${range('rifle') | 0} < ${range('sniper') | 0})`);
+ok(range('sniper') > WORLD.w, `sniper crosses the map (${range('sniper') | 0} > ${WORLD.w})`);
+ok(range('pistol') < diag / 2, `pistol can't cross half the map (${range('pistol') | 0})`);
+ok(range('shotgun') < 400, `shotgun is a room broom (${range('shotgun') | 0})`);
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

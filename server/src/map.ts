@@ -8,14 +8,15 @@ export const SPEED = 260, RADIUS = 16;
 export const MUZZLE = 46;
 
 // weapon rules: single source of truth (server enforces, client mirrors timing)
+// effective range = speed x life: shotgun shortest, pistol short, rifle long, sniper cross-map
 export const WEAPONS: Record<string, {
   dmg: number; interval: number; speed: number; life: number;
   auto: boolean; clip: number; reload: number; pellets?: number; spread?: number;
 }> = {
-  pistol: { dmg: 25, interval: 0.28, speed: 700, life: 1.2, auto: false, clip: 12, reload: 1.2 },
-  rifle: { dmg: 15, interval: 0.11, speed: 850, life: 1.0, auto: true, clip: 30, reload: 2 },
-  shotgun: { dmg: 12, interval: 0.9, speed: 750, life: 0.6, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
-  sniper: { dmg: 100, interval: 1.6, speed: 1200, life: 1.5, auto: false, clip: 5, reload: 3 },
+  pistol: { dmg: 25, interval: 0.28, speed: 700, life: 0.75, auto: false, clip: 12, reload: 1.2 },
+  rifle: { dmg: 15, interval: 0.11, speed: 900, life: 1.2, auto: true, clip: 30, reload: 2 },
+  shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.45, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
+  sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
 };
 
 export const SPAWNS: Array<[number, number]> = [

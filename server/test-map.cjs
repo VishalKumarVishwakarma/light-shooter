@@ -39,11 +39,17 @@ for (const [sx, sy] of SPAWNS) {
 ok(allClear, `all ${SPAWNS.length} spawns clear (margin ${MARGIN})`);
 
 // 6. Battle City inventory
-ok(STEEL.length === 5, `${STEEL.length} steel blocks`);
-ok(BRICKS.length === 8, `${BRICKS.length} brick walls`);
+ok(STEEL.length === 7, `${STEEL.length} steel blocks`);
+ok(BRICKS.length === 14, `${BRICKS.length} brick walls`);
 ok(BRICK_HP === 3, `bricks take ${BRICK_HP} hits`);
 ok(WATER.length === 2, 'west+east rivers');
 ok(ICE.length === 2 && BUSH.length === 3, 'ice patches + forests');
+
+// 6b. Maze gaps: north + south gates open, prize reachable, corridor clear
+ok(!inRect(800, 755, SOLIDS), 'maze north gate open');
+ok(!inRect(800, 940, SOLIDS), 'maze south gate open');
+ok(!inRect(800, 880, SOLIDS), 'maze corridor clear');
+ok(!inRect(800, 985, SOLIDS), 'maze prize reachable');
 
 // 7. Pickups sit on open ground (not inside solids)
 let pkClear = true;
@@ -51,6 +57,7 @@ for (const [kind, x, y] of PICKUP_POINTS) {
   if (inRect(x, y, SOLIDS)) { pkClear = false; console.log(`  pickup ${kind} inside solid`, x, y); }
 }
 ok(pkClear, `${PICKUP_POINTS.length} pickup points on open ground`);
+ok(PICKUP_POINTS.length === 10, '10 pickup points (maze prize included)');
 
 // 8. stepMove: full speed off ice, drift on ice
 const open = [];

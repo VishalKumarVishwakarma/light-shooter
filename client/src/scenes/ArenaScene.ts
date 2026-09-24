@@ -103,12 +103,26 @@ export class ArenaScene extends Phaser.Scene {
     this.add.grid(0, 0, W, H, 40, 40, 0x111826).setOrigin(0);
     const lowQ = quality() === 'low';
     this.add.tileSprite(W / 2, H / 2, W, H, 'noise').setAlpha(lowQ ? 0.15 : 0.5);
+    // HD ground detail: deterministic scuffs/cracks (seeded = identical everywhere)
+    if (!lowQ) {
+      let seed = 1337;
+      const rnd = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 4294967296;
+      };
+      for (let i = 0; i < 34; i++) {
+        this.add.image(rnd() * W, rnd() * H, 'dot')
+          .setTint(0x000000).setAlpha(0.28).setScale(0.8 + rnd() * 1.8)
+          .setRotation(rnd() * Math.PI).setDepth(0);
+      }
+    }
     this.add.rectangle(0, 0, W, 8, 0x22d3ee).setOrigin(0);
     this.add.rectangle(0, H - 8, W, 8, 0x22d3ee).setOrigin(0);
     // Battle City terrain: steel blocks, brick cover, rivers, ice, stealth bushes
     for (const st of STEEL) {
       this.add.rectangle(st.x + 4, st.y + 6, st.w, st.h, 0x000000, 0.35).setOrigin(0);
       this.add.tileSprite(st.x + st.w / 2, st.y + st.h / 2, st.w, st.h, 'steelTile');
+      this.add.rectangle(st.x, st.y + 3, st.w, 6, 0xffffff, 0.22).setOrigin(0, 0.5); // sunlit top edge
     }
     for (const ic of ICE) {
       this.add.tileSprite(ic.x + ic.w / 2, ic.y + ic.h / 2, ic.w, ic.h, 'iceTile').setAlpha(0.95);
@@ -374,9 +388,12 @@ export class ArenaScene extends Phaser.Scene {
     this.rubble.delete(id);
     let v = this.brickViews.get(id);
     if (!v) {
-      const tiles = this.add.tileSprite(rc.x + rc.w / 2, rc.y + rc.h / 2, rc.w, rc.h, 'brickTile');
+      const idx = Number(id.split('_')[1]) || 0;
+      const tiles = this.add.tileSprite(rc.x + rc.w / 2, rc.y + rc.h / 2, rc.w, rc.h, idx % 2 ? 'brickTileB' : 'brickTileA');
+      // 3D top cap: sunlit edge for depth
+      const cap = this.add.rectangle(rc.x, rc.y + 2.5, rc.w, 5, 0xffd9a0, 0.35).setOrigin(0, 0.5);
       const cracks = this.add.graphics();
-      const c = this.add.container(0, 0, [tiles, cracks]);
+      const c = this.add.container(0, 0, [tiles, cap, cracks]);
       v = { c, cracks };
       this.brickViews.set(id, v);
       c.setScale(0);

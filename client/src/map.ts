@@ -30,6 +30,8 @@ export const STEEL: Rect[] = [
   { x: 1460, y: 60, w: 80, h: 80 },
   { x: 60, y: 1060, w: 80, h: 80 },
   { x: 1460, y: 1060, w: 80, h: 80 },
+  { x: 725, y: 815, w: 30, h: 70 }, // maze heart pillars
+  { x: 845, y: 815, w: 30, h: 70 },
 ];
 
 // BRICKS: destructible cover, 3 hits each (ids br_0.. in array order)
@@ -43,6 +45,12 @@ export const BRICKS: Rect[] = [
   { x: 860, y: 1040, w: 140, h: 50 }, // bottom nook
   { x: 280, y: 540, w: 60, h: 120 }, // mid pillars
   { x: 1260, y: 540, w: 60, h: 120 },
+  { x: 600, y: 740, w: 160, h: 30 }, // maze north wall (gap x760-840)
+  { x: 840, y: 740, w: 160, h: 30 },
+  { x: 600, y: 925, w: 160, h: 30 }, // maze south wall (gap x760-840)
+  { x: 840, y: 925, w: 160, h: 30 },
+  { x: 680, y: 770, w: 30, h: 130 }, // maze inner west
+  { x: 890, y: 770, w: 30, h: 130 }, // maze inner east
 ];
 
 // WATER: blocks players, bullets fly over
@@ -77,6 +85,7 @@ export const PICKUP_POINTS: Array<
   ['sniper', 1300, 200],
   ['shield', 200, 320],
   ['speed', 1400, 450],
+  ['rifle', 800, 985], // maze-heart prize (grab it threading the south gap)
 ];
 
 export function clamp(v: number, lo: number, hi: number) {

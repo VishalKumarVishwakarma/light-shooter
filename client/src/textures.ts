@@ -211,33 +211,57 @@ function boot() {
 }
 
 // ---- Battle City 8-bit tiles (40-60px, tileable) ----
-function brickTile() {
+function brickTile(variant: number) {
   const { c, ctx } = cv(40, 40);
-  ctx.fillStyle = '#3a1f14'; // mortar
+  ctx.fillStyle = '#33190f'; // mortar
   ctx.fillRect(0, 0, 40, 40);
-  ctx.fillStyle = '#c65a1e'; // bricks
-  ctx.fillRect(1, 1, 18, 8); ctx.fillRect(21, 1, 18, 8);
-  ctx.fillRect(1, 11, 18, 8); ctx.fillRect(21, 11, 18, 8);
-  ctx.fillRect(1, 21, 18, 8); ctx.fillRect(21, 21, 18, 8);
-  ctx.fillRect(1, 31, 18, 8); ctx.fillRect(21, 31, 18, 8);
-  ctx.fillStyle = '#e88a3c'; // top light on each brick
-  for (const y of [1, 11, 21, 31]) { ctx.fillRect(1, y, 18, 2); ctx.fillRect(21, y, 18, 2); }
+  const base = variant % 2 ? '#c65a1e' : '#b44e18';
+  const lite = variant % 2 ? '#ef9a4e' : '#e88a3c';
+  const off = variant % 2 ? 10 : 0; // staggered courses
+  ctx.fillStyle = base;
+  for (let row = 0; row < 4; row++) {
+    const y = 1 + row * 10;
+    for (let k = -1; k < 3; k++) {
+      const x = ((k * 20 + (row % 2 ? off : 0)) % 40 + 40) % 40;
+      ctx.fillRect(x + 1, y, 18, 8);
+    }
+  }
+  ctx.fillStyle = lite; // top light per course
+  for (let row = 0; row < 4; row++) {
+    const y = 1 + row * 10;
+    for (let k = -1; k < 3; k++) {
+      const x = ((k * 20 + (row % 2 ? off : 0)) % 40 + 40) % 40;
+      ctx.fillRect(x + 1, y, 18, 2);
+    }
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; // chips + wear
+  const chips: Array<[number, number, number, number]> = variant % 2
+    ? [[5, 14, 3, 2], [28, 33, 4, 2], [16, 24, 2, 3]]
+    : [[12, 4, 3, 2], [33, 22, 2, 3], [6, 34, 4, 2]];
+  for (const [x, y, w, h] of chips) ctx.fillRect(x, y, w, h);
   return c;
 }
 
 function steelTile() {
   const { c, ctx } = cv(40, 40);
-  ctx.fillStyle = '#9aa3b2';
+  ctx.fillStyle = '#8b95a5';
   ctx.fillRect(0, 0, 40, 40);
-  ctx.fillStyle = '#c9d1dc';
+  ctx.fillStyle = '#c9d1dc'; // brushed top half
   ctx.fillRect(0, 0, 40, 18);
-  ctx.strokeStyle = '#5b6470'; ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; // brushed lines
+  for (const y of [4, 8, 12, 16, 24, 28, 32, 36]) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(40, y); ctx.stroke();
+  }
+  ctx.strokeStyle = '#525b68'; ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, 38, 38);
   ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(40, 20); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(20, 40); ctx.stroke();
-  ctx.fillStyle = '#eef2f7'; // rivets
+  ctx.fillStyle = '#eef2f7'; // rivets with glint
   for (const [x, y] of [[5, 5], [35, 5], [5, 35], [35, 35], [20, 20]] as Array<[number, number]>) {
-    ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x - 0.7, y - 0.7, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#eef2f7';
   }
   return c;
 }
@@ -245,17 +269,24 @@ function steelTile() {
 function bushTile() {
   const { c, ctx } = cv(60, 60);
   ctx.clearRect(0, 0, 60, 60);
+  ctx.fillStyle = 'rgba(10,30,12,0.55)'; // deep bed
+  ctx.fillRect(0, 0, 60, 60);
   const blobs: Array<[number, number, number, string]> = [
-    [14, 14, 12, '#1d4d1f'], [34, 10, 14, '#256b24'], [48, 22, 11, '#1d4d1f'],
-    [10, 36, 13, '#256b24'], [30, 32, 15, '#2f7f2c'], [50, 44, 12, '#256b24'],
-    [20, 52, 10, '#1d4d1f'], [42, 54, 9, '#2f7f2c'],
+    [8, 8, 9, '#1d4d1f'], [24, 6, 11, '#256b24'], [44, 8, 10, '#1d4d1f'],
+    [56, 18, 9, '#2f7f2c'], [6, 26, 11, '#256b24'], [24, 24, 13, '#2f7f2c'],
+    [44, 32, 12, '#1d4d1f'], [10, 44, 11, '#256b24'], [30, 46, 12, '#37963a'],
+    [52, 50, 9, '#1d4d1f'], [20, 56, 9, '#256b24'], [42, 58, 8, '#2f7f2c'],
   ];
   for (const [x, y, r, col] of blobs) {
     ctx.fillStyle = col;
-    ctx.globalAlpha = 0.92;
+    ctx.globalAlpha = 0.94;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(190,242,150,0.5)'; // sun flecks
+  for (const [x, y] of [[18, 12], [38, 28], [14, 44], [48, 14]] as Array<[number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
   return c;
 }
 
@@ -450,8 +481,9 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'pool', pool());
   put(scene, 'ring', ring());
   put(scene, 'boot', boot());
+  put(scene, 'brickTileA', brickTile(0));
+  put(scene, 'brickTileB', brickTile(1));
   put(scene, 'scan', scan());
-  put(scene, 'brickTile', brickTile());
   put(scene, 'steelTile', steelTile());
   put(scene, 'bushTile', bushTile());
   put(scene, 'waterTile', waterTile());

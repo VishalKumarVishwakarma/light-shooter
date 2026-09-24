@@ -620,6 +620,45 @@ async function main() {
   ok(after.hp === 100 && after.shieldPts === 75, `shield absorbs pistol hit (hp=${after.hp} pts=${after.shieldPts})`);
   await f1r.leave(); await f2r.leave();
 
+  // 20. Maze run: east lane -> south -> west -> north through the maze, grab the prize
+  const z1 = new Client(URL);
+  const z1r = await z1.create('shooter', { name: 'maze1', killTarget: 30, shieldSeconds: 0 });
+  const z2 = new Client(URL);
+  const z2r = await z2.joinById(z1r.id, { name: 'maze2' });
+  await sleep(400);
+  z1r.send('startGame');
+  ok(await waitPhase(z1r, 'playing', 9000), 'maze match goes live');
+  const nav = async (room, id, tx, ty, cap = 30) => {
+    for (let i = 0; i < cap; i++) {
+      const p = room.state.players.get(id).toJSON();
+      const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
+      if (d < 30) break;
+      room.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+      await sleep(200);
+      const q = room.state.players.get(id).toJSON();
+      if (Math.hypot(q.x - p.x, q.y - p.y) < 3 && d > 60) break; // walled: stop pushing
+    }
+    room.send('move', { dx: 0, dy: 0, angle: 0 });
+    await sleep(300);
+    return room.state.players.get(id).toJSON();
+  };
+  let zp = await nav(z1r, z1r.sessionId, 1050, 200); // east along the north lane
+  ok(zp.x > 900, `reached east staging (${zp.x.toFixed(0)},${zp.y.toFixed(0)})`);
+  zp = await nav(z1r, z1r.sessionId, 1050, 1010); // south down x=1050 (clear of maze walls/covers)
+  ok(zp.y > 980, `reached south lane (${zp.x.toFixed(0)},${zp.y.toFixed(0)})`);
+  zp = await nav(z1r, z1r.sessionId, 800, 1010); // west to the maze mouth
+  ok(Math.abs(zp.x - 800) < 60, `at the maze mouth (${zp.x.toFixed(0)},${zp.y.toFixed(0)})`);
+  zp = await nav(z1r, z1r.sessionId, 800, 985); // step onto the prize pad
+  z1r.send('interact', {});
+  await sleep(400);
+  const zw0 = z1r.state.players.get(z1r.sessionId).toJSON();
+  ok(zw0.rifle === true && zw0.weapon === 'rifle', `maze prize claimed (${zw0.weapon})`);
+  zp = await nav(z1r, z1r.sessionId, 800, 700); // north through the gates
+  ok(zp.y < 720 && Math.abs(zp.x - 800) < 70, `threaded the maze (${zp.x.toFixed(0)},${zp.y.toFixed(0)})`);
+  const zw = z1r.state.players.get(z1r.sessionId).toJSON();
+  ok(zw.rifle === true, 'kept the prize rifle');
+  await z1r.leave(); await z2r.leave();
+
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

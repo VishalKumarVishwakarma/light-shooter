@@ -11,6 +11,7 @@ type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
   ring: Phaser.GameObjects.Image; ringB: Phaser.GameObjects.Image;
+  gring: Phaser.GameObjects.Image;
   legs: Phaser.GameObjects.Container;
   bootL: Phaser.GameObjects.Image; bootR: Phaser.GameObjects.Image;
   stepPhase: number;
@@ -187,7 +188,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,ONE,TWO,THREE,FOUR,FIVE,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,ONE,TWO,THREE,FOUR,FIVE,SIX,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -200,6 +201,10 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
       kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
       kb.on('keydown-FIVE', () => Session.room?.send('switch', { weapon: 'laser' }));
+      kb.on('keydown-SIX', () => {
+        Session.room?.send('guard', { on: true }); // slot 6: raise the shield
+        sfx.guard(true);
+      });
       kb.on('keydown-Q', () => {
         Session.room?.send('guard');
         const g = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '');
@@ -716,6 +721,8 @@ export class ArenaScene extends Phaser.Scene {
       const glowCss = mine ? '#22d3ee' : foeColor(idx)[3];
       const sh = this.add.image(0, 11, 'shadow').setAlpha(0.8);
       const baseRing = this.add.image(0, 10, 'ring').setTint(col).setScale(0.62, 0.34).setAlpha(0.95);
+      const gring = this.add.image(0, 0, 'ring').setTint(0x4ade80).setScale(1.05).setAlpha(0.8)
+        .setVisible(p.guard && p.alive); // raised-shield bubble
       const ring = this.add.image(0, 0, 'ring').setVisible(false);
       const ringB = this.add.image(0, 0, 'ring').setTint(0x38bdf8).setVisible(false);
       const bootL = this.add.image(-7, 8, 'boot');
@@ -727,12 +734,12 @@ export class ArenaScene extends Phaser.Scene {
       const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
       label.setStroke('#020617', 4);
       label.setShadow(0, 0, glowCss, 6, false, true);
-      const gfx = this.add.container(p.x, p.y, [sh, baseRing, legs, ring, ringB, body, gun, label]);
+      const gfx = this.add.container(p.x, p.y, [sh, baseRing, legs, gring, ring, ringB, body, gun, label]);
       this.players.set(id, {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
         shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
-        hist: [], col,
+        hist: [], col, gring,
       });
       if (!p.alive) body.setTint(0x666677);
       p.onChange(() => {
@@ -766,6 +773,7 @@ export class ArenaScene extends Phaser.Scene {
         // kill-streak aura (2+): golden ring under hot players; blue ring while shielded
         o.ring.setVisible(p.streak >= 2 && p.alive);
         o.ringB.setVisible(p.shieldPts > 0 && p.alive);
+        o.gring.setVisible(!!p.guard && p.alive); // raised shield bubble
         // fresh hit -> white flash + blood puff (+ hurt cue for self)
         if (p.hp < o.hp && p.alive) {
           o.body.setTintFill(0xffffff);
@@ -909,7 +917,7 @@ export class ArenaScene extends Phaser.Scene {
       this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
       this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText('R reload · 1-5 swap · F knife · Q guard');
+    this.ammoHint.setText('R reload · 1-6 swap · F knife · Q guard');
     const needReload = !p.reloading && left < W.clip;
     this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);

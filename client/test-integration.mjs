@@ -759,6 +759,14 @@ async function main() {
   await sleep(400);
   const kPost = d2r.state.players.get(d2r.sessionId).toJSON();
   ok(kPre.hp - kPost.hp === 50, `knife pierces the shield (${kPre.hp} -> ${kPost.hp})`);
+  // shield is slot 6: {on:true} raises, drawing any gun holsters it
+  d1r.send('guard', { on: true });
+  await sleep(300);
+  ok(d1r.state.players.get(d1r.sessionId).guard === true, 'slot 6 raises the shield');
+  d1r.send('switch', { weapon: 'pistol' });
+  await sleep(300);
+  const hol = d1r.state.players.get(d1r.sessionId).toJSON();
+  ok(hol.guard === false && hol.weapon === 'pistol', 'drawing a gun holsters the shield');
   await d1r.leave(); await d2r.leave();
 
   for (const r of [hr, gr, g2r, g3r, ...extra]) { try { await r.leave(); } catch {} }

@@ -241,7 +241,7 @@ export class MenuScene extends Phaser.Scene {
     });
     rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-5 or wheel swap · E interact · Q shield',
+      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-6 or wheel swap · E interact · Q/6 shield',
       { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
     ctl.setStroke('#020617', 3);
     m.body.add(ctl);
@@ -257,7 +257,7 @@ export class MenuScene extends Phaser.Scene {
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
       ['🔫', 'Grab rifles/shotguns/snipers/lasers with E — R reloads, 1-5 or wheel swaps.'],
       ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown. It pierces shields.'],
-      ['🛡️', 'Everyone spawns SHIELDED: bullets bounce off, but you can only knife. Q lowers it to fire.'],
+      ['🛡️', 'Everyone spawns SHIELDED (slot 6): bullets bounce, knife only. 1-5 draws a gun, Q toggles.'],
       ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],
       ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],
       ['🌊', 'Rivers block you (not bullets). Ice is slippery. Bushes hide you.'],

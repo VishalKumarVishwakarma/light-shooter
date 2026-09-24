@@ -57,7 +57,7 @@ for (const [kind, x, y] of PICKUP_POINTS) {
   if (inRect(x, y, SOLIDS)) { pkClear = false; console.log(`  pickup ${kind} inside solid`, x, y); }
 }
 ok(pkClear, `${PICKUP_POINTS.length} pickup points on open ground`);
-ok(PICKUP_POINTS.length === 11, '11 pickup points (maze prize + sniper twins included)');
+ok(PICKUP_POINTS.length === 12, '12 pickup points (maze prize + sniper twins + laser included)');
 ok(PICKUP_POINTS.filter(([k]) => k === 'sniper').length === 2, 'sniper spawns east + west');
 
 // 8. stepMove: full speed off ice, drift on ice
@@ -84,6 +84,8 @@ const diag = Math.hypot(WORLD.w, WORLD.h);
 ok(range('shotgun') < range('pistol'), `shotgun shorter than pistol (${range('shotgun') | 0} < ${range('pistol') | 0})`);
 ok(range('pistol') < range('rifle'), `pistol shorter than rifle (${range('pistol') | 0} < ${range('rifle') | 0})`);
 ok(range('rifle') < range('sniper'), `rifle shorter than sniper (${range('rifle') | 0} < ${range('sniper') | 0})`);
+ok(range('laser') > range('rifle') && range('laser') < range('sniper'),
+  `laser sits rifle-to-sniper (${range('laser') | 0})`);
 ok(range('sniper') > WORLD.w, `sniper crosses the map (${range('sniper') | 0} > ${WORLD.w})`);
 ok(range('pistol') < diag / 2, `pistol can't cross half the map (${range('pistol') | 0})`);
 ok(range('shotgun') < 400, `shotgun is a room broom (${range('shotgun') | 0})`);

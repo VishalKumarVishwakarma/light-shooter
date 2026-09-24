@@ -17,6 +17,7 @@ export const WEAPONS: Record<string, {
   rifle: { dmg: 15, interval: 0.11, speed: 900, life: 1.2, auto: true, clip: 30, reload: 2 },
   shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.45, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
   sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
+  laser: { dmg: 12, interval: 0.09, speed: 1400, life: 0.9, auto: true, clip: 25, reload: 2.2 },
 };
 
 export const SPAWNS: Array<[number, number]> = [
@@ -75,7 +76,7 @@ export const BUSH: Rect[] = [
 
 // fixed pickup spawns: [kind, x, y]
 export const PICKUP_POINTS: Array<
-  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'shield' | 'speed', number, number]
+  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'laser' | 'shield' | 'speed', number, number]
 > = [
   ['rifle', 400, 200],
   ['health', 200, 450],
@@ -85,6 +86,7 @@ export const PICKUP_POINTS: Array<
   ['shotgun', 300, 200],
   ['sniper', 1350, 300], // east perch, clear of the bush so the ring shows
   ['sniper', 250, 1000], // west twin — both teams get a long gun
+  ['laser', 800, 300], // center-north lab — fastest gun on the map
   ['shield', 200, 320],
   ['speed', 1400, 450],
   ['rifle', 800, 985], // maze-heart prize (grab it threading the south gap)

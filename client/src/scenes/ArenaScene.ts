@@ -184,7 +184,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,ONE,TWO,THREE,FOUR,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,ONE,TWO,THREE,FOUR,FIVE,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -196,6 +196,7 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-TWO', () => Session.room?.send('switch', { weapon: 'rifle' }));
       kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
       kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
+      kb.on('keydown-FIVE', () => Session.room?.send('switch', { weapon: 'laser' }));
       kb.on('keydown-TAB', () => this.toggleBoard());
       kb.on('keydown-F', () => {
         Session.room?.send('melee');
@@ -211,6 +212,7 @@ export class ArenaScene extends Phaser.Scene {
       if (me?.rifle) owned.push('rifle');
       if (me?.shotgun) owned.push('shotgun');
       if (me?.sniper) owned.push('sniper');
+      if (me?.laser) owned.push('laser');
       const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
       Session.room?.send('switch', { weapon: next });
     });
@@ -379,7 +381,7 @@ export class ArenaScene extends Phaser.Scene {
   private ownWeapon(): string {
     const me = (Session.room as any)?.state?.players.get(this.meId);
     const w = me?.weapon;
-    return w === 'rifle' || w === 'shotgun' || w === 'sniper' ? w : 'pistol';
+    return w === 'rifle' || w === 'shotgun' || w === 'sniper' || w === 'laser' ? w : 'pistol';
   }
 
   private fireNow() {
@@ -397,7 +399,7 @@ export class ArenaScene extends Phaser.Scene {
     room.send('shoot', { angle: ang });
     const gw = this.ownWeapon();
     sfx.shoot(gw);
-    this.flash(me.gfx.x + Math.cos(ang) * MUZZLE, me.gfx.y + Math.sin(ang) * MUZZLE, ang, false);
+    this.flash(me.gfx.x + Math.cos(ang) * MUZZLE, me.gfx.y + Math.sin(ang) * MUZZLE, ang, false, gw === 'laser' ? 0x22d3ee : 0);
     this.recoil(me.gun);
     // heavier guns kick the camera harder
     this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
@@ -454,9 +456,10 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private flash(x: number, y: number, ang: number, big: boolean) {
+  private flash(x: number, y: number, ang: number, big: boolean, tint = 0) {
     const f = this.add.image(x, y, 'muzzle').setBlendMode(Phaser.BlendModes.ADD)
       .setRotation(ang).setDepth(7).setScale(big ? 1.3 : 0.8);
+    if (tint) f.setTint(tint);
     this.time.delayedCall(60, () => f.destroy());
   }
 
@@ -744,15 +747,17 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       const foe = b.ownerId !== this.meId;
       const img = this.add.image(b.x, b.y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
-      if (foe) img.setTint(0xfb923c);
+      const bw = typeof b.weapon === 'string' ? b.weapon : 'pistol';
+      if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
+      else if (foe) img.setTint(0xfb923c);
       img.setRotation(Math.atan2(b.vy, b.vx));
-      img.setScale(2.1, 0.85); // stretched tracer hides spawn pop
+      img.setScale(bw === 'laser' ? 2.6 : 2.1, 0.85); // laser streaks longer
       this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
       // muzzle flash + recoil at the shooter's barrel
       const own = this.players.get(b.ownerId);
       if (own) {
         const a = Math.atan2(b.vy, b.vx);
-        this.flash(own.gfx.x + Math.cos(a) * MUZZLE, own.gfx.y + Math.sin(a) * MUZZLE, a, false);
+        this.flash(own.gfx.x + Math.cos(a) * MUZZLE, own.gfx.y + Math.sin(a) * MUZZLE, a, false, bw === 'laser' ? 0x22d3ee : 0);
         this.recoil(own.gun);
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
@@ -814,11 +819,11 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawAmmo(p: any) {
     const W = WEAPONS[p.weapon] || WEAPONS.pistol;
-    const colors: Record<string, string> = { pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc' };
+    const colors: Record<string, string> = { pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc', laser: '#22d3ee' };
     this.ammoTitle.setText(p.weapon.toUpperCase());
     this.ammoTitle.setColor(colors[p.weapon] || '#94a3b8');
     const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
-      : p.weapon === 'sniper' ? p.nammo : p.pammo;
+      : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo : p.pammo;
     if (p.reloading) {
       this.ammoCount.setText('…');
       this.ammoCount.setColor('#fb923c');
@@ -830,7 +835,7 @@ export class ArenaScene extends Phaser.Scene {
       this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
       this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText('R reload · 1-4 swap · F knife');
+    this.ammoHint.setText('R reload · 1-5 swap · F knife');
     const needReload = !p.reloading && left < W.clip;
     this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
@@ -928,7 +933,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!pk.active) return;
       const cols: Record<string, number> = {
         health: 0x4ade80, rifle: 0xfacc15, ammo: 0xfdba74,
-        shotgun: 0xfb923c, sniper: 0xc084fc, shield: 0x38bdf8, speed: 0xfde047,
+        shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee, shield: 0x38bdf8, speed: 0xfde047,
       };
       g.fillStyle(cols[pk.kind] ?? 0xffffff, 1);
       g.fillCircle(x0 + pk.x * s, y0 + pk.y * s, 1.8);
@@ -964,8 +969,8 @@ export class ArenaScene extends Phaser.Scene {
     } else if (kind === 'ammo') {
       const box = this.add.rectangle(0, 0, 18, 13, 0xeab308).setStrokeStyle(2, 0x92400e);
       inner = [box];
-    } else { // rifle / shotgun / sniper: gold ring + tinted rifle + name tag
-      const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc };
+    } else { // rifle / shotgun / sniper / laser: gold ring + tinted rifle + name tag
+      const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee };
       const ring = this.add.image(0, 0, 'ring').setScale(0.75);
       const gun = this.add.image(0, 0, 'gun').setScale(0.9).setTint(tints[kind] ?? 0xffffff);
       const tag = this.add.text(0, -30, kind.toUpperCase(), {
@@ -994,7 +999,7 @@ export class ArenaScene extends Phaser.Scene {
       const mine = st.players.get(this.meId);
       st.pickups.forEach((pk: any) => {
         if (kind || !pk.active) return;
-        if (pk.kind !== 'rifle' && pk.kind !== 'shotgun' && pk.kind !== 'sniper') return;
+        if (pk.kind !== 'rifle' && pk.kind !== 'shotgun' && pk.kind !== 'sniper' && pk.kind !== 'laser') return;
         if (mine?.[pk.kind] === true) return; // already own it
         const dx = me.gfx.x - pk.x, dy = me.gfx.y - pk.y;
         if (dx * dx + dy * dy < 70 * 70) kind = pk.kind;

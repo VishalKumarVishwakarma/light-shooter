@@ -23,13 +23,13 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`PASS: ${m}`); } else { fail++; console.log(`FAIL: ${m}`); } };
 
 // each gun layers a distinct node count (crack+body+thump+clack+echoes differ)
-for (const w of ['pistol', 'rifle', 'shotgun', 'sniper']) {
+for (const w of ['pistol', 'rifle', 'shotgun', 'sniper', 'laser']) {
   calls.length = 0;
   sfx.shoot(w, 1);
   ok(calls.length > 4, `${w} layers sound (nodes=${calls.length})`);
 }
 const counts = {};
-for (const w of ['pistol', 'rifle', 'shotgun', 'sniper']) {
+for (const w of ['pistol', 'rifle', 'shotgun', 'sniper', 'laser']) {
   calls.length = 0;
   sfx.shoot(w, 1);
   counts[w] = calls.length;

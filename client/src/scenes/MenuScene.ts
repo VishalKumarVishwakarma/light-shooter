@@ -255,7 +255,7 @@ export class MenuScene extends Phaser.Scene {
     const rows = [
       ['✋', 'Move with WASD or arrow keys.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
-      ['🔫', 'Grab rifles/shotguns/snipers with E — R reloads, 1-4 or wheel swaps.'],
+      ['🔫', 'Grab rifles/shotguns/snipers/lasers with E — R reloads, 1-5 or wheel swaps.'],
       ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown.'],
       ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],
       ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],

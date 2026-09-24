@@ -95,7 +95,7 @@ export class ShooterRoom extends Room<ShooterState> {
       if (this.state.phase !== 'playing') return;
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive) return;
-      const want = ['pistol', 'rifle', 'shotgun', 'sniper'].includes(m?.weapon || '')
+      const want = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser'].includes(m?.weapon || '')
         ? String(m?.weapon) : 'pistol';
       if (!this.owns(p, want)) return; // must pick one up first
       p.weapon = want;
@@ -226,19 +226,22 @@ export class ShooterRoom extends Room<ShooterState> {
   }
 
   private ammoOf(p: Player, w: string) {
-    return w === 'rifle' ? p.ammo : w === 'shotgun' ? p.sammo : w === 'sniper' ? p.nammo : p.pammo;
+    return w === 'rifle' ? p.ammo : w === 'shotgun' ? p.sammo : w === 'sniper' ? p.nammo
+      : w === 'laser' ? p.lammo : p.pammo;
   }
 
   private setAmmo(p: Player, w: string, v: number) {
     if (w === 'rifle') p.ammo = v;
     else if (w === 'shotgun') p.sammo = v;
     else if (w === 'sniper') p.nammo = v;
+    else if (w === 'laser') p.lammo = v;
     else p.pammo = v;
   }
 
   private owns(p: Player, w: string) {
     return w === 'pistol' || (w === 'rifle' && p.rifle)
-      || (w === 'shotgun' && p.shotgun) || (w === 'sniper' && p.sniper);
+      || (w === 'shotgun' && p.shotgun) || (w === 'sniper' && p.sniper)
+      || (w === 'laser' && p.laser);
   }
 
   private startReload(id: string) {
@@ -262,11 +265,12 @@ export class ShooterRoom extends Room<ShooterState> {
       if (pk.kind === 'health') {
         if (p.hp >= 100) return;
         p.hp = Math.min(100, p.hp + 50);
-      } else if (pk.kind === 'rifle' || pk.kind === 'shotgun' || pk.kind === 'sniper') {
+      } else if (pk.kind === 'rifle' || pk.kind === 'shotgun' || pk.kind === 'sniper' || pk.kind === 'laser') {
         if (!manual) return;
         if (pk.kind === 'rifle') p.rifle = true;
         if (pk.kind === 'shotgun') p.shotgun = true;
         if (pk.kind === 'sniper') p.sniper = true;
+        if (pk.kind === 'laser') p.laser = true;
         p.weapon = pk.kind;
         this.setAmmo(p, pk.kind, WEAPONS[pk.kind].clip);
         p.reloading = false;
@@ -343,8 +347,8 @@ export class ShooterRoom extends Room<ShooterState> {
       p.shots = 0; p.hitsMade = 0; p.shieldPts = 0; p.speedT = 0;
       p.shield = this.shieldSeconds; // spawn protection at match start
       p.weapon = 'pistol'; p.ammo = 0; p.pammo = WEAPONS.pistol.clip;
-      p.sammo = 0; p.nammo = 0;
-      p.rifle = false; p.shotgun = false; p.sniper = false; p.reloading = false;
+      p.sammo = 0; p.nammo = 0; p.lammo = 0;
+      p.rifle = false; p.shotgun = false; p.sniper = false; p.laser = false; p.reloading = false;
       (p as any)._deadT = 0;
     });
     this.vel.clear();
@@ -463,6 +467,7 @@ export class ShooterRoom extends Room<ShooterState> {
           if (p.rifle) p.ammo = WEAPONS.rifle.clip;
           if (p.shotgun) p.sammo = WEAPONS.shotgun.clip;
           if (p.sniper) p.nammo = WEAPONS.sniper.clip;
+          if (p.laser) p.lammo = WEAPONS.laser.clip;
           const i = Math.floor(Math.random() * SPAWNS.length);
           p.x = SPAWNS[i][0]; p.y = SPAWNS[i][1];
           (p as any)._deadT = 0;

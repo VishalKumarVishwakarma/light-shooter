@@ -564,6 +564,23 @@ async function main() {
   await sleep(400);
   const q2 = s2r.state.players.get(s2r.sessionId).toJSON();
   ok(q2.hp === kAfter, `knife cooldown blocks instant second swing (hp=${q2.hp})`);
+  // laser: home host onto the center-north lab, E-grab, full cell
+  for (let i = 0; i < 30; i++) {
+    const a = s1r.state.players.get(s1r.sessionId).toJSON();
+    const dx = 800 - a.x, dy = 300 - a.y, d = Math.hypot(dx, dy);
+    if (d < 22) break;
+    s1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
+    await sleep(200);
+  }
+  s1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  await sleep(300);
+  for (let i = 0; i < 3; i++) {
+    s1r.send('interact', {});
+    await sleep(400);
+    if (s1r.state.players.get(s1r.sessionId).weapon === 'laser') break;
+  }
+  const lz = s1r.state.players.get(s1r.sessionId).toJSON();
+  ok(lz.weapon === 'laser' && lz.lammo === 25, `laser equipped (${lz.weapon} ${lz.lammo}/25)`);
   await s1r.leave(); await s2r.leave();
 
   // 19. Shield + speed powerups: absorb, haste, timers

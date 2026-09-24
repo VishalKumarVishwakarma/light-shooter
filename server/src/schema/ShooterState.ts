@@ -24,9 +24,11 @@ export class Player extends Schema {
   @type('number') pammo = 12;
   @type('number') sammo = 0;
   @type('number') nammo = 0;
+  @type('number') lammo = 0;
   @type('boolean') rifle = false;
   @type('boolean') shotgun = false;
   @type('boolean') sniper = false;
+  @type('boolean') laser = false;
   @type('boolean') reloading = false;
 }
 

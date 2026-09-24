@@ -113,6 +113,14 @@ class SFX {
     this.noise(0.4, 0.09 * g, 1800 * bright, 0.38); // echo 2
     this.clack(0.11 * g, 0.12); // bolt
   }
+  // Laser: hot sci-fi zap — screaming dive + glassy shimmer + power hum.
+  shootLaser(g = 1, bright = 1) {
+    this.tone(this.jitter(2100, 0.05), 0.14, 'sawtooth', 0.24 * g, -1500);
+    this.noise(0.05, 0.35 * g, 8000 * bright); // crack
+    this.tone(this.jitter(3200, 0.06), 0.09, 'sine', 0.12 * g, -1200, 0.01); // shimmer
+    this.tone(140, 0.12, 'triangle', 0.14 * g, 40); // hum body
+    this.clack(0.07 * g, 0.015);
+  }
   // Fire dispatcher: one call, correct gun every time.
   // g = distance gain 0..1 (far shots also lose their highs, PUBG-style).
   shoot(weapon: string, g = 1) {
@@ -122,6 +130,7 @@ class SFX {
     if (weapon === 'rifle') this.shootRifle(gain, bright);
     else if (weapon === 'shotgun') this.shootShotgun(gain, bright);
     else if (weapon === 'sniper') this.shootSniper(gain, bright);
+    else if (weapon === 'laser') this.shootLaser(gain, bright);
     else this.shootPistol(gain, bright);
   }
   // Knife: fast bandpass whoosh sweeping up.

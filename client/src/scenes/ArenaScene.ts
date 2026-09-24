@@ -964,11 +964,15 @@ export class ArenaScene extends Phaser.Scene {
     } else if (kind === 'ammo') {
       const box = this.add.rectangle(0, 0, 18, 13, 0xeab308).setStrokeStyle(2, 0x92400e);
       inner = [box];
-    } else { // rifle / shotgun / sniper: gold ring + tinted rifle
+    } else { // rifle / shotgun / sniper: gold ring + tinted rifle + name tag
       const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc };
       const ring = this.add.image(0, 0, 'ring').setScale(0.75);
       const gun = this.add.image(0, 0, 'gun').setScale(0.9).setTint(tints[kind] ?? 0xffffff);
-      inner = [ring, gun];
+      const tag = this.add.text(0, -30, kind.toUpperCase(), {
+        fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
+      }).setOrigin(0.5);
+      tag.setStroke('#020617', 3);
+      inner = [ring, gun, tag];
     }
     if (kind === 'shield' || kind === 'speed') {
       const ring = this.add.image(0, 0, 'ring').setScale(0.7)
@@ -985,20 +989,24 @@ export class ArenaScene extends Phaser.Scene {
   private refreshGrabPrompt() {
     const st: any = (Session.room as any)?.state;
     const me = this.players.get(this.meId);
-    let near = false;
+    let kind: string | null = null;
     if (st && me && st.phase === 'playing') {
-      const already = st.players.get(this.meId)?.rifle;
-      if (!already) {
-        st.pickups.forEach((pk: any) => {
-          if (near || pk.kind !== 'rifle' || !pk.active) return;
-          const dx = me.gfx.x - pk.x, dy = me.gfx.y - pk.y;
-          if (dx * dx + dy * dy < 70 * 70) near = true;
-        });
-      }
+      const mine = st.players.get(this.meId);
+      st.pickups.forEach((pk: any) => {
+        if (kind || !pk.active) return;
+        if (pk.kind !== 'rifle' && pk.kind !== 'shotgun' && pk.kind !== 'sniper') return;
+        if (mine?.[pk.kind] === true) return; // already own it
+        const dx = me.gfx.x - pk.x, dy = me.gfx.y - pk.y;
+        if (dx * dx + dy * dy < 70 * 70) kind = pk.kind;
+      });
     }
     if (!this.grabBtn) return;
-    this.grabBtn.c.setVisible(near);
-    if (near) this.grabBtn.c.setAlpha(0.7 + 0.3 * Math.sin(this.time.now / 180));
+    this.grabBtn.c.setVisible(kind !== null);
+    if (kind !== null) {
+      const k: string = kind;
+      this.grabBtn.label.setText(`Ⓔ PICK UP ${k.toUpperCase()}`);
+      this.grabBtn.c.setAlpha(0.7 + 0.3 * Math.sin(this.time.now / 180));
+    }
   }
 
   private drawScore() {

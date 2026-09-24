@@ -878,12 +878,12 @@ export class ArenaScene extends Phaser.Scene {
     room.state.bullets.onAdd((b: any, id: string) => {
       if (!live()) return;
       const foe = b.ownerId !== this.meId;
-      const img = this.add.image(b.x, b.y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
+      const img = this.add.image(b.x, b.y, 'bolt').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
       const bw = typeof b.weapon === 'string' ? b.weapon : 'pistol';
       if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
       else if (foe) img.setTint(0xfb923c);
       img.setRotation(Math.atan2(b.vy, b.vx));
-      img.setScale(bw === 'laser' ? 1.5 : 2.1, 0.85); // laser head rides inside its beam
+      img.setScale(bw === 'laser' ? 1.4 : 1.0, 1.0); // laser head rides inside its beam
       this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
       // muzzle flash + recoil at the shooter's barrel
       const own = this.players.get(b.ownerId);

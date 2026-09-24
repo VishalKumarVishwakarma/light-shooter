@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Session } from '../net/Session';
 import { W, H, SPEED, STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, MUZZLE, WEAPONS, inRect, stepMove } from '../map';
 import { ensureTextures, avatarTex } from '../textures';
-import { makeButton, quality, toast, type Btn } from '../ui';
+import { makeButton, quality, setQuality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
 
@@ -17,6 +17,7 @@ type PObj = {
   tx: number; ty: number; hp: number; alive: boolean;
   shield: number; shieldPts: number; speedT: number;
   sx: number; sy: number; // last authoritative position (reconciliation anchor)
+  hist: Array<{ t: number; x: number; y: number }>; // remote snapshot buffer (interp)
   pool?: Phaser.GameObjects.Image;
 };
 
@@ -74,6 +75,10 @@ export class ArenaScene extends Phaser.Scene {
   private firing = false;
   private lastFire = 0;
   private camLocked = false; // camera follow issued once per arena entry
+  private tacVin: Phaser.GameObjects.Image | null = null;
+  private tacScan: Phaser.GameObjects.TileSprite | null = null;
+  private autoQTrip = false; // auto low-graphics engaged this match
+  private autoQLow = 0; // consecutive sub-35fps seconds
   private shotSfxAt = new Map<string, number>(); // per-shooter throttle: one boom per volley
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
@@ -144,6 +149,8 @@ export class ArenaScene extends Phaser.Scene {
     this.rubble.clear();
     this.myVel = { x: 0, y: 0 };
     this.camLocked = false;
+    this.tacVin = null; this.tacScan = null;
+    this.autoQTrip = false; this.autoQLow = 0;
     // fresh maps/arrays: display objects were destroyed on shutdown
     this.players.clear();
     this.bullets.clear();
@@ -162,7 +169,7 @@ export class ArenaScene extends Phaser.Scene {
     this.myMove = { dx: 0, dy: 0 };
     this.firing = false;
     this.lastFire = 0;
-    this.add.image(480, 300, 'vignette').setDisplaySize(960, 600).setScrollFactor(0).setDepth(9)
+    this.tacVin = this.add.image(480, 300, 'vignette').setDisplaySize(960, 600).setScrollFactor(0).setDepth(9)
       .setVisible(!lowQ);
     // TAC frame: corner brackets + scanlines over the viewport
     const frame = this.add.graphics().setScrollFactor(0).setDepth(9);
@@ -176,7 +183,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokePath();
     frame.lineStyle(1, 0x22d3ee, 0.25);
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
-    if (!lowQ) this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
+    if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,ONE,TWO,THREE,FOUR,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
@@ -651,6 +658,7 @@ export class ArenaScene extends Phaser.Scene {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
         shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
+        hist: [],
       });
       if (!p.alive) body.setTint(0x666677);
       p.onChange(() => {
@@ -659,6 +667,17 @@ export class ArenaScene extends Phaser.Scene {
         if (!o) return;
         o.tx = p.x; o.ty = p.y;
         o.sx = p.x; o.sy = p.y;
+        if (id !== this.meId) {
+          // remote snapshot: respawns/teleports reset the buffer, else append
+          const last = o.hist[o.hist.length - 1];
+          if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 200) {
+            o.hist = [{ t: this.time.now, x: p.x, y: p.y }];
+            o.gfx.x = p.x; o.gfx.y = p.y;
+          } else {
+            o.hist.push({ t: this.time.now, x: p.x, y: p.y });
+            if (o.hist.length > 8) o.hist.shift();
+          }
+        }
         o.shield = p.shield || 0;
         o.shieldPts = p.shieldPts || 0;
         o.speedT = p.speedT || 0;
@@ -1246,11 +1265,39 @@ export class ArenaScene extends Phaser.Scene {
     } else {
       this.myMove = { dx: 0, dy: 0 };
     }
-    // interpolate remotes
+    // interpolate remotes: render 100ms behind the server, lerping between
+    // the two bracketing snapshots — constant velocity instead of chase judder
+    const nowMs = this.time.now;
+    const rt = nowMs - 100;
     this.players.forEach((o, id) => {
       if (id === this.meId) return;
-      o.gfx.x += (o.tx - o.gfx.x) * Math.min(1, dt * 12);
-      o.gfx.y += (o.ty - o.gfx.y) * Math.min(1, dt * 12);
+      const h = o.hist;
+      if (h.length === 0) {
+        o.gfx.x += (o.tx - o.gfx.x) * Math.min(1, dt * 12);
+        o.gfx.y += (o.ty - o.gfx.y) * Math.min(1, dt * 12);
+        return;
+      }
+      if (rt <= h[0].t) { o.gfx.x = h[0].x; o.gfx.y = h[0].y; return; }
+      const last = h[h.length - 1];
+      if (rt >= last.t) {
+        // past the newest sample: coast along the last segment (capped 150ms)
+        if (h.length >= 2) {
+          const p0 = h[h.length - 2];
+          const seg = Math.max(1, last.t - p0.t);
+          const k = Math.min(150, rt - last.t) / seg;
+          o.gfx.x = last.x + (last.x - p0.x) * k;
+          o.gfx.y = last.y + (last.y - p0.y) * k;
+        } else { o.gfx.x = last.x; o.gfx.y = last.y; }
+        return;
+      }
+      for (let i = 0; i < h.length - 1; i++) {
+        if (h[i].t <= rt && rt <= h[i + 1].t) {
+          const k = (rt - h[i].t) / Math.max(1, h[i + 1].t - h[i].t);
+          o.gfx.x = h[i].x + (h[i + 1].x - h[i].x) * k;
+          o.gfx.y = h[i].y + (h[i + 1].y - h[i].y) * k;
+          return;
+        }
+      }
     });
     // dead-reckon bullets between 20Hz server ticks (sniper covers 65px/tick —
     // snapping reads as stutter; ticks still correct via onChange)
@@ -1285,15 +1332,27 @@ export class ArenaScene extends Phaser.Scene {
       this.drawMinimap();
     }
     for (const w of this.waterTiles) w.tilePositionX += dt * 12;
-    // fps meter (?fps=1)
-    if (this.fpsText) {
-      this.fpsAcc += dt; this.fpsN++;
-      if (this.fpsAcc >= 1) {
-        const fps = Math.round(this.fpsN / this.fpsAcc);
+    // fps meter (?fps=1) + auto low-graphics: 3 straight sub-35fps seconds
+    // on HIGH drops scan/vignette/dust live (two tabs on one box stay fluid)
+    this.fpsAcc += dt; this.fpsN++;
+    if (this.fpsAcc >= 1) {
+      const fps = Math.round(this.fpsN / this.fpsAcc);
+      if (!this.autoQTrip && quality() === 'high' && playing) {
+        this.autoQLow = fps < 35 ? this.autoQLow + 1 : 0;
+        if (this.autoQLow >= 3) {
+          this.autoQTrip = true;
+          setQuality('low');
+          this.tacScan?.setVisible(false);
+          this.tacVin?.setVisible(false);
+          try { this.dust.stop(); } catch { /* dying */ }
+          toast(this, 'AUTO LOW GRAPHICS — raise it in settings', '#facc15');
+        }
+      }
+      if (this.fpsText) {
         this.fpsText.setText(`${fps} FPS`);
         this.fpsText.setColor(fps >= 50 ? '#4ade80' : fps >= 30 ? '#facc15' : '#ef4444');
-        this.fpsAcc = 0; this.fpsN = 0;
       }
+      this.fpsAcc = 0; this.fpsN = 0;
     }
   }
 }

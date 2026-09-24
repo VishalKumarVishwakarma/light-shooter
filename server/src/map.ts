@@ -83,7 +83,8 @@ export const PICKUP_POINTS: Array<
   ['ammo', 800, 420],
   ['health', 1200, 200],
   ['shotgun', 300, 200],
-  ['sniper', 1300, 200],
+  ['sniper', 1350, 300], // east perch, clear of the bush so the ring shows
+  ['sniper', 250, 1000], // west twin — both teams get a long gun
   ['shield', 200, 320],
   ['speed', 1400, 450],
   ['rifle', 800, 985], // maze-heart prize (grab it threading the south gap)

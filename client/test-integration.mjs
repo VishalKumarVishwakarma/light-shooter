@@ -482,14 +482,14 @@ async function main() {
   ok(spread.hp <= 76, `shotgun spread lands (guest hp=${spread.hp} gap=${lastGap.toFixed(0)})`);
   for (let i = 0; i < 18; i++) { // guest retreats east to the sniper nest
     const b = s2r.state.players.get(s2r.sessionId).toJSON();
-    if (b.x > 1285) break;
+    if (b.x > 1335) break;
     s2r.send('move', { dx: 1, dy: 0, angle: 0 });
     await sleep(200);
   }
   // home precisely onto the nest (interact radius is 30px; generous cap: guest may start anywhere)
   for (let i = 0; i < 30; i++) {
     const b = s2r.state.players.get(s2r.sessionId).toJSON();
-    const dx = 1300 - b.x, dy = 200 - b.y, d = Math.hypot(dx, dy);
+    const dx = 1350 - b.x, dy = 300 - b.y, d = Math.hypot(dx, dy);
     if (d < 22) break;
     s2r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
     await sleep(200);

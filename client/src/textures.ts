@@ -394,11 +394,11 @@ function menubg() {
   return c;
 }
 
-// GTA-flat button shell: matte face, thick bottom edge, hard top light.
-// Tinted per use; shading multiplies so it takes the button color.
+// Premium HQ button shell: sculpted face, gloss + sheen, deep bottom weight.
+// Kept light-based so per-use tint() colors it cleanly (green/blue/gold).
 function btn(w: number, h: number) {
-  const { c, ctx } = cv(w + 12, h + 12);
-  const ox = 6, oy = 6, r = 5;
+  const { c, ctx } = cv(w + 16, h + 16);
+  const ox = 8, oy = 8, r = 12;
   const path = () => {
     ctx.beginPath();
     ctx.moveTo(ox + r, oy);
@@ -408,29 +408,58 @@ function btn(w: number, h: number) {
     ctx.arcTo(ox, oy, ox + r, oy, r);
     ctx.closePath();
   };
-  // hard drop shadow for punch
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  path(); ctx.save(); ctx.translate(0, 3); ctx.fill(); ctx.restore();
-  // matte face: barely-there gradient
+  // soft drop shadow (twice for diffusion)
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  path(); ctx.save(); ctx.translate(0, 4); ctx.fill(); ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  path(); ctx.save(); ctx.translate(0, 2); ctx.fill(); ctx.restore();
+  // sculpted face: bright crown -> mid -> deep base
   const g = ctx.createLinearGradient(0, oy, 0, oy + h);
   g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.75, '#e8edf4');
-  g.addColorStop(1, '#c3ccd9');
+  g.addColorStop(0.45, '#eef2f8');
+  g.addColorStop(0.8, '#c6cfdd');
+  g.addColorStop(1, '#a9b4c8');
   ctx.fillStyle = g;
   path(); ctx.fill();
-  // thick bottom edge (the GTA weight)
-  ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.fillRect(ox + 3, oy + h - 10, w - 6, 8);
-  // thin top light + dark rim
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  // top gloss: rounded highlight band
+  ctx.save();
+  path(); ctx.clip();
+  const gloss = ctx.createLinearGradient(0, oy, 0, oy + h * 0.52);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.85)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gloss;
+  ctx.fillRect(ox, oy, w, h * 0.52);
+  // diagonal sheen
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
   ctx.beginPath();
-  ctx.moveTo(ox + r, oy + 1);
-  ctx.lineTo(ox + w - r, oy + 1);
+  ctx.moveTo(ox + w * 0.12, oy + h);
+  ctx.lineTo(ox + w * 0.34, oy);
+  ctx.lineTo(ox + w * 0.46, oy);
+  ctx.lineTo(ox + w * 0.24, oy + h);
+  ctx.closePath(); ctx.fill();
+  // bottom weight bar (the GTA heft)
+  ctx.fillStyle = 'rgba(2,6,23,0.30)';
+  ctx.fillRect(ox + 6, oy + h - 13, w - 12, 9);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillRect(ox + 6, oy + h - 14, w - 12, 1.5);
+  ctx.restore();
+  // crisp top light + dark rim
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(ox + r, oy + 1.2);
+  ctx.lineTo(ox + w - r, oy + 1.2);
   ctx.stroke();
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 3;
   ctx.strokeStyle = '#0b1220';
   path(); ctx.stroke();
+  // inner rim light (bottom bounce)
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(ox + r, oy + h - 1.2);
+  ctx.lineTo(ox + w - r, oy + h - 1.2);
+  ctx.stroke();
   return c;
 }
 

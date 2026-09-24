@@ -16,9 +16,25 @@ export class MenuScene extends Phaser.Scene {
     ensureTextures(this);
     this.cameras.main.fadeIn(250, 0, 0, 0);
     this.listing = false;
-    // backdrop: stretched gradient + grain + rising embers
+    // backdrop: stretched gradient + grain + grid + drifting glow orbs + embers
     this.add.image(480, 300, 'menubg').setDisplaySize(960, 600);
+    const grid = this.add.graphics().setDepth(1).setAlpha(0.5);
+    grid.lineStyle(1, 0x22d3ee, 0.07);
+    for (let gx = 0; gx <= 960; gx += 48) grid.lineBetween(gx, 0, gx, 600);
+    for (let gy = 0; gy <= 600; gy += 48) grid.lineBetween(0, gy, 960, gy);
     this.add.tileSprite(480, 300, 960, 600, 'noise').setAlpha(0.35);
+    const orbC = this.add.image(180, 420, 'halo').setTint(0x22d3ee)
+      .setBlendMode(Phaser.BlendModes.ADD).setScale(5, 5).setAlpha(0.16).setDepth(1);
+    const orbA = this.add.image(790, 400, 'halo').setTint(0xf59e0b)
+      .setBlendMode(Phaser.BlendModes.ADD).setScale(4, 4).setAlpha(0.13).setDepth(1);
+    this.tweens.add({
+      targets: orbC, x: 220, y: 380, alpha: 0.22,
+      duration: 5200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    this.tweens.add({
+      targets: orbA, x: 750, y: 440, alpha: 0.18,
+      duration: 6200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
     this.add.particles(0, 0, 'dot', {
       x: { min: 40, max: 920 },
       y: 620,
@@ -59,6 +75,25 @@ export class MenuScene extends Phaser.Scene {
     const sub = this.add.text(480, 150, '8 - P L A Y E R   R E A L T I M E   A R E N A', {
       fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: '#7dd3fc',
     }).setOrigin(0.5).setDepth(2);
+    sub.setStroke('#020617', 4);
+    // neon title underline: cyan core fading to the edges
+    const ul = this.add.graphics().setDepth(2);
+    ul.fillStyle(0x22d3ee, 0.15);
+    ul.fillRoundedRect(280, 132, 400, 5, 2);
+    ul.fillStyle(0x22d3ee, 0.9);
+    ul.fillRoundedRect(380, 132, 200, 5, 2);
+    ul.fillStyle(0xffffff, 0.7);
+    ul.fillRoundedRect(380, 132, 200, 1.5, 1);
+    // glass CTA card behind the buttons
+    const card = this.add.graphics().setDepth(1);
+    card.fillStyle(0x020617, 0.55);
+    card.fillRoundedRect(292, 232, 376, 164, 18);
+    card.lineStyle(1.5, 0x22d3ee, 0.28);
+    card.strokeRoundedRect(292, 232, 376, 164, 18);
+    card.lineStyle(1, 0xffffff, 0.08);
+    card.beginPath();
+    card.moveTo(306, 240); card.lineTo(654, 240);
+    card.strokePath();
 
     // callsign entry (F1: player name + random generator, persisted).
     // Wrapped defensively: menu must render even if DOM overlay is unavailable.

@@ -16,7 +16,7 @@ export function kicker(
   return t;
 }
 
-// Big extruded title: dark offset base + glowing face.
+// Big extruded title: dark offset base + glowing face + top sheen.
 export function displayText(
   scene: Phaser.Scene,
   x: number, y: number, str: string, size: number,
@@ -28,7 +28,11 @@ export function displayText(
   const front = scene.add.text(0, 0, str, {
     fontFamily: DISPLAY, fontSize: `${size}px`, color,
   }).setOrigin(0.5);
+  front.setStroke('#020617', Math.max(2, Math.round(size / 14)));
   front.setShadow(0, 0, glow, 22, false, true);
-  if (fixed) { back.setScrollFactor(0); front.setScrollFactor(0); }
-  return scene.add.container(x, y, [back, front]).setDepth(depth);
+  const sheen = scene.add.text(0, -Math.max(1, size * 0.03), str, {
+    fontFamily: DISPLAY, fontSize: `${size}px`, color: '#ffffff',
+  }).setOrigin(0.5).setAlpha(0.16);
+  if (fixed) { back.setScrollFactor(0); front.setScrollFactor(0); sheen.setScrollFactor(0); }
+  return scene.add.container(x, y, [back, front, sheen]).setDepth(depth);
 }

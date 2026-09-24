@@ -228,7 +228,14 @@ export class ArenaScene extends Phaser.Scene {
     // red edge flash on damage
     this.dmgVin = this.add.image(480, 300, 'vignette').setTint(0xef4444)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // ammo readout (bottom-right, above minimap)
+    // ammo readout (bottom-right, above minimap): glass card
+    const ammoCard = this.add.graphics().setScrollFactor(0).setDepth(9);
+    ammoCard.fillStyle(0x020617, 0.68);
+    ammoCard.fillRoundedRect(796, 340, 160, 96, 12);
+    ammoCard.fillStyle(0xffffff, 0.05);
+    ammoCard.fillRoundedRect(798, 342, 156, 34, 10);
+    ammoCard.lineStyle(1.5, 0x22d3ee, 0.35);
+    ammoCard.strokeRoundedRect(796, 340, 160, 96, 12);
     this.add.image(872, 372, 'gun').setScale(0.8).setScrollFactor(0).setDepth(10).setAlpha(0.9);
     this.ammoTitle = this.add.text(950, 352, 'PISTOL', {
       fontFamily: MONO, fontSize: '13px', color: '#94a3b8',
@@ -244,8 +251,8 @@ export class ArenaScene extends Phaser.Scene {
     this.add.rectangle(950, 420, 110, 5, 0x000000, 0.55).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.reloadBar = this.add.rectangle(950, 420, 0, 5, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
     // tappable RELOAD button (touch + mouse; R key works too)
-    this.reloadBg = this.add.rectangle(895, 448, 110, 30, 0x1e293b)
-      .setStrokeStyle(1.5, 0xeab308, 0.8).setScrollFactor(0).setDepth(10);
+    this.reloadBg = this.add.rectangle(895, 448, 110, 30, 0x0b1220, 0.92)
+      .setStrokeStyle(1.5, 0xeab308, 0.9).setScrollFactor(0).setDepth(10);
     this.reloadTx = this.add.text(895, 448, '⟳ RELOAD', {
       fontFamily: BODY, fontSize: '14px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -265,7 +272,13 @@ export class ArenaScene extends Phaser.Scene {
       onClick: () => Session.room?.send('interact'),
     });
     this.grabBtn.c.setVisible(false);
-    this.add.rectangle(480, 14, 110, 26, 0x000000, 0.55).setScrollFactor(0).setDepth(10);
+    const clockCard = this.add.graphics().setScrollFactor(0).setDepth(10);
+    clockCard.fillStyle(0x020617, 0.72);
+    clockCard.fillRoundedRect(421, 1, 118, 27, 13);
+    clockCard.fillStyle(0xffffff, 0.06);
+    clockCard.fillRoundedRect(423, 3, 114, 11, 6);
+    clockCard.lineStyle(1.5, 0xfacc15, 0.45);
+    clockCard.strokeRoundedRect(421, 1, 118, 27, 13);
     const liveDot = this.add.circle(434, 14, 5, 0xef4444).setScrollFactor(0).setDepth(11);
     this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
     this.clockText = this.add.text(484, 14, '2:00', {
@@ -298,8 +311,15 @@ export class ArenaScene extends Phaser.Scene {
       fontFamily: MONO, fontSize: '14px', color: '#e2e8f0', align: 'right', lineSpacing: 3,
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.scoreText.setStroke('#000000', 3);
-    // minimap frame (bottom-right)
+    // minimap frame (bottom-right): glass plate + neon rim (drawn once)
     this.minimap = this.add.graphics().setScrollFactor(0).setDepth(9);
+    const mmFrame = this.add.graphics().setScrollFactor(0).setDepth(10);
+    mmFrame.fillStyle(0x020617, 0.55);
+    mmFrame.fillRoundedRect(795, 471, 160, 122, 10);
+    mmFrame.lineStyle(1.5, 0x22d3ee, 0.55);
+    mmFrame.strokeRoundedRect(795, 471, 160, 122, 10);
+    mmFrame.lineStyle(1, 0xffffff, 0.10);
+    mmFrame.strokeRoundedRect(798, 474, 154, 116, 8);
 
     // impact spray, blood, movement dust
     this.sparks = this.add.particles(0, 0, 'dot', {
@@ -486,8 +506,9 @@ export class ArenaScene extends Phaser.Scene {
         r.k.setY(y); r.m.setX(r.k.x + r.k.width + 5); r.m.setY(y);
         r.v.setX(r.m.x + r.m.width + 5); r.v.setY(y);
       });
-      const bg = this.add.rectangle(10, rowY(0), 330, 19, 0x000000, 0.55)
-        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9);
+      const bg = this.add.rectangle(10, rowY(0), 330, 19, 0x020617, 0.72)
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9)
+        .setStrokeStyle(1, 0x22d3ee, 0.35);
       const kk = this.add.text(16, rowY(0), k.killer, {
         fontFamily: MONO, fontSize: '13px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);

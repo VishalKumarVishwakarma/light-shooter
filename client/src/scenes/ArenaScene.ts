@@ -533,6 +533,15 @@ export class ArenaScene extends Phaser.Scene {
     const now = this.time.now / 1000;
     if (now - this.lastFire < w.interval) return;
     this.lastFire = now;
+    // dry mag: reload instead of flashing blanks (server would reject anyway)
+    const mag = st?.weapon === 'rifle' ? st?.ammo : st?.weapon === 'shotgun' ? st?.sammo
+      : st?.weapon === 'sniper' ? st?.nammo : st?.weapon === 'laser' ? st?.lammo : st?.pammo;
+    if (st?.reloading) return;
+    if ((mag ?? 1) <= 0) {
+      room.send('reload');
+      sfx.reload();
+      return;
+    }
     const pt = this.input.activePointer;
     const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
     const ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);

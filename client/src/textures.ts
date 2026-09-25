@@ -279,6 +279,38 @@ function scorch() {
   return c;
 }
 
+// riot barrier: frontal energy shield (tall axis = perpendicular to aim)
+function guardTex() {
+  const { c, ctx } = cv(20, 52);
+  // outer glow shell
+  const glow = ctx.createLinearGradient(0, 0, 20, 0);
+  glow.addColorStop(0, 'rgba(74,222,128,0)');
+  glow.addColorStop(0.5, 'rgba(74,222,128,0.55)');
+  glow.addColorStop(1, 'rgba(74,222,128,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 20, 52);
+  // glass body
+  const glass = ctx.createLinearGradient(0, 0, 20, 0);
+  glass.addColorStop(0, 'rgba(6,40,24,0.85)');
+  glass.addColorStop(0.5, 'rgba(34,197,94,0.5)');
+  glass.addColorStop(1, 'rgba(6,40,24,0.85)');
+  ctx.fillStyle = glass;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(4, 2, 12, 48, 6);
+  else ctx.rect(4, 2, 12, 48);
+  ctx.fill();
+  // bright rims + slats
+  ctx.fillStyle = 'rgba(187,247,208,0.95)';
+  ctx.fillRect(4, 2, 2, 48);
+  ctx.fillRect(14, 2, 2, 48);
+  ctx.fillStyle = 'rgba(187,247,208,0.6)';
+  for (const y of [12, 24, 36]) ctx.fillRect(5, y, 10, 2);
+  // top shine
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillRect(6, 3, 8, 2);
+  return c;
+}
+
 // tracer bolt: hot capsule with a white core (tint colors the whole bolt)
 function bolt() {
   const { c, ctx } = cv(40, 14);
@@ -672,6 +704,7 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'puff', puff());
   put(scene, 'flame', flame());
   put(scene, 'scorch', scorch());
+  put(scene, 'guard', guardTex());
   put(scene, 'muzzle', muzzle());
   put(scene, 'glow', glow());
   put(scene, 'dot', dot());

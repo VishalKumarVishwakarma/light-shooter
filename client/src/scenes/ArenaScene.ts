@@ -11,7 +11,7 @@ type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
   ring: Phaser.GameObjects.Image; ringB: Phaser.GameObjects.Image;
-  gring: Phaser.GameObjects.Image;
+  gring: Phaser.GameObjects.Container; // frontal shield holder (rotates to aim)
   legs: Phaser.GameObjects.Container;
   bootL: Phaser.GameObjects.Image; bootR: Phaser.GameObjects.Image;
   stepPhase: number;
@@ -933,8 +933,9 @@ export class ArenaScene extends Phaser.Scene {
       const glowCss = mine ? '#22d3ee' : foeColor(idx)[3];
       const sh = this.add.image(0, 11, 'shadow').setAlpha(0.8);
       const baseRing = this.add.image(0, 10, 'ring').setTint(col).setScale(0.62, 0.34).setAlpha(0.95);
-      const gring = this.add.image(0, 0, 'ring').setTint(0x4ade80).setScale(1.05).setAlpha(0.8)
-        .setVisible(p.guard && p.alive); // raised-shield bubble
+      const gring = this.add.container(0, 0, [
+        this.add.image(30, 0, 'guard').setAlpha(0.95),
+      ]).setVisible(p.guard && p.alive); // frontal riot barrier, tracks aim
       const ring = this.add.image(0, 0, 'ring').setVisible(false);
       const ringB = this.add.image(0, 0, 'ring').setTint(0x38bdf8).setVisible(false);
       const bootL = this.add.image(-7, 8, 'boot');
@@ -1772,6 +1773,9 @@ export class ArenaScene extends Phaser.Scene {
         o.gfx.setAlpha(1);
       }
       o.label.setVisible(!vanished);
+      if (o.gring.visible) { // riot barrier faces the aim (self) or the gun (foes)
+        o.gring.setRotation(id === this.meId ? this.lastAim : o.gun.rotation);
+      }
       if (o.ring.visible) {
         const s = 1 + 0.09 * Math.sin(_t / 240 + h);
         o.ring.setScale(s);

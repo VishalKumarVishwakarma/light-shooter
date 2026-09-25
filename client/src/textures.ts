@@ -33,27 +33,28 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.fill();
   ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.stroke();
-  // mini vest + pouches
+  // mini vest + pouches with flaps
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fillRect(cx - 6, cy - 5, 12, 10);
   ctx.fillStyle = dark;
   ctx.fillRect(cx + 2, cy - 4, 4, 4); ctx.fillRect(cx + 2, cy + 1, 4, 4);
-  // stubby arms reaching east (dark under-stroke = bold outline)
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineCap = 'round'; ctx.lineWidth = 7;
-  ctx.beginPath(); ctx.moveTo(cx - 1, cy - 8); ctx.lineTo(cx + 11, cy - 4); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx - 1, cy + 8); ctx.lineTo(cx + 11, cy + 4); ctx.stroke();
-  ctx.strokeStyle = base; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(cx - 1, cy - 8); ctx.lineTo(cx + 11, cy - 4); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx - 1, cy + 8); ctx.lineTo(cx + 11, cy + 4); ctx.stroke();
-  ctx.fillStyle = skin; // kid hands (big, chunky)
-  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 3.8, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 3.8, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 4.4, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 4.4, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeStyle = light; ctx.lineWidth = 1.5; // sleeve cuffs
-  ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 4.1, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx + 12, cy + 4, 4.1, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(cx + 2, cy - 4, 4, 1); ctx.fillRect(cx + 2, cy + 1, 4, 1);
+  // collar + belt (uniform reads, not a plain ball)
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx + 4, cy - 9); ctx.lineTo(cx + 8, cy - 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + 4, cy + 9); ctx.lineTo(cx + 8, cy + 5); ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(cx - 9, cy - 2, 18, 3);
+  ctx.fillStyle = light;
+  ctx.fillRect(cx - 2, cy - 2, 3, 3); // belt buckle
+  // shoulder nubs where the (separately rotating) rifle sits
+  ctx.fillStyle = base;
+  ctx.beginPath(); ctx.arc(cx + 1, cy - 9, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 1, cy + 9, 4.5, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.arc(cx + 1, cy - 9, 4.5, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx + 1, cy + 9, 4.5, 0, Math.PI * 2); ctx.stroke();
   // big team helmet (the instant read: light crown -> base -> dark rim)
   const hg = ctx.createRadialGradient(cx - 5, cy - 7, 2, cx, cy, 15);
   hg.addColorStop(0, light); hg.addColorStop(0.6, base); hg.addColorStop(1, dark);
@@ -72,12 +73,17 @@ function soldier(base: string, dark: string, light: string, _head: string, badge
   // helmet gloss streak (sun from the top-left)
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(cx - 2, cy, 10, Math.PI * 1.05, Math.PI * 1.45); ctx.stroke();
-  // cute face peeking east from under the brim
+  // cute face peeking east from under the brim + chin strap
   ctx.fillStyle = skin;
   ctx.beginPath(); ctx.arc(cx + 9, cy, 5.5, -1.2, 1.2); ctx.fill();
-  ctx.fillStyle = '#20242e'; // determined eyes
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; // brim shadow over the face top
+  ctx.beginPath(); ctx.arc(cx + 9, cy, 5.5, -1.2, -0.4); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.5; // chin strap
+  ctx.beginPath(); ctx.moveTo(cx + 5, cy - 8); ctx.lineTo(cx + 8, cy + 5); ctx.stroke();
+  ctx.fillStyle = '#20242e'; // determined eyes + brows
   ctx.beginPath(); ctx.arc(cx + 11, cy - 2, 1.6, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.arc(cx + 11, cy + 2, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(cx + 9, cy - 4.5, 3, 1); ctx.fillRect(cx + 9, cy + 3.5, 3, 1);
   ctx.fillStyle = 'rgba(240,120,120,0.8)'; // rosy cheek
   ctx.beginPath(); ctx.arc(cx + 8.5, cy + 3.5, 1.6, 0, Math.PI * 2); ctx.fill();
   // squad number belly patch (bold: thick rim, big numeral)
@@ -141,6 +147,18 @@ function gun() {
   ctx.beginPath(); ctx.arc(35.4, 5.4, 0.9, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#6b7280';
   ctx.fillRect(48, 5, 4, 8);
+  // gripping hands (ride WITH the rifle, so aim never detaches from the kid)
+  const skin = '#f2c89b';
+  const hand = (x: number, y: number, r: number) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(x, y, r + 1, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.arc(x - 1, y - 1, r * 0.4, 0, Math.PI * 2); ctx.fill();
+  };
+  hand(19, 10, 4); // trigger hand
+  hand(37, 11, 3.6); // foregrip hand
   return c;
 }
 

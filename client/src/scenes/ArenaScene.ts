@@ -37,7 +37,7 @@ export class ArenaScene extends Phaser.Scene {
   players = new Map<string, PObj>();
   bullets = new Map<string, BObj>();
   throws = new Map<string, { img: Phaser.GameObjects.Image; vx: number; vy: number }>();
-  clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[] }>();
+  clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[]; timers: Phaser.Time.TimerEvent[] }>();
   throwBtns: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text; kind: string; key: string; icon: string }> = [];
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
@@ -998,6 +998,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       const c = this.add.container(cl.x, cl.y).setDepth(4);
       const parts = [];
+      const timers = [];
       const R = cl.r || 100;
       if (cl.kind === 'smoke') {
         for (let i = 0; i < 12; i++) {
@@ -1019,20 +1020,41 @@ export class ArenaScene extends Phaser.Scene {
           });
         }
       } else {
-        const glow = this.add.image(0, 0, 'glow').setTint(0xea580c).setAlpha(0.5)
-          .setScale(R / 14, R / 22);
-        parts.push(glow); c.add(glow);
-        for (let i = 0; i < 10; i++) {
+        const bed = this.add.image(0, 0, 'glow').setTint(0xfbbf24).setAlpha(0.55)
+          .setScale(R / 9, R / 14);
+        parts.push(bed); c.add(bed);
+        this.tweens.add({
+          targets: bed, alpha: 0.35, scaleX: R / 10, scaleY: R / 16,
+          duration: 420, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+        const stain = this.add.image(0, 4, 'scorch').setAlpha(0.85).setScale(R / 55);
+        parts.push(stain); c.add(stain);
+        for (let i = 0; i < 14; i++) {
           const a = Math.random() * Math.PI * 2;
-          const dist = Math.random() * R * 0.7;
-          const f = this.add.image(Math.cos(a) * dist, Math.sin(a) * dist * 0.7, 'flame')
-            .setScale(0.7 + Math.random() * 0.7);
+          const dist = Math.random() * R * 0.65;
+          const fx = Math.cos(a) * dist, fy = Math.sin(a) * dist * 0.7;
+          const tall = 1.1 + (1 - dist / (R * 0.7)) * 0.9 + Math.random() * 0.4;
+          const f = this.add.image(fx, fy, 'flame').setScale(tall * 0.9, tall);
+          if (Math.random() < 0.4) f.setTint(0xffe08a);
           parts.push(f); c.add(f);
+          const lick = 130 + Math.random() * 140;
           this.tweens.add({
-            targets: f, scaleY: f.scaleY * 1.35, scaleX: f.scaleX * 0.9, angle: (Math.random() - 0.5) * 24,
-            duration: 130 + Math.random() * 120, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+            targets: f, y: fy - 12 - Math.random() * 8, scaleY: tall * 1.45, scaleX: tall * 0.75,
+            duration: lick, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Math.random() * lick,
+          });
+          this.tweens.add({
+            targets: f, angle: (Math.random() - 0.5) * 36,
+            duration: 170 + Math.random() * 160, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
           });
         }
+        const fountain = this.time.addEvent({
+          delay: 380, loop: true,
+          callback: () => {
+            if (!c.active) return;
+            this.sparks.explode(2, cl.x + (Math.random() - 0.5) * R, cl.y + (Math.random() - 0.5) * R * 0.6);
+          },
+        });
+        timers.push(fountain);
         for (let i = 0; i < 6; i++) {
           const e = this.add.image(0, 0, 'dot').setTint(0xfdba74).setScale(1.2);
           parts.push(e); c.add(e);
@@ -1044,7 +1066,7 @@ export class ArenaScene extends Phaser.Scene {
           });
         }
       }
-      this.clouds.set(id, { c, parts });
+      this.clouds.set(id, { c, parts, timers });
       sfx.ignite();
       cl.onChange(() => {
         if (!live()) return;
@@ -1057,6 +1079,7 @@ export class ArenaScene extends Phaser.Scene {
         if (o) {
           this.tweens.killTweensOf(o.c);
           o.parts.forEach((pp) => this.tweens.killTweensOf(pp));
+          o.timers.forEach((tm) => tm.remove(false));
           o.c.destroy(true);
         }
         this.clouds.delete(id);

@@ -37,7 +37,7 @@ export class ArenaScene extends Phaser.Scene {
   players = new Map<string, PObj>();
   bullets = new Map<string, BObj>();
   throws = new Map<string, { img: Phaser.GameObjects.Image; vx: number; vy: number }>();
-  clouds = new Map<string, Phaser.GameObjects.Container>();
+  clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[] }>();
   throwBtns: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text; kind: string; key: string; icon: string }> = [];
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
@@ -997,30 +997,68 @@ export class ArenaScene extends Phaser.Scene {
     room.state.clouds.onAdd((cl: any, id: string) => {
       if (!live()) return;
       const c = this.add.container(cl.x, cl.y).setDepth(4);
+      const parts = [];
+      const R = cl.r || 100;
       if (cl.kind === 'smoke') {
-        for (let i = 0; i < 6; i++) {
-          c.add(this.add.image((Math.random() - 0.5) * 90, (Math.random() - 0.5) * 90, 'dot')
-            .setTint(0x9ca3af).setAlpha(0.5).setScale(3 + Math.random() * 3));
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2 + Math.random() * 0.5;
+          const dist = R * (0.25 + Math.random() * 0.5);
+          const puff = this.add.image(0, 0, 'puff')
+            .setTint(Math.random() < 0.5 ? 0xe5e5e5 : 0x9ca3af)
+            .setAlpha(0.85).setScale(0.4);
+          parts.push(puff); c.add(puff);
+          this.tweens.add({
+            targets: puff, x: Math.cos(a) * dist, y: Math.sin(a) * dist * 0.8 - R * 0.25,
+            scaleX: 1.6 + Math.random() * 1.4, scaleY: 1.6 + Math.random() * 1.4,
+            duration: 900 + Math.random() * 700, ease: 'Quad.easeOut',
+          });
+          const rise = 8 + Math.random() * 10;
+          this.tweens.add({
+            targets: puff, y: '-=' + rise, angle: (Math.random() - 0.5) * 40,
+            duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 900,
+          });
         }
       } else {
-        for (let i = 0; i < 5; i++) {
-          c.add(this.add.image((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 70, 'dot')
-            .setTint(i % 2 ? 0xfb923c : 0xfacc15).setAlpha(0.85).setScale(1.6 + Math.random()));
+        const glow = this.add.image(0, 0, 'glow').setTint(0xea580c).setAlpha(0.5)
+          .setScale(R / 14, R / 22);
+        parts.push(glow); c.add(glow);
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const dist = Math.random() * R * 0.7;
+          const f = this.add.image(Math.cos(a) * dist, Math.sin(a) * dist * 0.7, 'flame')
+            .setScale(0.7 + Math.random() * 0.7);
+          parts.push(f); c.add(f);
+          this.tweens.add({
+            targets: f, scaleY: f.scaleY * 1.35, scaleX: f.scaleX * 0.9, angle: (Math.random() - 0.5) * 24,
+            duration: 130 + Math.random() * 120, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+          });
         }
-        this.tweens.add({ targets: c, scaleX: 1.12, scaleY: 1.12, alpha: 0.85, duration: 320, yoyo: true, repeat: -1 });
+        for (let i = 0; i < 6; i++) {
+          const e = this.add.image(0, 0, 'dot').setTint(0xfdba74).setScale(1.2);
+          parts.push(e); c.add(e);
+          const ea = -Math.PI / 2 + (Math.random() - 0.5) * 1.6;
+          this.tweens.add({
+            targets: e, x: Math.cos(ea) * (40 + Math.random() * 60), y: Math.sin(ea) * (50 + Math.random() * 70),
+            alpha: 0, duration: 700 + Math.random() * 500, ease: 'Quad.easeOut',
+            onComplete: () => e.destroy(),
+          });
+        }
       }
-      this.clouds.set(id, c);
+      this.clouds.set(id, { c, parts });
       sfx.ignite();
       cl.onChange(() => {
         if (!live()) return;
         const o = this.clouds.get(id);
-        if (o) o.setAlpha(cl.t < 1.5 ? Math.max(0, cl.t / 1.5) : 1);
+        if (o) o.c.setAlpha(cl.t < 1.5 ? Math.max(0, cl.t / 1.5) : 1);
       });
       cl.onRemove(() => {
         if (!live()) return;
         const o = this.clouds.get(id);
-        if (o) this.tweens.killTweensOf(o);
-        o?.destroy(true);
+        if (o) {
+          this.tweens.killTweensOf(o.c);
+          o.parts.forEach((pp) => this.tweens.killTweensOf(pp));
+          o.c.destroy(true);
+        }
         this.clouds.delete(id);
       });
     });
@@ -1028,9 +1066,35 @@ export class ArenaScene extends Phaser.Scene {
     room.onMessage('boom', (m: { x?: number; y?: number; r?: number }) => {
       if (!live()) return;
       const x = m?.x || 0, y = m?.y || 0, r = m?.r || 100;
+      const big = r >= 100; // grenades stage the full show; landings pop small
+      // 1) white flash
       const f = this.add.image(x, y, 'muzzle').setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(7).setScale(Math.max(1.5, r / 26));
-      this.tweens.add({ targets: f, alpha: 0, duration: 350, onComplete: () => f.destroy() });
+      this.tweens.add({ targets: f, alpha: 0, duration: big ? 120 : 350, onComplete: () => f.destroy() });
+      if (big) {
+        // 2) expanding fireball
+        const ball = this.add.image(x, y, 'glow').setTint(0xea580c)
+          .setBlendMode(Phaser.BlendModes.ADD).setDepth(7).setScale(1);
+        this.tweens.add({
+          targets: ball, scaleX: r / 12, scaleY: r / 12, alpha: 0,
+          duration: 320, ease: 'Quad.easeOut', onComplete: () => ball.destroy(),
+        });
+        // 3) soot column: puffs kick up and hang
+        for (let i = 0; i < 5; i++) {
+          const p = this.add.image(x + (Math.random() - 0.5) * r * 0.6, y, 'puff')
+            .setTint(0x57534e).setAlpha(0.9).setDepth(6).setScale(0.5);
+          this.tweens.add({
+            targets: p, y: y - 40 - Math.random() * 70, x: x + (Math.random() - 0.5) * 50,
+            scaleX: 1.4 + Math.random(), scaleY: 1.4 + Math.random(), alpha: 0.25,
+            duration: 1100 + i * 160 + Math.random() * 300, ease: 'Quad.easeOut',
+            onComplete: () => p.destroy(),
+          });
+        }
+        // 4) scorch stain that fades over seconds
+        const s = this.add.image(x, y + 6, 'scorch').setDepth(1).setAlpha(0.9)
+          .setScale(Math.max(0.8, r / 90));
+        this.tweens.add({ targets: s, alpha: 0, duration: 8000, onComplete: () => s.destroy() });
+      }
       this.sparks.explode(Math.min(26, 8 + Math.round(r / 10)), x, y);
       this.dust.explode(8, x, y);
       const me = this.players.get(this.meId);

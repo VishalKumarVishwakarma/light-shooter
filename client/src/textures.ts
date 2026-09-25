@@ -193,6 +193,74 @@ function dot() {
   return c;
 }
 
+// BGMI smoke puff: dense blotchy ball (tintable gray), soft dissipating edge
+function puff() {
+  const { c, ctx } = cv(48, 48);
+  const g = ctx.createRadialGradient(24, 24, 2, 24, 24, 23);
+  g.addColorStop(0, 'rgba(235,235,235,0.85)');
+  g.addColorStop(0.55, 'rgba(220,220,220,0.5)');
+  g.addColorStop(1, 'rgba(210,210,210,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(24, 24, 23, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; // lit blotches
+  for (const [x, y, r] of [[17, 18, 6], [30, 26, 7], [22, 32, 5]] as Array<[number, number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(120,120,120,0.3)'; // soot blotches
+  for (const [x, y, r] of [[28, 15, 5], [16, 28, 6], [32, 34, 4]] as Array<[number, number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  return c;
+}
+
+// BGMI flame tongue: white-hot base, orange body, red tip (points UP)
+function flame() {
+  const { c, ctx } = cv(28, 46);
+  // outer heat shimmer
+  const glow = ctx.createRadialGradient(14, 26, 2, 14, 26, 20);
+  glow.addColorStop(0, 'rgba(249,115,22,0.5)');
+  glow.addColorStop(1, 'rgba(249,115,22,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(14, 26, 20, 0, Math.PI * 2); ctx.fill();
+  // body: teardrop
+  const body = ctx.createLinearGradient(0, 44, 0, 2);
+  body.addColorStop(0, '#7c2d12');
+  body.addColorStop(0.35, '#ea580c');
+  body.addColorStop(0.7, '#fbbf24');
+  body.addColorStop(1, '#ef4444');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.moveTo(14, 2);
+  ctx.bezierCurveTo(22, 16, 23, 28, 14, 44);
+  ctx.bezierCurveTo(5, 28, 6, 16, 14, 2);
+  ctx.fill();
+  // white-hot core at the base
+  const core = ctx.createRadialGradient(14, 34, 1, 14, 34, 9);
+  core.addColorStop(0, 'rgba(255,255,255,0.95)');
+  core.addColorStop(1, 'rgba(254,240,138,0)');
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(14, 34, 9, 0, Math.PI * 2); ctx.fill();
+  return c;
+}
+
+// explosion scorch: dark ground stain that fades over seconds
+function scorch() {
+  const { c, ctx } = cv(96, 48);
+  const g = ctx.createRadialGradient(48, 24, 4, 48, 24, 46);
+  g.addColorStop(0, 'rgba(10,8,6,0.85)');
+  g.addColorStop(0.6, 'rgba(15,12,8,0.55)');
+  g.addColorStop(1, 'rgba(15,12,8,0)');
+  ctx.fillStyle = g;
+  ctx.save(); ctx.scale(1, 0.5); ctx.translate(0, 24);
+  ctx.beginPath(); ctx.arc(48, 24, 46, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; // debris specks
+  for (const [x, y, r] of [[30, 18, 2], [62, 28, 2.5], [48, 12, 1.5], [70, 16, 2]] as Array<[number, number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  return c;
+}
+
 // tracer bolt: hot capsule with a white core (tint colors the whole bolt)
 function bolt() {
   const { c, ctx } = cv(40, 14);
@@ -583,6 +651,9 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'soldier_foe', soldier('#ef4444', '#991b1b', '#fecaca', '#450a0a', null));
   put(scene, 'gun', gun());
   put(scene, 'bolt', bolt());
+  put(scene, 'puff', puff());
+  put(scene, 'flame', flame());
+  put(scene, 'scorch', scorch());
   put(scene, 'muzzle', muzzle());
   put(scene, 'glow', glow());
   put(scene, 'dot', dot());

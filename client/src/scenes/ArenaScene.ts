@@ -86,6 +86,11 @@ export class ArenaScene extends Phaser.Scene {
   private autoQTrip = false; // auto low-graphics engaged this match
   private autoQLow = 0; // consecutive sub-35fps seconds
   private shotSfxAt = new Map<string, number>(); // per-shooter throttle: one boom per volley
+  private touchMode = false; // twin-stick controls engage on first touch
+  private moveStick: { id: number; ox: number; oy: number } | null = null;
+  private aimStick: { id: number; ox: number; oy: number; kx: number; ky: number; ang: number } | null = null;
+  private joyMove = { dx: 0, dy: 0 };
+  private stickG: Phaser.GameObjects.Graphics | null = null;
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
   private brickViews = new Map<string, { c: Phaser.GameObjects.Container; cracks: Phaser.GameObjects.Graphics }>();
@@ -165,6 +170,8 @@ export class ArenaScene extends Phaser.Scene {
     this.rubble.clear();
     this.myVel = { x: 0, y: 0 };
     this.camLocked = false;
+    this.moveStick = null; this.aimStick = null;
+    this.joyMove = { dx: 0, dy: 0 };
     this.tacVin = null; this.tacScan = null;
     this.autoQTrip = false; this.autoQLow = 0;
     // fresh maps/arrays: display objects were destroyed on shutdown
@@ -481,6 +488,7 @@ export class ArenaScene extends Phaser.Scene {
     this.firing = false;
     this.connect();
     this.input.on('pointerdown', (pt: Phaser.Input.Pointer) => {
+      if ((pt as any).wasTouch) { this.pressStick(pt); return; } // twin-sticks own touches
       // clicks on HUD buttons belong to the buttons, not the trigger
       if (this.grabBtn?.c.visible
         && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
@@ -493,8 +501,92 @@ export class ArenaScene extends Phaser.Scene {
         this.fireNow();
       }
     });
-    this.input.on('pointerup', () => { this.firing = false; });
-    this.input.on('gameout', () => { this.firing = false; });
+    this.input.on('pointerup', (pt: Phaser.Input.Pointer) => {
+      if ((pt as any).wasTouch) this.releaseStick(pt.id);
+      else this.firing = false;
+    });
+    this.input.on('gameout', () => { this.firing = false; this.clearSticks(); });
+    this.input.addPointer(3); // multitouch: move + aim + button taps at once
+    this.input.on('pointermove', (pt: Phaser.Input.Pointer) => this.dragStick(pt));
+    this.stickG = this.add.graphics().setScrollFactor(0).setDepth(30);
+  }
+
+  // ---- twin-stick touch controls (left = move, right = aim + fire) ----
+  private pressStick(pt: Phaser.Input.Pointer) {
+    this.touchMode = true;
+    // HUD buttons handle themselves; sticks ignore those taps
+    if (this.grabBtn?.c.visible && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
+    if (Math.abs(pt.x - 906) < 45 && Math.abs(pt.y - 428) < 15) return;
+    if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return;
+    if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return;
+    if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 110) return;
+    if (pt.x < 480 && !this.moveStick) {
+      this.moveStick = { id: pt.id, ox: pt.x, oy: pt.y };
+    } else if (pt.x >= 480 && !this.aimStick) {
+      this.aimStick = { id: pt.id, ox: pt.x, oy: pt.y, kx: pt.x, ky: pt.y, ang: this.lastAim };
+    }
+    this.paintSticks();
+  }
+
+  private dragStick(pt: Phaser.Input.Pointer) {
+    if (!(pt as any).wasTouch) return;
+    if (this.moveStick && pt.id === this.moveStick.id) {
+      const R = 60;
+      let dx = pt.x - this.moveStick.ox, dy = pt.y - this.moveStick.oy;
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+      this.joyMove = d < 8 ? { dx: 0, dy: 0 } : { dx: dx / R, dy: dy / R };
+    } else if (this.aimStick && pt.id === this.aimStick.id) {
+      const s = this.aimStick;
+      s.kx = pt.x; s.ky = pt.y;
+      const dx = pt.x - s.ox, dy = pt.y - s.oy;
+      const d = Math.hypot(dx, dy);
+      if (d > 12) s.ang = Math.atan2(dy, dx);
+      this.firing = d > 28; // push past the deadzone to fire
+    }
+    this.paintSticks();
+  }
+
+  private releaseStick(id: number) {
+    if (this.moveStick?.id === id) {
+      this.moveStick = null;
+      this.joyMove = { dx: 0, dy: 0 };
+    }
+    if (this.aimStick?.id === id) {
+      this.aimStick = null;
+      this.firing = false;
+    }
+    this.paintSticks();
+  }
+
+  private clearSticks() {
+    this.moveStick = null;
+    this.aimStick = null;
+    this.joyMove = { dx: 0, dy: 0 };
+    this.paintSticks();
+  }
+
+  private paintSticks() {
+    const g = this.stickG;
+    if (!g) return;
+    g.clear();
+    const draw = (ox: number, oy: number, kx: number, ky: number, color: number, hot: boolean) => {
+      g.fillStyle(0x020617, 0.45);
+      g.fillCircle(ox, oy, 56);
+      g.lineStyle(2.5, color, hot ? 1 : 0.6);
+      g.strokeCircle(ox, oy, 56);
+      g.fillStyle(color, hot ? 0.85 : 0.5);
+      g.fillCircle(kx, ky, 24);
+    };
+    if (this.moveStick) {
+      const s = this.moveStick;
+      draw(s.ox, s.oy, s.ox + this.joyMove.dx * 60, s.oy + this.joyMove.dy * 60, 0x22d3ee,
+        this.joyMove.dx !== 0 || this.joyMove.dy !== 0);
+    }
+    if (this.aimStick) {
+      const s = this.aimStick;
+      draw(s.ox, s.oy, s.kx, s.ky, 0xfb923c, this.firing);
+    }
   }
 
   private ownWeapon(): string {
@@ -511,9 +603,17 @@ export class ArenaScene extends Phaser.Scene {
     if (!me) return;
     const st = (room as any).state?.players.get(this.meId);
     if (st?.guard) { sfx.empty(); return; }
-    const pt = this.input.activePointer;
-    const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
-    room.send('throw', { kind, angle: Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x) });
+    let ang: number;
+    if (this.touchMode && this.aimStick) {
+      ang = this.aimStick.ang;
+    } else if (this.touchMode) {
+      ang = this.lastAim; // button tap: throw where you're facing, not at the button
+    } else {
+      const pt = this.input.activePointer;
+      const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
+      ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
+    }
+    room.send('throw', { kind, angle: ang });
     sfx.melee();
   }
 
@@ -544,7 +644,8 @@ export class ArenaScene extends Phaser.Scene {
     }
     const pt = this.input.activePointer;
     const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
-    const ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
+    const ang = this.touchMode && this.aimStick ? this.aimStick.ang
+      : Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
     room.send('shoot', { angle: ang });
     const gw = this.ownWeapon();
     sfx.shoot(gw);
@@ -1707,9 +1808,16 @@ export class ArenaScene extends Phaser.Scene {
       if (this.keys.A.isDown || this.keys.LEFT.isDown) dx -= 1;
       if (this.keys.D.isDown || this.keys.RIGHT.isDown) dx += 1;
       if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
-      const pt = this.input.activePointer;
-      const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
-      const ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
+      // twin-stick overrides keyboard while a move stick is held
+      if (this.moveStick) { dx = this.joyMove.dx; dy = this.joyMove.dy; }
+      let ang: number;
+      if (this.aimStick) {
+        ang = this.aimStick.ang;
+      } else {
+        const pt = this.input.activePointer;
+        const wp = this.cameras.main.getWorldPoint(pt.x, pt.y);
+        ang = Math.atan2(wp.y - me.gfx.y, wp.x - me.gfx.x);
+      }
       this.lastAim = ang;
       // client prediction (shared stepMove integrator: walls + ice drift like server)
       const mult = me.speedT > 0 ? 1.4 : 1;

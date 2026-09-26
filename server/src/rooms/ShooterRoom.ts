@@ -5,6 +5,7 @@ import {
   STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove, clamp, randomSpot,
 } from '../map.js';
 import { log, metrics } from '../ops.js';
+import { adoptRoom, releaseRoom } from '../codes.js';
 import type { Rect } from '../map.js';
 
 const TICK = 1000 / 30; // 30Hz authoritative sim (snappy remotes, cheap at 2-8p)
@@ -190,6 +191,9 @@ export class ShooterRoom extends Room<ShooterState> {
   }
 
   onJoin(c: Client, opts: { name?: string }) {
+    // a room created outside POST /code still needs a public code, or it could
+    // never be shared or joined by hand
+    adoptRoom(this.roomId);
     const p = new Player();
     const i = this.clients.length % SPAWNS.length;
     p.x = SPAWNS[i][0]; p.y = SPAWNS[i][1];
@@ -204,6 +208,12 @@ export class ShooterRoom extends Room<ShooterState> {
       this.state.hostId = c.sessionId;
     }
     log('info', 'player joined', { roomId: this.roomId, name: p.name, count: this.clients.length });
+  }
+
+  // free the 4-digit code when the room dies, or a long session would slowly
+  // burn through the 9000 available codes
+  onDispose() {
+    releaseRoom(this.roomId);
   }
 
   onLeave(c: Client) {

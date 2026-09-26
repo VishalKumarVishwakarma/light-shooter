@@ -15,6 +15,9 @@ export function cleanName(s: string) {
 export const Session = {
   net: new NetClient(),
   room: null as Room | null,
+  // the PUBLIC 4-digit handle, kept alongside the room because the room id is
+  // an internal string nobody should ever read out loud or type
+  codeValue: '',
   name: (() => {
     try { return cleanName(localStorage.getItem('shooter_name') || '') || randomName(); }
     catch { return randomName(); }
@@ -28,7 +31,7 @@ export const Session = {
     return !!r && r.sessionId === r.state?.hostId;
   },
   get code() {
-    return this.room?.id ?? '';
+    return this.codeValue || this.room?.id || '';
   },
   async leave() {
     // timeout-guarded: if the socket already died (kick/restart),
@@ -46,15 +49,43 @@ export const Session = {
   },
   async createLobby(): Promise<Room> {
     await this.leave(); // never hold ghost seats in two lobbies
-    this.room = await this.net.create(this.name);
+    // the server opens the room under a fresh 4-digit code, then we join it
+    const code = await fetchNewCode();
+    this.codeValue = code;
+    this.room = await this.net.joinById(await resolveRoom(code), this.name);
     return this.room;
   },
   async joinLobby(code: string): Promise<Room> {
     await this.leave();
-    this.room = await this.net.joinById(code.trim(), this.name);
+    const clean = code.trim();
+    if (!CODE_RE.test(clean)) throw new Error('codes are 4 digits');
+    const roomId = await resolveRoom(clean); // 404s with a real reason
+    this.codeValue = clean;
+    this.room = await this.net.joinById(roomId, this.name);
     return this.room;
   },
 };
+
+// a join code is always exactly four digits, never leading zero
+export const CODE_RE = /^[1-9]\d{3}$/;
+
+// the public code -> the room id Colyseus actually assigned
+export async function resolveRoom(code: string): Promise<string> {
+  const res = await fetch(`${SERVER_HTTP}/code/${encodeURIComponent(code)}`);
+  if (res.status === 404) throw new Error('no lobby with that code');
+  if (!res.ok) throw new Error('could not reach the server');
+  const { roomId } = await res.json();
+  if (typeof roomId !== 'string' || !roomId) throw new Error('server sent a bad code');
+  return roomId;
+}
+
+export async function fetchNewCode(): Promise<string> {
+  const res = await fetch(`${SERVER_HTTP}/code`, { method: 'POST' });
+  if (!res.ok) throw new Error('could not open a lobby');
+  const { code } = await res.json();
+  if (typeof code !== 'string' || !CODE_RE.test(code)) throw new Error('server sent a bad code');
+  return code;
+}
 
 export async function fetchLobbies(): Promise<Array<{ code: string; players: number; max: number; phase: string }>> {
   const res = await fetch(`${SERVER_HTTP}/lobbies`);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Session, fetchLobbies, randomName } from '../net/Session';
+import { Session, fetchLobbies, randomName, CODE_RE } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
 import { sfx } from '../audio';
@@ -396,23 +396,39 @@ export class MenuScene extends Phaser.Scene {
   private askCode() {
     const m = modal(this, 'ENTER LOBBY CODE', 480, 250);
     const input = document.createElement('input');
-    input.maxLength = 16;
-    input.placeholder = 'e.g. aEGlqLTIf';
+    input.maxLength = 4;
+    input.inputMode = 'numeric';
+    input.placeholder = '0000';
     input.autocomplete = 'off';
     input.style.cssText = 'width:280px;height:40px;background:#0f172a;color:#22d3ee;text-align:center;'
       + 'border:1px solid rgba(34,211,238,.5);border-radius:8px;padding:0 10px;'
       + 'font:600 20px "Share Tech Mono",monospace;letter-spacing:2px;outline:none;';
     const holder = this.add.dom(0, -30, input);
     m.body.add(holder);
+    const hint = this.add.text(0, -2, 'four digits, e.g. 4271', {
+      fontFamily: BODY, fontSize: '13px', color: DIM,
+    }).setOrigin(0.5);
+    m.body.add(hint);
     const go = this.add.text(0, 45, 'JOIN →', {
       fontFamily: COND, fontSize: '19px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
     go.setStroke('#020617', 3);
     go.setShadow(0, 0, '#22d3ee', 8, false, true);
     go.setInteractive({ useHandCursor: true });
+    // digits only, and never a leading zero: the code space is 1000-9999
+    const scrub = () => {
+      const v = input.value.replace(/\D/g, '').slice(0, 4);
+      if (input.value !== v) input.value = v;
+    };
+    input.addEventListener('input', scrub);
     const doJoin = () => {
+      scrub();
       const code = input.value.trim();
       if (!code) return;
+      if (!CODE_RE.test(code)) {
+        hint.setText('a code is 4 digits, 1000-9999').setColor('#ef4444');
+        return;
+      }
       m.close();
       this.errText.setText('joining…');
       Session.joinLobby(code).then(

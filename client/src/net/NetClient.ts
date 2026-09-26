@@ -4,10 +4,9 @@ import { SERVER_WS } from './serverUrl';
 export class NetClient {
   client = new Client(SERVER_WS);
   room!: Room;
-  async create(name: string) {
-    this.room = await this.client.create('shooter', { name });
-    return this.room;
-  }
+  // rooms are opened by the server under a 4-digit code (POST /code) and
+  // reached by resolving that code to the internal room id, so host and guest
+  // travel the exact same path
   async joinById(roomId: string, name: string) {
     this.room = await this.client.joinById(roomId, { name });
     return this.room;

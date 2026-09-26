@@ -234,11 +234,15 @@ async function main() {
   ok(await waitPhase(hr, 'lobby', 3000), 'host rematch returns to lobby');
   ok(hr.state.winnerName === '', 'winner cleared for next game');
 
-  // 9. Lobby browser lists the live room with phase + counts
+  // 9. Lobby browser lists the live room by its public 4-digit code, and the
+  // code resolves back to the room. Internal room ids are never exposed.
   const lobbies = await (await fetch('http://localhost:2567/lobbies')).json();
-  const mine = lobbies.find((l) => l.code === hr.id);
-  ok(!!mine && mine.players === 2 && mine.max === 8 && mine.phase === 'lobby',
-    `browser lists lobby (${JSON.stringify(mine || null)})`);
+  const mine = lobbies.find((l) => l.players === 2 && l.max === 8 && l.phase === 'lobby');
+  ok(!!mine, `browser lists a 2-player lobby (${JSON.stringify(mine || null)})`);
+  ok(!!mine && /^[1-9]\d{3}$/.test(mine.code), `listed under a 4-digit code (${mine && mine.code})`);
+  const resolved = mine ? await (await fetch(`http://localhost:2567/code/${mine.code}`)).json() : null;
+  ok(resolved && resolved.roomId === hr.id, 'that code resolves back to this room');
+  ok(lobbies.every((l) => l.code !== hr.id), 'no internal room id is advertised');
 
   // 10. Match timer: short game, both idle -> timeout DRAW
   const t1 = new Client(URL);

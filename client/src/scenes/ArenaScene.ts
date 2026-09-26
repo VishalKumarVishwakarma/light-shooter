@@ -1209,8 +1209,19 @@ export class ArenaScene extends Phaser.Scene {
           targets: bed, alpha: 0.35, scaleX: R / 10, scaleY: R / 16,
           duration: 420, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
         });
-        const stain = this.add.image(0, 4, 'scorch').setAlpha(0.85).setScale(R / 55);
+        const stain = this.add.image(0, 4, 'scorch').setAlpha(0.85).setScale(R / 90);
         parts.push(stain); c.add(stain);
+        this.tweens.add({ // char spreads as it burns
+          targets: stain, scaleX: R / 50, scaleY: R / 50,
+          duration: 4000, ease: 'Quad.easeOut',
+        });
+        const halo = this.add.image(0, 0, 'glow').setTint(0xea580c).setAlpha(0.22)
+          .setScale(R / 5, R / 8);
+        parts.push(halo); c.add(halo);
+        this.tweens.add({
+          targets: halo, alpha: 0.12, scaleX: R / 4.4, scaleY: R / 7,
+          duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
         for (let i = 0; i < 14; i++) {
           const a = Math.random() * Math.PI * 2;
           const dist = Math.random() * R * 0.65;
@@ -1234,6 +1245,13 @@ export class ArenaScene extends Phaser.Scene {
           callback: () => {
             if (!c.active) return;
             this.sparks.explode(2, cl.x + (Math.random() - 0.5) * R, cl.y + (Math.random() - 0.5) * R * 0.6);
+            const sp = this.add.image((Math.random() - 0.5) * R * 0.7, 0, 'puff')
+              .setTint(0x44403c).setAlpha(0.55).setScale(0.5);
+            parts.push(sp); c.add(sp);
+            this.tweens.add({
+              targets: sp, y: -50 - Math.random() * 40, scaleX: 1.5, scaleY: 1.5, alpha: 0,
+              duration: 1800, ease: 'Quad.easeOut', onComplete: () => sp.destroy(),
+            });
           },
         });
         timers.push(fountain);

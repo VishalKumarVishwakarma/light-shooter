@@ -231,33 +231,46 @@ function puff() {
   return c;
 }
 
-// BGMI flame tongue: white-hot base, orange body, red tip (points UP)
+// BGMI flame tongue: blue hydrocarbon base, white-hot core, orange body,
+// red tip with a heat wisp (points UP)
 function flame() {
-  const { c, ctx } = cv(28, 46);
+  const { c, ctx } = cv(28, 52);
   // outer heat shimmer
-  const glow = ctx.createRadialGradient(14, 26, 2, 14, 26, 20);
+  const glow = ctx.createRadialGradient(14, 28, 2, 14, 28, 22);
   glow.addColorStop(0, 'rgba(249,115,22,0.5)');
   glow.addColorStop(1, 'rgba(249,115,22,0)');
   ctx.fillStyle = glow;
-  ctx.beginPath(); ctx.arc(14, 26, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(14, 28, 22, 0, Math.PI * 2); ctx.fill();
   // body: teardrop
-  const body = ctx.createLinearGradient(0, 44, 0, 2);
+  const body = ctx.createLinearGradient(0, 50, 0, 8);
   body.addColorStop(0, '#7c2d12');
-  body.addColorStop(0.35, '#ea580c');
-  body.addColorStop(0.7, '#fbbf24');
+  body.addColorStop(0.3, '#ea580c');
+  body.addColorStop(0.65, '#fbbf24');
   body.addColorStop(1, '#ef4444');
   ctx.fillStyle = body;
   ctx.beginPath();
-  ctx.moveTo(14, 2);
-  ctx.bezierCurveTo(22, 16, 23, 28, 14, 44);
-  ctx.bezierCurveTo(5, 28, 6, 16, 14, 2);
+  ctx.moveTo(14, 8);
+  ctx.bezierCurveTo(22, 20, 23, 32, 14, 50);
+  ctx.bezierCurveTo(5, 32, 6, 20, 14, 8);
   ctx.fill();
-  // white-hot core at the base
-  const core = ctx.createRadialGradient(14, 34, 1, 14, 34, 9);
+  // blue base (hydrocarbon burn)
+  ctx.fillStyle = 'rgba(96,165,250,0.75)';
+  ctx.beginPath();
+  ctx.moveTo(9, 50); ctx.lineTo(19, 50); ctx.lineTo(16, 42); ctx.lineTo(12, 42);
+  ctx.closePath(); ctx.fill();
+  // white-hot core
+  const core = ctx.createRadialGradient(14, 38, 1, 14, 38, 9);
   core.addColorStop(0, 'rgba(255,255,255,0.95)');
   core.addColorStop(1, 'rgba(254,240,138,0)');
   ctx.fillStyle = core;
-  ctx.beginPath(); ctx.arc(14, 34, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(14, 38, 9, 0, Math.PI * 2); ctx.fill();
+  // heat wisp above the tip
+  ctx.fillStyle = 'rgba(252,165,165,0.4)';
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.bezierCurveTo(17, 3, 17, 6, 14, 9);
+  ctx.bezierCurveTo(11, 6, 11, 3, 14, 0);
+  ctx.fill();
   return c;
 }
 

@@ -7,8 +7,15 @@ import { BODY, COND, DIM, MONO, SUB, displayText, kicker } from '../fonts';
 import qrcode from 'qrcode-generator';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
+import { SERVER_HTTP } from '../net/serverUrl';
+
 export function roomLink(code: string) {
-  return `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}`;
+  const base = `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}`;
+  // keep the page pointed at a non-local server when shared
+  if (!/localhost|127\.0\.0\.1/.test(SERVER_HTTP)) {
+    return `${base}&server=${encodeURIComponent(SERVER_HTTP)}`;
+  }
+  return base;
 }
 
 const qrOrder: string[] = [];

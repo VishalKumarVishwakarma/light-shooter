@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ensureTextures } from '../textures';
 import { BODY, COND, SUB, TXT, displayText, kicker } from '../fonts';
+import { SERVER_HTTP } from '../net/serverUrl';
 
 const TIPS = [
   'TIP: walls block bullets — flank, don\'t trade through cover.',
@@ -46,7 +47,7 @@ export class BootScene extends Phaser.Scene {
       }],
       ['painting arena', async () => { ensureTextures(this); }],
       ['pinging server', async () => {
-        const res = await fetch('http://localhost:2567/');
+        const res = await fetch(`${SERVER_HTTP}/`);
         if (!res.ok) throw new Error('unreachable');
       }],
     ];

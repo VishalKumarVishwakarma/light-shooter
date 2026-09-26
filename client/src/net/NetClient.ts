@@ -1,7 +1,8 @@
 import { Client, Room } from 'colyseus.js';
+import { SERVER_WS } from './serverUrl';
 
 export class NetClient {
-  client = new Client('ws://localhost:2567');
+  client = new Client(SERVER_WS);
   room!: Room;
   async create(name: string) {
     this.room = await this.client.create('shooter', { name });

@@ -1,5 +1,6 @@
 import type { Room } from 'colyseus.js';
 import { NetClient } from './NetClient';
+import { SERVER_HTTP } from './serverUrl';
 
 // Shared connection: MenuScene creates/joins, LobbyScene + ArenaScene reuse it.
 const ADJ = ['Swift', 'Shadow', 'Blaze', 'Frost', 'Thunder', 'Ghost', 'Iron', 'Storm'];
@@ -56,7 +57,7 @@ export const Session = {
 };
 
 export async function fetchLobbies(): Promise<Array<{ code: string; players: number; max: number; phase: string }>> {
-  const res = await fetch('http://localhost:2567/lobbies');
+  const res = await fetch(`${SERVER_HTTP}/lobbies`);
   if (!res.ok) throw new Error('lobby list failed');
   return res.json();
 }

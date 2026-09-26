@@ -21,6 +21,8 @@ const THROWABLE: Record<string, {
 };
 const SMOKE_DUR = 6, FIRE_DUR = 6, FIRE_TICK = 0.5, FIRE_DMG = 12;
 const NADE_MAX = 80, NADE_MIN = 15;
+// electric gun: every hit re-arcs the lock and drags the victim to a crawl
+const ELECTRIC_SLOW = 2.5, ELECTRIC_MULT = 0.35;
 
 const MATCH_DEFAULT = 300, KILL_TARGET = 15;
 const RELOAD_DEFAULT = 2, PICKUP_DEFAULT = 15, RIFLE_DEFAULT = 25;
@@ -132,7 +134,7 @@ export class ShooterRoom extends Room<ShooterState> {
       if (this.state.phase !== 'playing') return;
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive) return;
-      const want = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser'].includes(m?.weapon || '')
+      const want = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser', 'electric'].includes(m?.weapon || '')
         ? String(m?.weapon) : 'pistol';
       if (!this.owns(p, want)) return; // must pick one up first
       p.weapon = want;
@@ -265,7 +267,7 @@ export class ShooterRoom extends Room<ShooterState> {
 
   private ammoOf(p: Player, w: string) {
     return w === 'rifle' ? p.ammo : w === 'shotgun' ? p.sammo : w === 'sniper' ? p.nammo
-      : w === 'laser' ? p.lammo : p.pammo;
+      : w === 'laser' ? p.lammo : w === 'electric' ? p.eammo : p.pammo;
   }
 
   private setAmmo(p: Player, w: string, v: number) {
@@ -273,13 +275,14 @@ export class ShooterRoom extends Room<ShooterState> {
     else if (w === 'shotgun') p.sammo = v;
     else if (w === 'sniper') p.nammo = v;
     else if (w === 'laser') p.lammo = v;
+    else if (w === 'electric') p.eammo = v;
     else p.pammo = v;
   }
 
   private owns(p: Player, w: string) {
     return w === 'pistol' || (w === 'rifle' && p.rifle)
       || (w === 'shotgun' && p.shotgun) || (w === 'sniper' && p.sniper)
-      || (w === 'laser' && p.laser);
+      || (w === 'laser' && p.laser) || (w === 'electric' && p.electric);
   }
 
   private startReload(id: string) {
@@ -303,12 +306,13 @@ export class ShooterRoom extends Room<ShooterState> {
       if (pk.kind === 'health') {
         if (p.hp >= 100) return;
         p.hp = Math.min(100, p.hp + 50);
-      } else if (pk.kind === 'rifle' || pk.kind === 'shotgun' || pk.kind === 'sniper' || pk.kind === 'laser') {
+      } else if (pk.kind === 'rifle' || pk.kind === 'shotgun' || pk.kind === 'sniper' || pk.kind === 'laser' || pk.kind === 'electric') {
         if (!manual) return;
         if (pk.kind === 'rifle') p.rifle = true;
         if (pk.kind === 'shotgun') p.shotgun = true;
         if (pk.kind === 'sniper') p.sniper = true;
         if (pk.kind === 'laser') p.laser = true;
+        if (pk.kind === 'electric') p.electric = true;
         p.weapon = pk.kind;
         this.setAmmo(p, pk.kind, WEAPONS[pk.kind].clip);
         p.reloading = false;
@@ -389,10 +393,10 @@ export class ShooterRoom extends Room<ShooterState> {
       p.shots = 0; p.hitsMade = 0; p.shieldPts = 0; p.speedT = 0;
       p.shield = this.shieldSeconds; // spawn protection at match start
       p.weapon = 'pistol'; p.ammo = 0; p.pammo = WEAPONS.pistol.clip;
-      p.sammo = 0; p.nammo = 0; p.lammo = 0;
-      p.rifle = false; p.shotgun = false; p.sniper = false; p.laser = false; p.reloading = false;
+      p.sammo = 0; p.nammo = 0; p.lammo = 0; p.eammo = 0;
+      p.rifle = false; p.shotgun = false; p.sniper = false; p.laser = false; p.electric = false; p.reloading = false;
       p.guard = true; // everyone spawns shielded — lower it (Q) to shoot
-      p.grenades = 1; p.smokes = 1; p.mollies = 1; p.smoked = false;
+      p.grenades = 1; p.smokes = 1; p.mollies = 1; p.smoked = false; p.slowT = 0;
       (p as any)._deadT = 0;
     });
     this.vel.clear();
@@ -539,18 +543,20 @@ export class ShooterRoom extends Room<ShooterState> {
     this.state.players.forEach((p, id) => {
       if (p.shield > 0) p.shield = Math.max(0, p.shield - dt);
       if (p.speedT > 0) p.speedT = Math.max(0, p.speedT - dt);
+      if (p.slowT > 0) p.slowT = Math.max(0, p.slowT - dt); // electric lock wears off
       if (!p.alive) {
         (p as any)._deadT = ((p as any)._deadT || 0) + dt;
         if ((p as any)._deadT > 3) {
           p.alive = true; p.hp = 100;
           p.shield = this.shieldSeconds; // spawn protection
-          p.shieldPts = 0; p.speedT = 0; // buffs die with you
+          p.shieldPts = 0; p.speedT = 0; p.slowT = 0; // buffs die with you
           p.guard = true; // respawn shielded
           p.pammo = WEAPONS.pistol.clip;
           if (p.rifle) p.ammo = WEAPONS.rifle.clip;
           if (p.shotgun) p.sammo = WEAPONS.shotgun.clip;
           if (p.sniper) p.nammo = WEAPONS.sniper.clip;
           if (p.laser) p.lammo = WEAPONS.laser.clip;
+          if (p.electric) p.eammo = WEAPONS.electric.clip;
           const i = Math.floor(Math.random() * SPAWNS.length);
           p.x = SPAWNS[i][0]; p.y = SPAWNS[i][1];
           (p as any)._deadT = 0;
@@ -576,7 +582,8 @@ export class ShooterRoom extends Room<ShooterState> {
       const inp = this.inputs.get(id);
       if (inp) {
         const v = this.vel.get(id) || { x: 0, y: 0 };
-        const mult = p.speedT > 0 ? 1.4 : 1;
+        // haste stacks with the electric lock — but a live arc always wins
+        const mult = p.slowT > 0 ? ELECTRIC_MULT : p.speedT > 0 ? 1.4 : 1;
         const s = stepMove(p.x, p.y, v.x, v.y, inp.dx, inp.dy, dt, this.solids(), inRect(p.x, p.y, ICE), mult);
         p.x = s.x; p.y = s.y;
         this.vel.set(id, { x: s.vx, y: s.vy });
@@ -596,7 +603,7 @@ export class ShooterRoom extends Room<ShooterState> {
     // bullets
     const dead: string[] = [];
     const feed: Array<{ killer: string; victim: string; w: string }> = [];
-    const hits: Array<{ x: number; y: number; by: string; dmg: number; ox: number; oy: number; to: string }> = [];
+    const hits: Array<{ x: number; y: number; by: string; dmg: number; ox: number; oy: number; to: string; w?: string }> = [];
     const chips: Array<{ x: number; y: number; kind: string }> = [];
     this.state.bullets.forEach((b) => {
       if (this.state.phase !== 'playing') return; // ended mid-tick by a kill target
@@ -642,16 +649,19 @@ export class ShooterRoom extends Room<ShooterState> {
           const dx = p.x - px, dy = p.y - py;
           if (dx * dx + dy * dy >= 22 * 22) return;
           const before = Math.max(0, p.hp);
+          // electric lock arcs on contact — even a shielded block tethers them,
+          // so the gun is a lockdown tool as well as chip damage
+          if (b.weapon === 'electric') p.slowT = ELECTRIC_SLOW;
           // raised shield stance blocks bullets entirely (knives bypass it)
           if (p.guard) {
             killAt(px, py);
-            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid, w: b.weapon });
             return;
           }
           // spawn shield absorbs everything while active (fairness rule)
           if (p.shield > 0) {
             killAt(px, py);
-            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid, w: b.weapon });
             return;
           }
           // power shield absorbs up to shieldPts first
@@ -660,7 +670,7 @@ export class ShooterRoom extends Room<ShooterState> {
           p.shieldPts -= absorbed;
           if (eff <= 0) {
             killAt(px, py);
-            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid });
+            hits.push({ x: px, y: py, by: b.ownerId, dmg: 0, ox: 0, oy: 0, to: pid, w: b.weapon });
             return;
           }
           p.hp -= eff;
@@ -668,7 +678,7 @@ export class ShooterRoom extends Room<ShooterState> {
           const owner = this.state.players.get(b.ownerId);
           hits.push({
             x: px, y: py, by: b.ownerId, dmg: eff,
-            ox: owner ? owner.x : px, oy: owner ? owner.y : py, to: pid,
+            ox: owner ? owner.x : px, oy: owner ? owner.y : py, to: pid, w: b.weapon,
           });
           if (owner) {
             owner.damage += Math.min(eff, before);

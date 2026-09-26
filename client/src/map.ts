@@ -18,6 +18,7 @@ export const WEAPONS: Record<string, {
   shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.32, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
   sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
   laser: { dmg: 12, interval: 0.09, speed: 1400, life: 0.9, auto: true, clip: 25, reload: 2.2 },
+  electric: { dmg: 10, interval: 0.22, speed: 1000, life: 0.8, auto: true, clip: 20, reload: 2 },
 };
 
 export const SPAWNS: Array<[number, number]> = [
@@ -76,7 +77,7 @@ export const BUSH: Rect[] = [
 
 // fixed pickup spawns: [kind, x, y]
 export const PICKUP_POINTS: Array<
-  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'laser' | 'shield' | 'speed' | 'grenade' | 'smoke' | 'molly', number, number]
+  ['health' | 'rifle' | 'ammo' | 'shotgun' | 'sniper' | 'laser' | 'electric' | 'shield' | 'speed' | 'grenade' | 'smoke' | 'molly', number, number]
 > = [
   ['rifle', 400, 200],
   ['health', 200, 450],
@@ -87,6 +88,7 @@ export const PICKUP_POINTS: Array<
   ['sniper', 1350, 300], // east perch, clear of the bush so the ring shows
   ['sniper', 250, 1000], // west twin — both teams get a long gun
   ['laser', 800, 300], // center-north lab — fastest gun on the map
+  ['electric', 1100, 1000], // south-east lab — locks victims down
   ['grenade', 200, 700], // west woods edge — pierces shields
   ['smoke', 1400, 700], // east woods edge — hides you
   ['molly', 800, 1100], // south gate — fire burns through shields

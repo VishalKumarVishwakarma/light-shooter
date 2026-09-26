@@ -255,7 +255,7 @@ export class MenuScene extends Phaser.Scene {
     const rows = [
       ['✋', 'Move with WASD or arrow keys.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
-      ['🔫', 'Grab rifles/shotguns/snipers/lasers with E — R reloads, 1-5 or wheel swaps.'],
+      ['🔫', 'Grab rifles/shotguns/snipers/lasers/electric with E — R reloads, 1-6 or wheel swaps.'],
       ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown. It pierces shields.'],
       ['🛡️', 'Everyone spawns SHIELDED (slot 6): bullets bounce, knife only. 1-5 draws a gun, Q toggles.'],
       ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],

@@ -57,8 +57,15 @@ for (const [kind, x, y] of PICKUP_POINTS) {
   if (inRect(x, y, SOLIDS)) { pkClear = false; console.log(`  pickup ${kind} inside solid`, x, y); }
 }
 ok(pkClear, `${PICKUP_POINTS.length} pickup points on open ground`);
-ok(PICKUP_POINTS.length === 15, '15 pickup points (guns + stance + throwables)');
+ok(PICKUP_POINTS.length === 16, '16 pickup points (guns + stance + throwables)');
 ok(PICKUP_POINTS.filter(([k]) => k === 'sniper').length === 2, 'sniper spawns east + west');
+ok(PICKUP_POINTS.some(([k]) => k === 'electric'), 'electric pad on the map');
+// every gun has its own distinct fire envelope
+const rgs = Object.keys(WEAPONS).map((k) => WEAPONS[k].speed * WEAPONS[k].life);
+ok(new Set(rgs).size === rgs.length, `all ${rgs.length} guns have unique ranges`);
+ok(WEAPONS.electric.speed * WEAPONS.electric.life > 200
+  && WEAPONS.electric.speed * WEAPONS.electric.life < 1000,
+`electric range mid-pack (${(WEAPONS.electric.speed * WEAPONS.electric.life) | 0})`);
 for (const k of ['grenade', 'smoke', 'molly']) {
   ok(PICKUP_POINTS.some(([kk]) => kk === k), `${k} pad on the map`);
 }

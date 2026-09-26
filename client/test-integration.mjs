@@ -757,6 +757,51 @@ async function main() {
   ok(zw.rifle === true, 'kept the prize rifle');
   await z1r.leave(); await z2r.leave();
 
+  // 20b. Electric gun: south-east pad, arc locks the victim and crawls them
+  const v1 = new Client(URL);
+  const v1r = await v1.create('shooter', { name: 'volt1', killTarget: 30, shieldSeconds: 0 });
+  const v2 = new Client(URL);
+  const v2r = await v2.joinById(v1r.id, { name: 'volt2' });
+  await sleep(400);
+  v1r.send('startGame');
+  ok(await waitPhase(v1r, 'playing', 9000), 'electric match goes live');
+  ok(await gunMode(v1r) && await gunMode(v2r), 'electric room in gun mode');
+  await nav(v1r, v1r.sessionId, 1050, 200);
+  await nav(v1r, v1r.sessionId, 1050, 1010);
+  const ep = await nav(v1r, v1r.sessionId, 1100, 1000);
+  ok(Math.hypot(ep.x - 1100, ep.y - 1000) < 60, `host on the electric pad (${ep.x.toFixed(0)},${ep.y.toFixed(0)})`);
+  for (let i = 0; i < 4; i++) {
+    v1r.send('interact', {});
+    await sleep(400);
+    if (v1r.state.players.get(v1r.sessionId).weapon === 'electric') break;
+  }
+  const eg = v1r.state.players.get(v1r.sessionId).toJSON();
+  ok(eg.weapon === 'electric' && eg.electric === true && eg.eammo === 20,
+    `electric equipped (${eg.weapon} ${eg.eammo}/20)`);
+  await nav(v2r, v2r.sessionId, 1050, 200);
+  await nav(v2r, v2r.sessionId, 1050, 1010);
+  const ev = await nav(v2r, v2r.sessionId, 1300, 1010);
+  ok(Math.hypot(ev.x - 1300, ev.y - 1010) < 70, `victim posted east (${ev.x.toFixed(0)},${ev.y.toFixed(0)})`);
+  for (let i = 0; i < 8; i++) { // arc until the lock lands
+    const a = v1r.state.players.get(v1r.sessionId).toJSON();
+    const b = v2r.state.players.get(v2r.sessionId).toJSON();
+    v1r.send('shoot', { angle: Math.atan2(b.y - a.y, b.x - a.x) });
+    await sleep(280);
+    if (v2r.state.players.get(v2r.sessionId).slowT > 0) break;
+  }
+  const locked = v2r.state.players.get(v2r.sessionId).toJSON();
+  ok(locked.slowT > 0, `electric arc locks the victim (slowT=${locked.slowT.toFixed(1)}s)`);
+  ok(locked.hp < 100, `electric chips hp (${locked.hp})`);
+  // a locked body crawls: 1s of full input must fall far short of the 260px/s base
+  const c0 = v2r.state.players.get(v2r.sessionId).toJSON();
+  for (let i = 0; i < 5; i++) { v2r.send('move', { dx: -1, dy: 0, angle: Math.PI }); await sleep(200); }
+  v2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
+  await sleep(300);
+  const c1 = v2r.state.players.get(v2r.sessionId).toJSON();
+  ok(c0.x - c1.x > 15 && c0.x - c1.x < 150,
+    `locked target crawls (${(c0.x - c1.x).toFixed(0)}px in ~1s vs ~260 base)`);
+  await v1r.leave(); await v2r.leave();
+
   // 21. Shield stance: spawn guarded, bullets bounce off, guarded can't fire,
   // lowering enables guns, knives pierce the stance.
   const d1 = new Client(URL);

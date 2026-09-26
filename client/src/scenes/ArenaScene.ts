@@ -16,7 +16,8 @@ type PObj = {
   bootL: Phaser.GameObjects.Image; bootR: Phaser.GameObjects.Image;
   stepPhase: number;
   tx: number; ty: number; hp: number; alive: boolean;
-  shield: number; shieldPts: number; speedT: number;
+  shield: number; shieldPts: number; speedT: number; slowT: number;
+  zap?: Phaser.GameObjects.Image; zap2?: Phaser.GameObjects.Image; // electric-lock shell
   sx: number; sy: number; // last authoritative position (reconciliation anchor)
   hist: Array<{ t: number; x: number; y: number }>; // remote snapshot buffer (interp)
   col: number; // squad color (minimap blip + label glow)
@@ -227,7 +228,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -240,8 +241,9 @@ export class ArenaScene extends Phaser.Scene {
       kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
       kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
       kb.on('keydown-FIVE', () => Session.room?.send('switch', { weapon: 'laser' }));
-      kb.on('keydown-SIX', () => {
-        Session.room?.send('guard', { on: true }); // slot 6: raise the shield
+      kb.on('keydown-SIX', () => Session.room?.send('switch', { weapon: 'electric' }));
+      kb.on('keydown-SEVEN', () => {
+        Session.room?.send('guard', { on: true }); // slot 7: raise the shield
         sfx.guard(true);
       });
       kb.on('keydown-G', () => this.throwOrd('grenade'));
@@ -268,6 +270,7 @@ export class ArenaScene extends Phaser.Scene {
       if (me?.shotgun) owned.push('shotgun');
       if (me?.sniper) owned.push('sniper');
       if (me?.laser) owned.push('laser');
+      if (me?.electric) owned.push('electric');
       const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
       Session.room?.send('switch', { weapon: next });
     });
@@ -372,14 +375,15 @@ export class ArenaScene extends Phaser.Scene {
       this.guardBg.setAlpha(0.6);
       this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
     });
-    // loadout strip (bottom-center): 6 tappable slots — guns + shield, live states
+    // loadout strip (bottom-center): 7 tappable slots — guns + shield, live states
     const slots: Array<[string, string, string]> = [
       ['1', 'PISTOL', 'pistol'], ['2', 'RIFLE', 'rifle'], ['3', 'SG', 'shotgun'],
-      ['4', 'SNP', 'sniper'], ['5', 'LSR', 'laser'], ['6', 'SHD', 'shield'],
+      ['4', 'SNP', 'sniper'], ['5', 'LSR', 'laser'], ['6', 'ELC', 'electric'],
+      ['7', 'SHD', 'shield'],
     ];
     this.loadSlots = [];
     slots.forEach(([key, nm, w], i) => {
-      const x = 480 + (i - 2.5) * 42;
+      const x = 480 + (i - (slots.length - 1) / 2) * 42;
       const bg = this.add.rectangle(x, 500, 38, 32, 0x020617, 0.78)
         .setStrokeStyle(2, 0x334155, 0.95).setScrollFactor(0).setDepth(10);
       const tx = this.add.text(x, 500, `${key}\n${nm}`, {
@@ -521,7 +525,7 @@ export class ArenaScene extends Phaser.Scene {
       if (Math.abs(pt.x - 906) < 45 && Math.abs(pt.y - 428) < 15) return; // reload btn
       if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
       if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return; // ordnance btns
-      if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 110) return; // loadout strip
+      if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 155) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -550,7 +554,12 @@ export class ArenaScene extends Phaser.Scene {
     const since = this.time.now / 1000 - this.lastFire;
     const gap = 7 + 15 * Math.max(0, 1 - since * 3.5); // bloom after each shot
     const L = 9;
-    g.lineStyle(2.5, 0x22d3ee, 0.95);
+    // reticle takes the held weapon's colour
+    const cw = this.ownWeapon();
+    const cc = cw === 'electric' ? 0xc084fc : cw === 'sniper' ? 0xc084fc
+      : cw === 'laser' ? 0x22d3ee : cw === 'shotgun' ? 0xfb923c
+      : cw === 'rifle' ? 0xfacc15 : 0x22d3ee;
+    g.lineStyle(2.5, cc, 0.95);
     g.beginPath();
     g.moveTo(pt.x - gap - L, pt.y); g.lineTo(pt.x - gap, pt.y);
     g.moveTo(pt.x + gap, pt.y); g.lineTo(pt.x + gap + L, pt.y);
@@ -571,7 +580,7 @@ export class ArenaScene extends Phaser.Scene {
     if (Math.abs(pt.x - 906) < 45 && Math.abs(pt.y - 428) < 15) return;
     if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return;
     if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return;
-    if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 110) return;
+    if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 155) return;
     if (pt.x < 480 && !this.moveStick) {
       this.moveStick = { id: pt.id, ox: pt.x, oy: pt.y };
     } else if (pt.x >= 480 && !this.aimStick) {
@@ -644,7 +653,8 @@ export class ArenaScene extends Phaser.Scene {
   private ownWeapon(): string {
     const me = (Session.room as any)?.state?.players.get(this.meId);
     const w = me?.weapon;
-    return w === 'rifle' || w === 'shotgun' || w === 'sniper' || w === 'laser' ? w : 'pistol';
+    return w === 'rifle' || w === 'shotgun' || w === 'sniper' || w === 'laser' || w === 'electric'
+      ? w : 'pistol';
   }
 
   // toss ordnance toward the cursor (shield must be lowered first)
@@ -687,7 +697,8 @@ export class ArenaScene extends Phaser.Scene {
     this.lastFire = now;
     // dry mag: reload instead of flashing blanks (server would reject anyway)
     const mag = st?.weapon === 'rifle' ? st?.ammo : st?.weapon === 'shotgun' ? st?.sammo
-      : st?.weapon === 'sniper' ? st?.nammo : st?.weapon === 'laser' ? st?.lammo : st?.pammo;
+      : st?.weapon === 'sniper' ? st?.nammo : st?.weapon === 'laser' ? st?.lammo
+      : st?.weapon === 'electric' ? st?.eammo : st?.pammo;
     if (st?.reloading) return;
     if ((mag ?? 1) <= 0) {
       room.send('reload');
@@ -702,8 +713,9 @@ export class ArenaScene extends Phaser.Scene {
     const gw = this.ownWeapon();
     sfx.shoot(gw);
     const mx = me.gfx.x + Math.cos(ang) * MUZZLE, my = me.gfx.y + Math.sin(ang) * MUZZLE;
-    this.flash(mx, my, ang, false, gw === 'laser' ? 0x22d3ee : 0);
+    this.flash(mx, my, ang, false, gw === 'laser' ? 0x22d3ee : gw === 'electric' ? 0xc084fc : 0);
     if (gw === 'laser') this.beam(mx, my, ang, this.meId); // instant full-length beam (no echo delay)
+    if (gw === 'electric') this.arcBolt(mx, my, ang, this.meId); // crawling thunder bolt
     this.recoil(me.gun);
     // heavier guns kick the camera harder
     this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
@@ -808,6 +820,93 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
+  // electric bolt: jagged thunder from the barrel to the first thing it meets.
+  // two offset re-randomised strokes per frame read as crawling lightning.
+  private arcBolt(x1: number, y1: number, ang: number, skipId: string) {
+    const range = WEAPONS.electric.speed * WEAPONS.electric.life;
+    const end = this.rayEnd(x1, y1, Math.cos(ang), Math.sin(ang), range, skipId);
+    const g = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
+    const segs = Math.max(4, Math.round(Math.hypot(end.x - x1, end.y - y1) / 26));
+    const nx = -Math.sin(ang), ny = Math.cos(ang);
+    let last: Phaser.GameObjects.Image[] = [];
+    for (let pass = 0; pass < 3; pass++) {
+      g.lineStyle(pass === 2 ? 2 : pass === 1 ? 4.5 : 9, pass === 2 ? 0xffffff : pass === 1 ? 0xa855f7 : 0x6d28d9,
+        pass === 2 ? 0.95 : pass === 1 ? 0.7 : 0.3);
+      g.beginPath();
+      g.moveTo(x1, y1);
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const jag = i === segs ? 0 : (Math.random() - 0.5) * 34 * (pass === 2 ? 0.4 : 1);
+        g.lineTo(x1 + (end.x - x1) * t + nx * jag, y1 + (end.y - y1) * t + ny * jag);
+      }
+      g.strokePath();
+    }
+    // charge orb at the barrel + impact burst at the far end
+    const src = this.add.image(x1, y1, 'zap').setDepth(7).setScale(0.5)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const dst = this.add.image(end.x, end.y, 'zap').setDepth(7).setScale(1.1)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    last = [src, dst];
+    this.tweens.add({
+      targets: [g, src], alpha: 0, duration: 150, ease: 'Quad.easeOut',
+      onComplete: () => { g.destroy(); src.destroy(); },
+    });
+    this.tweens.add({
+      targets: dst, scaleX: 1.9, scaleY: 1.9, alpha: 0, duration: 240, ease: 'Quad.easeOut',
+      onComplete: () => dst.destroy(),
+    });
+    this.sparks.explode(5, end.x, end.y);
+  }
+
+  // electric impact: white flash, radial crackle and a grounding ring
+  private electricImpact(x: number, y: number) {
+    const core = this.add.image(x, y, 'zap').setDepth(8).setScale(0.7)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: core, scaleX: 2.2, scaleY: 2.2, angle: 120, alpha: 0,
+      duration: 240, ease: 'Quad.easeOut', onComplete: () => core.destroy(),
+    });
+    const g = this.add.graphics().setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
+    g.lineStyle(2, 0xddd6fe, 0.9);
+    g.strokeCircle(x, y, 10);
+    g.lineStyle(1.4, 0xa855f7, 0.55);
+    g.strokeCircle(x, y, 22);
+    for (let i = 0; i < 4; i++) {
+      const a = Math.random() * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
+      let px = x, py = y, aa = a;
+      for (let s = 0; s < 3; s++) {
+        aa += (Math.random() - 0.5) * 1.1;
+        px = x + Math.cos(aa) * (6 + s * 9); py = y + Math.sin(aa) * (6 + s * 9);
+        g.lineTo(px, py);
+      }
+      g.strokePath();
+    }
+    this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+    this.sparks.explode(6, x, y);
+  }
+
+  // lock aura on a shocked body: crackling shell that dies with slowT
+  private zapAura(o: PObj) {
+    if (!o.zap) {
+      const a = this.add.image(0, 0, 'zap').setBlendMode(Phaser.BlendModes.ADD).setScale(1.5);
+      const b = this.add.image(0, 0, 'zap').setBlendMode(Phaser.BlendModes.ADD).setScale(1.1);
+      o.gfx.addAt([a, b], o.gfx.getIndex(o.gun) + 1);
+      o.zap = a; o.zap2 = b;
+    }
+    const j = 60 + Math.random() * 50;
+    [o.zap!, o.zap2!].forEach((z, i) => {
+      this.tweens.killTweensOf(z);
+      z.setAngle(Math.random() * 360).setScale((i ? 1.0 : 1.45) + Math.random() * 0.3)
+        .setAlpha(0.55 + Math.random() * 0.4);
+      this.tweens.add({
+        targets: z, angle: z.angle + (Math.random() - 0.5) * 120, alpha: 0.25,
+        duration: j, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    });
+  }
+
   private damageNumber(x: number, y: number, str: string, color: string) {
     let t = this.dmgPool.pop();
     if (!t) {
@@ -898,12 +997,17 @@ export class ArenaScene extends Phaser.Scene {
       }
       this.feedExpiry = Date.now() + 6000;
     });
-    room.onMessage('hit', (h: { x: number; y: number; by?: string; dmg?: number; ox?: number; oy?: number; to?: string }) => {
+    room.onMessage('hit', (h: { x: number; y: number; by?: string; dmg?: number; ox?: number; oy?: number; to?: string; w?: string }) => {
       if (!live()) return;
       this.sparks.explode(8, h.x, h.y);
-      // floating damage number on every impact (grey BLOCKED when shielded)
       const blocked = (h.dmg ?? 0) <= 0;
-      this.damageNumber(h.x, h.y, blocked ? 'BLOCKED' : `-${h.dmg ?? 0}`, blocked ? '#94a3b8' : '#fecaca');
+      // electric impacts arc and report the lock instead of plain damage
+      if (h.w === 'electric') {
+        this.damageNumber(h.x, h.y, blocked ? 'ARC BLOCKED' : `LOCK -${h.dmg ?? 0}`, '#c4b5fd');
+        this.electricImpact(h.x, h.y);
+      } else {
+        this.damageNumber(h.x, h.y, blocked ? 'BLOCKED' : `-${h.dmg ?? 0}`, blocked ? '#94a3b8' : '#fecaca');
+      }
       // blocked on a raised shield: the barrier visibly takes the hit
       if (blocked && h.to) {
         const o = this.players.get(h.to);
@@ -929,6 +1033,7 @@ export class ArenaScene extends Phaser.Scene {
         sfx.hit();
         try { (navigator as any).vibrate?.(15); } catch { /* noop */ }
       }
+      if (h.w === 'electric') sfx.zap(1.2 - Math.min(1, Math.hypot((this.players.get(this.meId)?.gfx.x ?? 0) - h.x, (this.players.get(this.meId)?.gfx.y ?? 0) - h.y) / 700));
     });
     room.onMessage('chip', (c: { x: number; y: number; kind: string }) => {
       if (!live()) return;
@@ -947,7 +1052,8 @@ export class ArenaScene extends Phaser.Scene {
       sfx.pickup();
       const txt = c.kind === 'health' ? '+50 HP' : c.kind === 'ammo' ? 'AMMO FULL' : c.kind.toUpperCase() + '!';
       const col = c.kind === 'health' ? '#4ade80' : c.kind === 'ammo' ? '#fdba74'
-        : c.kind === 'shield' ? '#38bdf8' : c.kind === 'speed' ? '#fde047' : '#facc15';
+        : c.kind === 'shield' ? '#38bdf8' : c.kind === 'speed' ? '#fde047'
+        : c.kind === 'electric' ? '#c4b5fd' : '#facc15';
       const f = this.add.text(c.x, c.y - 24, `${c.name} ${txt}`, {
         fontFamily: MONO, fontSize: '14px', color: col,
       }).setOrigin(0.5).setDepth(8);
@@ -1019,7 +1125,7 @@ export class ArenaScene extends Phaser.Scene {
       this.players.set(id, {
         gfx, body, gun, label, ring, ringB, legs, bootL, bootR, stepPhase: Math.random() * 6,
         tx: p.x, ty: p.y, sx: p.x, sy: p.y, hp: p.hp, alive: p.alive,
-        shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0,
+        shield: p.shield || 0, shieldPts: p.shieldPts || 0, speedT: p.speedT || 0, slowT: p.slowT || 0,
         hist: [], col, gring, smoked: !!p.smoked,
       });
       if (!p.alive) body.setTint(0x666677);
@@ -1044,9 +1150,19 @@ export class ArenaScene extends Phaser.Scene {
         o.shield = p.shield || 0;
         o.shieldPts = p.shieldPts || 0;
         o.speedT = p.speedT || 0;
+        // electric gun swaps the whole held weapon to the coil rail
+        const we = p.weapon === 'electric';
+        if (we && o.gun.texture.key !== 'egun') o.gun.setTexture('egun');
+        else if (!we && o.gun.texture.key === 'egun') o.gun.setTexture('gun');
+        // shock status: lock the aura on while the arc is live
+        const locked = (p.slowT || 0) > 0 && p.alive;
+        o.slowT = p.slowT || 0;
+        if (locked && !o.zap) this.zapAura(o);
+        o.zap?.setVisible(locked);
+        o.zap2?.setVisible(locked);
         o.gfx.setRotation(0);
         o.gun.setRotation(p.angle);
-        this.setT('nl' + id, o.label, `${p.name} ${p.hp}${o.speedT > 0 ? ' ⚡' : ''}${o.shieldPts > 0 ? ' 🛡' : ''}`);
+        this.setT('nl' + id, o.label, `${p.name} ${p.hp}${o.slowT > 0 ? ' ⛓' : o.speedT > 0 ? ' ⚡' : ''}${o.shieldPts > 0 ? ' 🛡' : ''}`);
         if (id === this.meId) {
           this.drawHp(p.hp, p.kills);
           this.drawAmmo(p);
@@ -1117,6 +1233,7 @@ export class ArenaScene extends Phaser.Scene {
       const sy = own0 ? own0.gfx.y + Math.sin(a0) * MUZZLE : b.y;
       const img = this.add.image(sx, sy, 'bolt').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
       if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
+      else if (bw === 'electric') img.setTint(0xc084fc); // violet arc heads
       else if (foe) img.setTint(0xfb923c);
       img.setRotation(a0);
       img.setScale(bw === 'laser' ? 1.4 : 1.0, 1.0); // laser head rides inside its beam
@@ -1129,10 +1246,11 @@ export class ArenaScene extends Phaser.Scene {
       if (own && foe) {
         const a = Math.atan2(b.vy, b.vx);
         const mx = own.gfx.x + Math.cos(a) * MUZZLE, my = own.gfx.y + Math.sin(a) * MUZZLE;
-        this.flash(mx, my, a, false, bw === 'laser' ? 0x22d3ee : 0);
+        this.flash(mx, my, a, false, bw === 'laser' ? 0x22d3ee : bw === 'electric' ? 0xc084fc : 0);
         this.recoil(own.gun);
         // enemy lasers burn their beam from the visible barrel too
         if (bw === 'laser') this.beam(mx, my, a, b.ownerId);
+        if (bw === 'electric') this.arcBolt(mx, my, a, b.ownerId);
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
       // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.
@@ -1394,10 +1512,14 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawAmmo(p: any) {
     const W = WEAPONS[p.weapon] || WEAPONS.pistol;
-    const colors: Record<string, string> = { pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc', laser: '#22d3ee' };
+    const colors: Record<string, string> = {
+      pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
+      sniper: '#c084fc', laser: '#22d3ee', electric: '#a855f7',
+    };
     this.setT('ammoT', this.ammoTitle, p.weapon.toUpperCase(), colors[p.weapon] || '#94a3b8');
     const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
-      : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo : p.pammo;
+      : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo
+      : p.weapon === 'electric' ? p.eammo : p.pammo;
     if (p.reloading) {
       this.setT('ammoC', this.ammoCount, '…', '#fb923c');
       const total = p.weapon === 'rifle' ? 2 : W.reload;
@@ -1429,14 +1551,14 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private drawLoadout(p: any) {
-    const keys = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser', 'shield'];
+    const keys = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser', 'electric', 'shield'];
     const cols: Record<string, string> = {
       pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
-      sniper: '#c084fc', laser: '#22d3ee', shield: '#4ade80',
+      sniper: '#c084fc', laser: '#22d3ee', electric: '#a855f7', shield: '#4ade80',
     };
     const names: Record<string, string> = {
       pistol: 'PISTOL', rifle: 'RIFLE', shotgun: 'SG',
-      sniper: 'SNP', laser: 'LSR', shield: 'SHD',
+      sniper: 'SNP', laser: 'LSR', electric: 'ELC', shield: 'SHD',
     };
     keys.forEach((w, i) => {
       const s = this.loadSlots[i];
@@ -1547,7 +1669,8 @@ export class ArenaScene extends Phaser.Scene {
       if (!pk.active) return;
       const cols: Record<string, number> = {
         health: 0x4ade80, rifle: 0xfacc15, ammo: 0xfdba74,
-        shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee, shield: 0x38bdf8, speed: 0xfde047,
+        shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee, electric: 0xa855f7,
+        shield: 0x38bdf8, speed: 0xfde047,
         grenade: 0x9ca3af, smoke: 0xd1d5db, molly: 0xf97316,
       };
       g.fillStyle(cols[pk.kind] ?? 0xffffff, 1);
@@ -1596,10 +1719,13 @@ export class ArenaScene extends Phaser.Scene {
       }).setOrigin(0.5);
       tag.setStroke('#020617', 3);
       inner = [ring, dot, tag];
-    } else { // rifle / shotgun / sniper / laser: gold ring + tinted rifle + name tag
-      const tints: Record<string, number> = { rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee };
+    } else { // rifle / shotgun / sniper / laser / electric: gold ring + tinted weapon + name tag
+      const tints: Record<string, number> = {
+        rifle: 0xffffff, shotgun: 0xfb923c, sniper: 0xc084fc, laser: 0x22d3ee, electric: 0xa855f7,
+      };
       const ring = this.add.image(0, 0, 'ring').setScale(0.85);
-      const gun = this.add.image(0, 0, 'gun').setScale(1.0).setTint(tints[kind] ?? 0xffffff);
+      const gun = this.add.image(0, 0, kind === 'electric' ? 'egun' : 'gun')
+        .setScale(1.0).setTint(kind === 'electric' ? 0xffffff : tints[kind] ?? 0xffffff);
       const tag = this.add.text(0, -30, kind.toUpperCase(), {
         fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
       }).setOrigin(0.5);
@@ -1626,7 +1752,8 @@ export class ArenaScene extends Phaser.Scene {
       const mine = st.players.get(this.meId);
       st.pickups.forEach((pk: any) => {
         if (kind || !pk.active) return;
-        if (pk.kind !== 'rifle' && pk.kind !== 'shotgun' && pk.kind !== 'sniper' && pk.kind !== 'laser') return;
+        if (pk.kind !== 'rifle' && pk.kind !== 'shotgun' && pk.kind !== 'sniper'
+          && pk.kind !== 'laser' && pk.kind !== 'electric') return;
         if (mine?.[pk.kind] === true) return; // already own it
         const dx = me.gfx.x - pk.x, dy = me.gfx.y - pk.y;
         if (dx * dx + dy * dy < 70 * 70) kind = pk.kind;
@@ -1905,6 +2032,13 @@ export class ArenaScene extends Phaser.Scene {
         o.ringB.setScale(s2);
         o.ringB.setAlpha(0.7 + 0.3 * Math.sin(_t / 300 + h));
       }
+      // electric lock: crackle jitter on the shell so it never reads as a decal
+      if (o.zap && o.zap.visible) {
+        const t2 = _t / 70 + h;
+        o.zap.setPosition(Math.sin(t2 * 3.1) * 2, Math.cos(t2 * 2.3) * 2);
+        o.zap2?.setPosition(Math.cos(t2 * 3.7) * 3, Math.sin(t2 * 2.9) * 3);
+        if (Math.random() < 0.16) this.sparks.explode(1, o.gfx.x, o.gfx.y);
+      }
       let vx: number, vy: number;
       if (id === this.meId) {
         vx = this.myMove.dx * SPEED; vy = this.myMove.dy * SPEED;
@@ -1943,13 +2077,25 @@ export class ArenaScene extends Phaser.Scene {
       }
       this.lastAim = ang;
       // client prediction (shared stepMove integrator: walls + ice drift like server)
-      const mult = me.speedT > 0 ? 1.4 : 1;
+      const mult = me.slowT > 0 ? 0.35 : me.speedT > 0 ? 1.4 : 1;
       const s = stepMove(me.gfx.x, me.gfx.y, this.myVel.x, this.myVel.y,
         dx, dy, dt, this.solids(), inRect(me.gfx.x, me.gfx.y, ICE), mult);
       me.gfx.x = s.x; me.gfx.y = s.y;
       this.myVel = { x: s.vx, y: s.vy };
       me.tx = me.gfx.x; me.ty = me.gfx.y;
       me.gun.setRotation(ang);
+      // electric gun idles with a live charge crackling off the prongs
+      const mySt: any = (Session.room as any)?.state?.players.get(this.meId);
+      if (mySt?.weapon === 'electric' && me.alive && Math.random() < 0.3) {
+        const zx = me.gfx.x + Math.cos(ang) * (MUZZLE + 4), zy = me.gfx.y + Math.sin(ang) * (MUZZLE + 4);
+        const z = this.add.image(zx, zy, 'zap').setDepth(5)
+          .setScale(0.26 + Math.random() * 0.22).setAngle(Math.random() * 360)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: z, scaleX: 0, scaleY: 0, alpha: 0, duration: 150 + Math.random() * 130,
+          onComplete: () => z.destroy(),
+        });
+      }
       // lock the camera once: re-issuing startFollow every frame resets its
       // lerp state and reads as micro-stutter
       if (!this.camLocked) {

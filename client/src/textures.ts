@@ -162,6 +162,101 @@ function gun() {
   return c;
 }
 
+function egun() {
+  const { c, ctx } = cv(54, 20);
+  // coil rail: dark chassis, two tesla coils, arcing capacitor core
+  const body = ctx.createLinearGradient(0, 3, 0, 17);
+  body.addColorStop(0, '#3b2f55'); body.addColorStop(0.5, '#1b1630'); body.addColorStop(1, '#0b0916');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.moveTo(8, 4); ctx.lineTo(48, 4); ctx.lineTo(51, 7); ctx.lineTo(51, 13);
+  ctx.lineTo(48, 16); ctx.lineTo(8, 16); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2; ctx.stroke();
+  // grip
+  ctx.fillStyle = '#241b3d';
+  ctx.beginPath();
+  ctx.moveTo(6, 7); ctx.lineTo(14, 7); ctx.lineTo(12, 15); ctx.lineTo(4, 15);
+  ctx.closePath(); ctx.fill();
+  // tesla coils (violet rings)
+  for (const cx of [20, 34]) {
+    const ring = ctx.createLinearGradient(0, 2, 0, 18);
+    ring.addColorStop(0, '#e9d5ff'); ring.addColorStop(0.5, '#a855f7'); ring.addColorStop(1, '#4c1d95');
+    ctx.fillStyle = ring;
+    ctx.fillRect(cx, 2, 4, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillRect(cx, 2, 1.4, 16);
+  }
+  // capacitor core (glowing orb between the coils)
+  const core = ctx.createRadialGradient(27, 10, 0.5, 27, 10, 9);
+  core.addColorStop(0, '#ffffff'); core.addColorStop(0.35, '#c4b5fd');
+  core.addColorStop(0.7, 'rgba(168,85,247,0.55)'); core.addColorStop(1, 'rgba(168,85,247,0)');
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(27, 10, 9, 0, Math.PI * 2); ctx.fill();
+  // arcing filaments off the rails
+  ctx.strokeStyle = 'rgba(216,180,254,0.9)'; ctx.lineWidth = 1.2;
+  const arc = (x0: number, y0: number, x1: number, y1: number) => {
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    const n = 4;
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      ctx.lineTo(x0 + (x1 - x0) * t + (Math.random() - 0.5) * 6,
+        y0 + (y1 - y0) * t + (Math.random() - 0.5) * 6);
+    }
+    ctx.stroke();
+  };
+  arc(14, 9, 24, 12); arc(30, 12, 42, 8); arc(22, 5, 32, 16);
+  // emitter prongs at the muzzle
+  ctx.strokeStyle = '#ddd6fe'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(50, 6); ctx.lineTo(53, 8); ctx.moveTo(50, 14); ctx.lineTo(53, 12);
+  ctx.stroke();
+  // hands ride the rail
+  const skin = '#f2c89b';
+  const hand = (x: number, y: number, r: number) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(x, y, r + 1, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.arc(x - 1, y - 1, r * 0.4, 0, Math.PI * 2); ctx.fill();
+  };
+  hand(18, 12, 4); hand(37, 12, 3.6);
+  return c;
+}
+
+// crackling arc ball (additive): spiky lightning burst used for muzzle charge,
+// the lock aura on a slowed body, and hit sparks
+function zap() {
+  const { c, ctx } = cv(48, 48);
+  const halo = ctx.createRadialGradient(24, 24, 1, 24, 24, 23);
+  halo.addColorStop(0, 'rgba(255,255,255,0.9)');
+  halo.addColorStop(0.25, 'rgba(216,180,254,0.7)');
+  halo.addColorStop(0.6, 'rgba(168,85,247,0.28)');
+  halo.addColorStop(1, 'rgba(168,85,247,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(24, 24, 23, 0, Math.PI * 2); ctx.fill();
+  // jagged spokes
+  ctx.lineCap = 'round';
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.strokeStyle = pass ? 'rgba(255,255,255,0.95)' : 'rgba(196,181,253,0.75)';
+    ctx.lineWidth = pass ? 1.4 : 2.6;
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + Math.random() * 0.4;
+      const r0 = 5 + Math.random() * 3, r1 = 15 + Math.random() * 8;
+      ctx.beginPath();
+      ctx.moveTo(24 + Math.cos(a) * r0, 24 + Math.sin(a) * r0);
+      let px = 24 + Math.cos(a) * r0, py = 24 + Math.sin(a) * r0;
+      for (let s = 1; s <= 3; s++) {
+        const rr = r0 + ((r1 - r0) * s) / 3;
+        const aa = a + (Math.random() - 0.5) * 0.5;
+        px = 24 + Math.cos(aa) * rr; py = 24 + Math.sin(aa) * rr;
+        ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+  return c;
+}
+
 function muzzle() {
   const { c, ctx } = cv(40, 40);
   const g = ctx.createRadialGradient(20, 20, 1, 20, 20, 19);
@@ -730,6 +825,8 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'soldier_me', soldier('#22d3ee', '#0e7490', '#a5f3fc', '#083344', null));
   put(scene, 'soldier_foe', soldier('#ef4444', '#991b1b', '#fecaca', '#450a0a', null));
   put(scene, 'gun', gun());
+  put(scene, 'egun', egun());
+  put(scene, 'zap', zap());
   put(scene, 'bolt', bolt());
   put(scene, 'puff', puff());
   put(scene, 'flame', flame());

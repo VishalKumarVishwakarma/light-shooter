@@ -121,6 +121,23 @@ class SFX {
     this.tone(140, 0.12, 'triangle', 0.14 * g, 40); // hum body
     this.clack(0.07 * g, 0.015);
   }
+  // Electric: capacitor discharge — buzzing square stab, ring-down whine,
+  // and a gritty arc crackle so it never sounds like the laser.
+  shootElectric(g = 1, bright = 1) {
+    this.tone(this.jitter(320, 0.06), 0.1, 'square', 0.2 * g, -180); // buzz stab
+    this.tone(this.jitter(1750, 0.05), 0.2, 'sawtooth', 0.14 * g, -900); // ring-down
+    this.noise(0.05, 0.4 * g, 9000 * bright); // crack
+    this.noise(0.16, 0.18 * g, 5200 * bright, 0.01, 'bandpass', 2200); // arc hiss
+    this.tone(90, 0.12, 'triangle', 0.16 * g, 30); // thump
+  }
+  // Electric impact on a body: tighter crackle with a locking clank.
+  zap(g = 1) {
+    const gain = Math.max(0, Math.min(1, g));
+    if (gain <= 0) return;
+    this.noise(0.09, 0.3 * gain, 6500, 0, 'bandpass', 1800);
+    this.tone(this.jitter(1400, 0.05), 0.12, 'square', 0.12 * gain, -700);
+    this.tone(240, 0.1, 'triangle', 0.14 * gain, -80, 0.02);
+  }
   // Fire dispatcher: one call, correct gun every time.
   // g = distance gain 0..1 (far shots also lose their highs, PUBG-style).
   shoot(weapon: string, g = 1) {
@@ -131,6 +148,7 @@ class SFX {
     else if (weapon === 'shotgun') this.shootShotgun(gain, bright);
     else if (weapon === 'sniper') this.shootSniper(gain, bright);
     else if (weapon === 'laser') this.shootLaser(gain, bright);
+    else if (weapon === 'electric') this.shootElectric(gain, bright);
     else this.shootPistol(gain, bright);
   }
   // Knife: fast bandpass whoosh sweeping up.

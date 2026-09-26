@@ -25,15 +25,18 @@ export class Player extends Schema {
   @type('number') sammo = 0;
   @type('number') nammo = 0;
   @type('number') lammo = 0;
+  @type('number') eammo = 0;
   @type('boolean') rifle = false;
   @type('boolean') shotgun = false;
   @type('boolean') sniper = false;
   @type('boolean') laser = false;
+  @type('boolean') electric = false;
   @type('boolean') guard = true; // shield stance: blocks bullets, knife-only until lowered
   @type('number') grenades = 1;
   @type('number') smokes = 1;
   @type('number') mollies = 1;
   @type('boolean') smoked = false; // inside enemy smoke: hidden on their screens
+  @type('number') slowT = 0; // electric lock: movement crawls while > 0
   @type('boolean') reloading = false;
 }
 

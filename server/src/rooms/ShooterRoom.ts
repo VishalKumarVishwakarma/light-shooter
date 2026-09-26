@@ -19,7 +19,7 @@ const THROWABLE: Record<string, {
   smoke: { count: 'smokes', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 120 },
   molly: { count: 'mollies', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 100 },
 };
-const SMOKE_DUR = 6, FIRE_DUR = 5, FIRE_TICK = 0.5, FIRE_DMG = 12;
+const SMOKE_DUR = 6, FIRE_DUR = 6, FIRE_TICK = 0.5, FIRE_DMG = 12;
 const NADE_MAX = 80, NADE_MIN = 15;
 
 const MATCH_DEFAULT = 300, KILL_TARGET = 15;

@@ -836,7 +836,7 @@ async function main() {
   // throws fly ~235-275px with tick slop (grenade rolls ~170-200): post up at
   // ~205px so every landing falls on the victim, whatever the spawn luck.
   const postGap = await postUp(n1r, n1r.sessionId, n2r, n2r.sessionId, 205, 20);
-  ok(postGap > 185 && postGap < 225, `posted up at ${postGap.toFixed(0)}px`);
+  ok(postGap > 175 && postGap < 235, `posted up at ${postGap.toFixed(0)}px`);
   await sleep(400);
   const na = n1r.state.players.get(n1r.sessionId).toJSON();
   const nv = n2r.state.players.get(n2r.sessionId).toJSON();

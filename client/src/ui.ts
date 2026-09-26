@@ -93,9 +93,41 @@ export function setQuality(q: 'high' | 'low') {
 }
 
 // Modal card: dim backdrop + glass panel + accent bar + title + close.
-// Returns {root, body} — add content to body (origin at panel center).
+// Returns {root, body} - add content to body (origin at panel center).
+//
+// DOM elements (text inputs) live in their own HTML layer ABOVE the canvas, so
+// a canvas `depth` can never put one behind a modal: the input just floats over
+// the glass and reads as an overlay breaking the window. Scenes register their
+// scene-level inputs here and modal() hides them for as long as it is open.
+const underlay: Array<{ el: Phaser.GameObjects.DOMElement; hide: () => void; show: () => void }> = [];
+let modalCount = 0;
+
+// apply to every registered input, dropping any whose scene has been torn down
+// (a destroyed DOMElement throws on setVisible, which is our prune signal)
+function eachUnderlay(fn: (r: { el: Phaser.GameObjects.DOMElement; hide: () => void; show: () => void }) => void) {
+  for (let i = underlay.length - 1; i >= 0; i--) {
+    try { fn(underlay[i]); } catch { underlay.splice(i, 1); }
+  }
+}
+
+export function registerUnderlay(el: Phaser.GameObjects.DOMElement) {
+  underlay.push({
+    el,
+    hide: () => el.setVisible(false),
+    show: () => el.setVisible(true),
+  });
+  if (modalCount > 0) eachUnderlay((r) => r.hide());
+  return el;
+}
+
+function underlayShow() {
+  eachUnderlay((r) => r.show());
+}
+
 export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   const root = scene.add.container(480, 300).setDepth(50);
+  modalCount++;
+  eachUnderlay((r) => r.hide());
   const dim = scene.add.rectangle(0, 0, 960, 600, 0x000000, 0.62).setInteractive();
   const glow = scene.add.image(0, 0, 'halo').setTint(0x22d3ee)
     .setBlendMode(Phaser.BlendModes.ADD).setScale(w / 60, h / 60).setAlpha(0.22);
@@ -140,10 +172,19 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
     targets: root, alpha: 1, scaleX: 1, scaleY: 1, y: 300,
     duration: 240, ease: 'Back.easeOut',
   });
+  let closed = false;
+  const restore = () => {
+    if (--modalCount <= 0) {
+      modalCount = 0;
+      underlayShow(); // a DOM node is only un-hidden by setVisible(true)
+    }
+  };
   const close = () => {
+    if (closed) return;
+    closed = true;
     scene.tweens.add({
       targets: root, alpha: 0, scaleX: 0.96, scaleY: 0.96, y: 306, duration: 150, ease: 'Quad.easeIn',
-      onComplete: () => root.destroy(true),
+      onComplete: () => { root.destroy(true); restore(); },
     });
   };
   xbg.on('pointerdown', close);

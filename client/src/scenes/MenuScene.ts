@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Session, fetchLobbies, randomName, CODE_RE } from '../net/Session';
 import { ensureTextures } from '../textures';
-import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
+import { makeButton, modal, toast, VERSION, quality, setQuality, registerUnderlay } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker, prose } from '../fonts';
 
@@ -98,8 +98,15 @@ export class MenuScene extends Phaser.Scene {
     // callsign entry (F1: player name + random generator, persisted).
     // Wrapped defensively: menu must render even if DOM overlay is unavailable.
     try {
-      const cs = this.add.text(300, 204, 'CALLSIGN', {
-        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: SUB,
+      // its own slim plate, so it reads as a field in the menu and can never be
+      // mistaken for (or collide with) a modal window
+      const plate = this.add.graphics().setDepth(1);
+      plate.fillStyle(0x020617, 0.55);
+      plate.fillRoundedRect(272, 186, 424, 36, 10);
+      plate.lineStyle(1.5, 0x22d3ee, 0.28);
+      plate.strokeRoundedRect(272, 186, 424, 36, 10);
+      const cs = this.add.text(320, 204, 'CALLSIGN', {
+        fontFamily: COND, fontSize: '14px', fontStyle: '700', color: SUB,
       }).setOrigin(0, 0.5).setDepth(2);
       cs.setStroke('#020617', 3);
       cs.setShadow(0, 0, '#22d3ee', 6, false, true);
@@ -108,15 +115,17 @@ export class MenuScene extends Phaser.Scene {
       input.maxLength = 12;
       input.placeholder = 'Your name';
       input.autocomplete = 'off';
-      input.style.cssText = 'width:230px;height:34px;background:#0f172a;color:#fff;border:1px solid rgba(34,211,238,.45);'
+      input.style.cssText = 'width:230px;height:30px;background:#0f172a;color:#fff;border:1px solid rgba(34,211,238,.45);'
         + 'border-radius:8px;padding:0 10px;font:600 16px Rajdhani,sans-serif;letter-spacing:1px;outline:none;';
       input.addEventListener('change', () => {
         Session.setName(input.value);
         input.value = Session.name;
       });
-      this.add.dom(500, 204, input).setDepth(2);
-      this.add.image(262, 204, 'soldier_me').setScale(0.85).setDepth(2);
-    const dice = this.add.text(648, 204, '🎲', { fontSize: '24px' }).setOrigin(0, 0.5).setDepth(2);
+      // DOM elements sit in their own layer above the canvas, so depth alone
+      // cannot tuck this behind a modal - register it to be hidden instead
+      registerUnderlay(this.add.dom(516, 204, input).setDepth(2));
+      this.add.image(292, 204, 'soldier_me').setScale(0.7).setDepth(2);
+      const dice = this.add.text(662, 204, '🎲', { fontSize: '22px' }).setOrigin(0, 0.5).setDepth(2);
       dice.setInteractive({ useHandCursor: true });
       dice.on('pointerdown', () => {
         Session.setName(randomName());

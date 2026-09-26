@@ -703,7 +703,7 @@ export class ArenaScene extends Phaser.Scene {
     sfx.shoot(gw);
     const mx = me.gfx.x + Math.cos(ang) * MUZZLE, my = me.gfx.y + Math.sin(ang) * MUZZLE;
     this.flash(mx, my, ang, false, gw === 'laser' ? 0x22d3ee : 0);
-    if (gw === 'laser') this.beam(mx, my, ang); // instant full-length beam (no echo delay)
+    if (gw === 'laser') this.beam(mx, my, ang, this.meId); // instant full-length beam (no echo delay)
     this.recoil(me.gun);
     // heavier guns kick the camera harder
     this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
@@ -767,25 +767,32 @@ export class ArenaScene extends Phaser.Scene {
     this.time.delayedCall(60, () => f.destroy());
   }
 
-  // laser beam: march the ray until a wall (steel/standing brick) or max range,
-  // then burn a 3-pass beam (halo + body + white core) with an impact flare.
-  private rayEnd(x: number, y: number, dx: number, dy: number, maxD: number) {
+  // laser beam: march the ray until a wall (steel/standing brick), a player,
+  // or max range, then burn a 3-pass beam with an impact flare.
+  private rayEnd(x: number, y: number, dx: number, dy: number, maxD: number, skipId: string) {
     const walls = [...STEEL];
     BRICKS.forEach((rc, i) => {
       if ((this.brickHp.get(`br_${i}`) ?? BRICK_HP) > 0) walls.push(rc);
+    });
+    const bodies: Array<{ x: number; y: number }> = [];
+    this.players.forEach((o, id) => {
+      if (id !== skipId && o.alive) bodies.push({ x: o.gfx.x, y: o.gfx.y });
     });
     for (let t = 16; t <= maxD; t += 16) {
       const px = x + dx * t, py = y + dy * t;
       if (px < 0 || py < 0 || px > W || py > H) return { x: px, y: py };
       if (pointInWall(px, py, walls)) return { x: x + dx * (t - 8), y: y + dy * (t - 8) };
+      for (const b of bodies) {
+        if (Math.hypot(px - b.x, py - b.y) < 20) return { x: b.x, y: b.y };
+      }
     }
     return { x: x + dx * maxD, y: y + dy * maxD };
   }
 
-  private beam(x1: number, y1: number, ang: number) {
+  private beam(x1: number, y1: number, ang: number, skipId: string) {
     const dx = Math.cos(ang), dy = Math.sin(ang);
     const range = WEAPONS.laser.speed * WEAPONS.laser.life;
-    const end = this.rayEnd(x1, y1, dx, dy, range);
+    const end = this.rayEnd(x1, y1, dx, dy, range, skipId);
     const g = this.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
     g.lineStyle(11, 0x22d3ee, 0.28);
     g.beginPath(); g.moveTo(x1, y1); g.lineTo(end.x, end.y); g.strokePath();
@@ -1125,7 +1132,7 @@ export class ArenaScene extends Phaser.Scene {
         this.flash(mx, my, a, false, bw === 'laser' ? 0x22d3ee : 0);
         this.recoil(own.gun);
         // enemy lasers burn their beam from the visible barrel too
-        if (bw === 'laser') this.beam(mx, my, a);
+        if (bw === 'laser') this.beam(mx, my, a, b.ownerId);
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
       // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.

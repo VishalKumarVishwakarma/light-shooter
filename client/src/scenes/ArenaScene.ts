@@ -91,6 +91,7 @@ export class ArenaScene extends Phaser.Scene {
   private aimStick: { id: number; ox: number; oy: number; kx: number; ky: number; ang: number } | null = null;
   private joyMove = { dx: 0, dy: 0 };
   private stickG: Phaser.GameObjects.Graphics | null = null;
+  private crossG: Phaser.GameObjects.Graphics | null = null;
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
   private brickViews = new Map<string, { c: Phaser.GameObjects.Container; cracks: Phaser.GameObjects.Graphics }>();
@@ -126,6 +127,9 @@ export class ArenaScene extends Phaser.Scene {
   create() {
     ensureTextures(this);
     this.cameras.main.fadeIn(250, 0, 0, 0);
+    this.events.once('shutdown', () => {
+      try { this.input.setDefaultCursor('default'); } catch { /* dying */ }
+    });
     this.cameras.main.setBounds(0, 0, W, H);
     // ground: grid + film-grain noise + vignette
     this.add.grid(0, 0, W, H, 40, 40, 0x111826).setOrigin(0);
@@ -427,6 +431,16 @@ export class ArenaScene extends Phaser.Scene {
       fontFamily: COND, fontSize: '13px', fontStyle: '700', color: '#7dd3fc',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.compassText.setStroke('#020617', 3);
+    const ticks = this.add.graphics().setScrollFactor(0).setDepth(10);
+    ticks.lineStyle(2, 0x7dd3fc, 0.55);
+    for (let k = -4; k <= 4; k++) {
+      const tx = 480 + k * 14, tall = k % 2 === 0 ? 7 : 4;
+      ticks.beginPath();
+      ticks.moveTo(tx, 56); ticks.lineTo(tx, 56 + tall);
+      ticks.strokePath();
+    }
+    ticks.fillStyle(0xfacc15, 1); // center caret
+    ticks.fillTriangle(480 - 5, 54, 480 + 5, 54, 480, 60);
     this.wantedText = this.add.text(480, 66, '', {
       fontFamily: COND, fontSize: '16px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -509,6 +523,32 @@ export class ArenaScene extends Phaser.Scene {
     this.input.addPointer(3); // multitouch: move + aim + button taps at once
     this.input.on('pointermove', (pt: Phaser.Input.Pointer) => this.dragStick(pt));
     this.stickG = this.add.graphics().setScrollFactor(0).setDepth(30);
+    // reactive crosshair (desktop only): bloom answers every trigger pull
+    this.crossG = this.add.graphics().setScrollFactor(0).setDepth(40);
+    if (!this.touchMode) this.input.setDefaultCursor('none');
+  }
+
+  private drawCrosshair() {
+    const g = this.crossG;
+    if (!g) return;
+    g.clear();
+    if (this.touchMode || (Session.room as any)?.state?.phase !== 'playing') return;
+    const pt = this.input.activePointer;
+    if (pt.x < 0 || pt.y < 0 || pt.x > 960 || pt.y > 600) return;
+    const since = this.time.now / 1000 - this.lastFire;
+    const gap = 7 + 15 * Math.max(0, 1 - since * 3.5); // bloom after each shot
+    const L = 9;
+    g.lineStyle(2.5, 0x22d3ee, 0.95);
+    g.beginPath();
+    g.moveTo(pt.x - gap - L, pt.y); g.lineTo(pt.x - gap, pt.y);
+    g.moveTo(pt.x + gap, pt.y); g.lineTo(pt.x + gap + L, pt.y);
+    g.moveTo(pt.x, pt.y - gap - L); g.lineTo(pt.x, pt.y - gap);
+    g.moveTo(pt.x, pt.y + gap); g.lineTo(pt.x, pt.y + gap + L);
+    g.strokePath();
+    g.fillStyle(0xffffff, 0.95);
+    g.fillCircle(pt.x, pt.y, 1.6);
+    g.lineStyle(1, 0x020617, 0.8);
+    g.strokeCircle(pt.x, pt.y, gap + L + 1);
   }
 
   // ---- twin-stick touch controls (left = move, right = aim + fire) ----
@@ -1931,6 +1971,7 @@ export class ArenaScene extends Phaser.Scene {
       (this as any)._mm = 0;
       this.drawMinimap();
     }
+    this.drawCrosshair();
     for (const w of this.waterTiles) w.tilePositionX += dt * 12;
     // fps meter (?fps=1) + auto low-graphics: 3 straight sub-35fps seconds
     // on HIGH drops scan/vignette/dust live (two tabs on one box stay fluid)

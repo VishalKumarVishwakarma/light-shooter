@@ -3,7 +3,7 @@ import { Session, fetchLobbies, randomName } from '../net/Session';
 import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality } from '../ui';
 import { sfx } from '../audio';
-import { BODY, COND, DIM, SUB, TXT, displayText, kicker, prose } from '../fonts';
+import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker, prose } from '../fonts';
 
 export class MenuScene extends Phaser.Scene {
   private errText!: Phaser.GameObjects.Text;
@@ -327,16 +327,40 @@ export class MenuScene extends Phaser.Scene {
     const top = 472;
     rows.forEach((l, i) => {
       const live = l.phase === 'playing' || l.phase === 'countdown';
-      const bg = this.add.rectangle(480, top + i * 32, 440, 28, live ? 0x7c2d12 : 0x0f172a, 0.92)
-        .setStrokeStyle(1, live ? 0xfb923c : 0x22d3ee, 0.7).setDepth(2);
-      const tx = this.add.text(480, top + i * 32,
-        `${l.code}    ${l.players}/${l.max}    ${l.phase.toUpperCase()}${live ? '  ·  JOIN LIVE' : ''}`,
-        { fontFamily: COND, fontSize: '16px', fontStyle: '700', color: live ? '#fdba74' : TXT })
-        .setOrigin(0.5).setDepth(3);
-      tx.setStroke('#020617', 3);
+      const y = top + i * 32;
+      // drop plate + glass row + neon rim
+      this.listObjs.push(this.add.rectangle(480, y + 2, 444, 30, 0x020617, 0.6).setDepth(1));
+      const bg = this.add.rectangle(480, y, 440, 28, live ? 0x7c2d12 : 0x0f172a, 0.94)
+        .setStrokeStyle(2, live ? 0xfb923c : 0x22d3ee, 0.8).setDepth(2);
+      const code = this.add.text(288, y, l.code, {
+        fontFamily: MONO, fontSize: '15px', fontStyle: '700', color: live ? '#fdba74' : '#7dd3fc',
+      }).setOrigin(0, 0.5).setDepth(3);
+      code.setStroke('#020617', 3);
+      // headcount pips: filled = seated, hollow = open
+      const pips = this.add.graphics().setDepth(3);
+      for (let k = 0; k < l.max; k++) {
+        const px = 470 + k * 13;
+        if (k < l.players) {
+          pips.fillStyle(live ? 0xfb923c : 0x4ade80, 1);
+          pips.fillCircle(px, y, 4);
+        } else {
+          pips.lineStyle(1.5, 0x475569, 1);
+          pips.strokeCircle(px, y, 4);
+        }
+      }
+      // phase chip (right): LIVE pulses on running games
+      const chipCol = l.phase === 'playing' ? '#ef4444' : l.phase === 'countdown' ? '#facc15' : '#4ade80';
+      const chipBg = this.add.rectangle(656, y, 76, 20, 0x020617, 0.85)
+        .setStrokeStyle(1.5, Phaser.Display.Color.HexStringToColor(chipCol).color, 0.9).setDepth(3);
+      const chip = this.add.text(656, y, live ? '● LIVE' : '○ LOBBY', {
+        fontFamily: COND, fontSize: '12px', fontStyle: '700', color: chipCol,
+      }).setOrigin(0.5).setDepth(3);
+      chip.setStroke('#020617', 2);
+      if (live) this.tweens.add({ targets: chip, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
+      const tx = [bg, code, pips, chipBg, chip];
       bg.setInteractive({ useHandCursor: true });
       bg.on('pointerover', () => bg.setFillStyle(live ? 0x9a3412 : 0x1e293b, 0.95));
-      bg.on('pointerout', () => bg.setFillStyle(live ? 0x7c2d12 : 0x0f172a, 0.92));
+      bg.on('pointerout', () => bg.setFillStyle(live ? 0x7c2d12 : 0x0f172a, 0.94));
       bg.on('pointerdown', async () => {
         this.errText.setText('joining ' + l.code + '…');
         try {
@@ -347,7 +371,7 @@ export class MenuScene extends Phaser.Scene {
           this.showError('JOIN FAILED', String(e?.message || e));
         }
       });
-      this.listObjs.push(bg, tx);
+      this.listObjs.push(...tx);
     });
     if (lobbies.length > 2) {
       const more = this.add.text(480, top + rows.length * 32, `+${lobbies.length - 2} more — type the code below`, {

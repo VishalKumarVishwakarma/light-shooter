@@ -62,6 +62,11 @@ export class ArenaScene extends Phaser.Scene {
   private pendingSlot = ''; // gun asked for, not yet acknowledged by the server
   private pendingAt = 0;
   private pendingFire = false; // fire the moment that switch is confirmed
+  // wheel gesture coalescing: raw events accumulate, one commit per gesture
+  private wheelAcc = 0;
+  private wheelAt = 0;
+  private wheelCycle: Slot[] = [];
+  private wheelKey = '';
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -213,6 +218,9 @@ export class ArenaScene extends Phaser.Scene {
     this.txtCache.clear(); // stale strings would skip first paint on fresh objects
     this.activeSlot = 'pistol';
     this.fireWas = false;
+    this.wheelAcc = 0;
+    this.wheelAt = 0;
+    this.wheelKey = '';
     this.prevSlow = 0; // scene restart must not re-fire the lock cue
     this.moveStick = null; this.aimStick = null;
     this.joyMove = { dx: 0, dy: 0 };
@@ -291,17 +299,18 @@ export class ArenaScene extends Phaser.Scene {
         if (me) this.slash(me.gfx.x, me.gfx.y, this.lastAim);
       });
     }
-    this.input.on('wheel', () => {
-      const st: any = (Session.room as any)?.state;
-      const me = st?.players.get(Session.room?.sessionId || '');
-      // the wheel walks the very same slot list as 1-0: owned guns in strip
-      // order, then the three throwables, then the shield. Throwables stay in
-      // the cycle even at zero so the order never shifts under your fingers.
-      const cycle = SLOTS.filter((s) => s.kind !== 'gun'
-        || (s.id === 'pistol' || me?.[s.id] === true));
-      const i = cycle.findIndex((s) => s.id === this.activeSlot);
-      const next = cycle[(i + 1) % cycle.length];
-      if (next) this.selectSlot(next.id, false);
+    // The wheel is a SELECTOR, not a twitch. Browsers fire a burst of wheel
+    // events for one physical notch and trackpads fire dozens per second, so
+    // stepping on every event made a single flick jump half the loadout - and
+    // each jump clicked and spammed the server with a switch request. Events
+    // are accumulated into a gesture and committed once, when they stop.
+    this.input.on('wheel', (_p: unknown, _g: unknown, _dx: number, dy: number) => {
+      const now = this.time.now;
+      if (now - this.wheelAt > 320) this.wheelAcc = 0; // a new gesture
+      this.wheelAt = now;
+      if (dy > 0) this.wheelAcc += 1;
+      else if (dy < 0) this.wheelAcc -= 1;
+      this.wheelAcc = Math.max(-4, Math.min(4, this.wheelAcc));
     });
     // ---- READOUTS: the three things you must never hunt for -------------
     //   TOP LEFT   health + status (shield / haste / electric lock)
@@ -685,6 +694,37 @@ export class ArenaScene extends Phaser.Scene {
       this.pendingFire = false;
       this.activeSlot = p.weapon;
     }
+  }
+
+  // The wheel's cycle: the very same slot list as 1-0 — owned guns in strip
+  // order, then the three throwables, then the shield. Throwables stay in the
+  // cycle even at zero so the order never shifts under your fingers. Cached
+  // against an ownership fingerprint so a scroll allocates nothing.
+  private slotCycle(): Slot[] {
+    const me: any = (Session.room as any)?.state?.players.get(this.meId);
+    const key = SLOTS.map((s) => (s.kind === 'gun'
+      ? (s.id === 'pistol' || me?.[s.id] === true ? '1' : '0') : '1')).join('');
+    if (key !== this.wheelKey) {
+      this.wheelKey = key;
+      this.wheelCycle = SLOTS.filter((s) => s.kind !== 'gun'
+        || s.id === 'pistol' || me?.[s.id] === true);
+    }
+    return this.wheelCycle;
+  }
+
+  // called every frame: commits a wheel gesture once its events stop arriving
+  private commitWheel() {
+    if (!this.wheelAcc) return;
+    if (this.time.now - this.wheelAt < 150) return; // still receiving
+    const steps = this.wheelAcc;
+    this.wheelAcc = 0;
+    const cycle = this.slotCycle();
+    if (cycle.length < 2) return;
+    const i = cycle.findIndex((s) => s.id === this.activeSlot);
+    const from = i < 0 ? 0 : i;
+    const next = from + steps;
+    const idx = ((next % cycle.length) + cycle.length) % cycle.length;
+    this.selectSlot(cycle[idx].id, false);
   }
 
   // brief red flash on a slot that cannot be equipped
@@ -2306,6 +2346,7 @@ export class ArenaScene extends Phaser.Scene {
       }
     });
     this.tickFoeArcs(dt);
+    this.commitWheel();
     // a switch the server never acknowledges must not strand the strip on
     // "SWITCHING" - state changes drive the happy path, this drives the timeout
     if (this.pendingSlot) {

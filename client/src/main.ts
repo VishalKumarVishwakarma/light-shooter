@@ -11,6 +11,7 @@ const game = new Phaser.Game({
   height: 600,
   backgroundColor: '#0b0e14',
   // no physics system: movement is analytic (stepMove) — zero engine overhead
+  render: { powerPreference: 'high-performance', desynchronized: true },
   fps: { target: 60, smoothStep: true }, // clamp delta spikes so hitches don't cascade
   dom: { createContainer: true }, // required for the callsign <input/> overlay
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },

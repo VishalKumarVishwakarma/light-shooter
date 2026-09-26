@@ -92,6 +92,17 @@ export class ArenaScene extends Phaser.Scene {
   private joyMove = { dx: 0, dy: 0 };
   private stickG: Phaser.GameObjects.Graphics | null = null;
   private crossG: Phaser.GameObjects.Graphics | null = null;
+  private txtCache = new Map<string, string>();
+
+  // setText re-uploads the canvas texture even for identical strings — at
+  // 30Hz state churn that's pure stall. Cache and skip no-ops.
+  private setT(key: string, o: Phaser.GameObjects.Text, str: string, color?: string) {
+    if (this.txtCache.get(key) !== str) { this.txtCache.set(key, str); o.setText(str); }
+    if (color !== undefined) {
+      const ck = key + '#c';
+      if (this.txtCache.get(ck) !== color) { this.txtCache.set(ck, color); o.setColor(color); }
+    }
+  }
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
   private brickViews = new Map<string, { c: Phaser.GameObjects.Container; cracks: Phaser.GameObjects.Graphics }>();
@@ -174,6 +185,7 @@ export class ArenaScene extends Phaser.Scene {
     this.rubble.clear();
     this.myVel = { x: 0, y: 0 };
     this.camLocked = false;
+    this.txtCache.clear(); // stale strings would skip first paint on fresh objects
     this.moveStick = null; this.aimStick = null;
     this.joyMove = { dx: 0, dy: 0 };
     this.tacVin = null; this.tacScan = null;
@@ -1027,7 +1039,7 @@ export class ArenaScene extends Phaser.Scene {
         o.speedT = p.speedT || 0;
         o.gfx.setRotation(0);
         o.gun.setRotation(p.angle);
-        o.label.setText(`${p.name} ${p.hp}${o.speedT > 0 ? ' ⚡' : ''}${o.shieldPts > 0 ? ' 🛡' : ''}`);
+        this.setT('nl' + id, o.label, `${p.name} ${p.hp}${o.speedT > 0 ? ' ⚡' : ''}${o.shieldPts > 0 ? ' 🛡' : ''}`);
         if (id === this.meId) {
           this.drawHp(p.hp, p.kills);
           this.drawAmmo(p);
@@ -1311,8 +1323,8 @@ export class ArenaScene extends Phaser.Scene {
       const now = Date.now() % 1000000;
       const sent = typeof m?.t === 'number' ? m.t : now;
       const rtt = (now - sent + 1000000) % 1000000;
-      this.pingText.setText(`PING ${Math.max(0, Math.round(rtt))}`);
-      this.pingText.setColor(rtt < 100 ? '#4ade80' : rtt < 200 ? '#facc15' : '#ef4444');
+      this.setT('ping', this.pingText, `PING ${Math.max(0, Math.round(rtt))}`,
+        rtt < 100 ? '#4ade80' : rtt < 200 ? '#facc15' : '#ef4444');
     });
     this.pingTimer?.remove();
     this.pingTimer = this.time.addEvent({
@@ -1333,29 +1345,27 @@ export class ArenaScene extends Phaser.Scene {
   private drawAmmo(p: any) {
     const W = WEAPONS[p.weapon] || WEAPONS.pistol;
     const colors: Record<string, string> = { pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc', laser: '#22d3ee' };
-    this.ammoTitle.setText(p.weapon.toUpperCase());
-    this.ammoTitle.setColor(colors[p.weapon] || '#94a3b8');
+    this.setT('ammoT', this.ammoTitle, p.weapon.toUpperCase(), colors[p.weapon] || '#94a3b8');
     const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
       : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo : p.pammo;
     if (p.reloading) {
-      this.ammoCount.setText('…');
-      this.ammoCount.setColor('#fb923c');
+      this.setT('ammoC', this.ammoCount, '…', '#fb923c');
       const total = p.weapon === 'rifle' ? 2 : W.reload;
       this.reloadBar.displayWidth = Math.max(1, 140 * (1 - Math.max(0, p.reloadLeft) / total));
     } else {
       this.reloadBar.displayWidth = 1;
       const low = left > 0 && left / W.clip <= 0.25;
-      this.ammoCount.setText(low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`);
-      this.ammoCount.setColor(left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
+      this.setT('ammoC', this.ammoCount,
+        low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`,
+        left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    this.ammoHint.setText('R reload · F knife · Q guard');
+    this.setT('ammoH', this.ammoHint, 'R reload · F knife · Q guard');
     const needReload = !p.reloading && left < W.clip;
     this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
     // stance badge mirrors the server guard flag (drawAmmo runs for me on change)
     const guarded = !!p.guard;
-    this.guardTx.setText(guarded ? '🛡 SHIELD' : '🔫 GUN');
-    this.guardTx.setColor(guarded ? '#4ade80' : '#60a5fa');
+    this.setT('guard', this.guardTx, guarded ? '🛡 SHIELD' : '🔫 GUN', guarded ? '#4ade80' : '#60a5fa');
     this.guardBg.setStrokeStyle(2.5, guarded ? 0x4ade80 : 0x60a5fa, 0.95);
     this.drawLoadout(p);
     // ordnance counts on the throw buttons
@@ -1363,7 +1373,7 @@ export class ArenaScene extends Phaser.Scene {
       grenade: p.grenades || 0, molly: p.mollies || 0, smoke: p.smokes || 0,
     };
     this.throwBtns.forEach((b) => {
-      b.tx.setText(`${b.key}${b.icon}${ordN[b.kind] ?? 0}`);
+      this.setT('ord' + b.kind, b.tx, `${b.key}${b.icon}${ordN[b.kind] ?? 0}`);
       b.bg.setAlpha((ordN[b.kind] ?? 0) > 0 ? 1 : 0.45);
     });
   }
@@ -1383,16 +1393,14 @@ export class ArenaScene extends Phaser.Scene {
       if (!s) return;
       const owned = w === 'pistol' || w === 'shield' || p[w] === true;
       const cur = w === 'shield' ? !!p.guard : p.weapon === w;
-      s.tx.setText(`${i + 1}\n${names[w]}`);
+      this.setT('load' + i, s.tx, `${i + 1}\n${names[w]}`,
+        cur ? '#ffffff' : owned ? cols[w] : '#334155');
       if (cur) {
         s.bg.setFillStyle(0x0e2a3a, 0.95).setStrokeStyle(2.5, 0x22d3ee, 1);
-        s.tx.setColor('#ffffff');
       } else if (owned) {
         s.bg.setFillStyle(0x020617, 0.78).setStrokeStyle(2, 0x475569, 0.95);
-        s.tx.setColor(cols[w]);
       } else {
         s.bg.setFillStyle(0x020617, 0.5).setStrokeStyle(1.5, 0x1e293b, 0.8);
-        s.tx.setColor('#334155');
       }
     });
   }
@@ -1419,7 +1427,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawHp(hp: number, kills: number) {    const from = this.dispHp;
     this.dispHp = hp;
-    this.hpLabel.setText(`HP ${hp} · ${kills} K`);
+    this.setT('hp', this.hpLabel, `HP ${hp} · ${kills} K`);
     // main bar snaps fast, ghost trails behind (classic damage feel)
     this.tweens.killTweensOf(this.hpFill);
     const proxy = { v: from };
@@ -1578,7 +1586,7 @@ export class ArenaScene extends Phaser.Scene {
     this.grabBtn.c.setVisible(kind !== null);
     if (kind !== null) {
       const k: string = kind;
-      this.grabBtn.label.setText(`Ⓔ PICK UP ${k.toUpperCase()}`);
+      this.setT('grab', this.grabBtn.label, `Ⓔ PICK UP ${k.toUpperCase()}`);
       this.grabBtn.c.setAlpha(0.7 + 0.3 * Math.sin(this.time.now / 180));
     }
   }
@@ -1588,8 +1596,8 @@ export class ArenaScene extends Phaser.Scene {
     if (!st) return;
     // urgency clock: gold -> orange under 30s -> pulsing red under 10s
     const t = Math.max(0, Math.ceil(st.timeLeft || 0));
-    this.clockText.setText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
-    this.clockText.setColor(t <= 10 ? '#ef4444' : t <= 30 ? '#fb923c' : '#facc15');
+    this.setT('clock', this.clockText, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`,
+      t <= 10 ? '#ef4444' : t <= 30 ? '#fb923c' : '#facc15');
     this.clockText.setScale(t <= 10 ? 1.18 : 1);
     // ranked ticker: #rank name K/D + kill-target race line
     const rows: Array<{ name: string; kills: number; deaths: number; damage: number; id: string }> = [];
@@ -1599,15 +1607,15 @@ export class ArenaScene extends Phaser.Scene {
     rows.sort((a, b) => b.kills - a.kills || b.damage - a.damage);
     const target = st.killTarget || 15;
     const lead = rows[0];
-    this.scoreText.setText(rows.map((r, i) => `#${i + 1} ${r.name} ${r.kills}K/${r.deaths}D`).join('\n'));
-    this.roundText.setText(lead && lead.kills > 0
+    this.setT('score', this.scoreText, rows.map((r, i) => `#${i + 1} ${r.name} ${r.kills}K/${r.deaths}D`).join('\n'));
+    this.setT('round', this.roundText, lead && lead.kills > 0
       ? `TARGET ${target} · ${lead.name} LEADS ${lead.kills}K`
       : `FIRST TO ${target} KILLS`);
     let myCash = 0, myStreak = 0;
     st.players.forEach((p: any, id: string) => {
       if (id === this.meId) { myCash = p.cash || 0; myStreak = p.streak || 0; }
     });
-    this.cashText.setText('$' + myCash.toLocaleString('en-US'));
+    this.setT('cash', this.cashText, '$' + myCash.toLocaleString('en-US'));
     // kill-target race bar: leader's progress to the target
     const race = lead ? Math.min(1, lead.kills / target) : 0;
     this.raceFill.displayWidth = Math.max(1, 150 * race);
@@ -1619,7 +1627,7 @@ export class ArenaScene extends Phaser.Scene {
     this.shChipFill.setVisible(pts > 0);
     this.shChipTx.setVisible(pts > 0);
     if (pts > 0) {
-      this.shChipTx.setText(`🛡 ${Math.ceil(pts)} PTS`);
+      this.setT('shc', this.shChipTx, `🛡 ${Math.ceil(pts)} PTS`);
       this.shChipFill.displayWidth = Math.max(1, 146 * Math.min(1, pts / 100));
     }
     const haste = mine?.speedT || 0;
@@ -1627,12 +1635,12 @@ export class ArenaScene extends Phaser.Scene {
     this.spChipFill.setVisible(haste > 0);
     this.spChipTx.setVisible(haste > 0);
     if (haste > 0) {
-      this.spChipTx.setText(`⚡ ${haste.toFixed(1)}s HASTE`);
+      this.setT('spc', this.spChipTx, `⚡ ${haste.toFixed(1)}s HASTE`);
       this.spChipFill.displayWidth = Math.max(1, 146 * Math.min(1, haste / 8));
     }
     // GTA wanted level from your streak (cap 5)
     const stars = Math.min(5, myStreak);
-    this.wantedText.setText(stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
+    this.setT('want', this.wantedText, stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
     if (myStreak > this.prevStreak && stars > 0) {
       this.wantedText.setScale(1.6);
       this.tweens.add({ targets: this.wantedText, scaleX: 1, scaleY: 1, duration: 300, ease: 'Back.easeOut' });
@@ -1984,7 +1992,7 @@ export class ArenaScene extends Phaser.Scene {
       this.refreshGrabPrompt();
       const deg = Math.round(((this.lastAim * 180) / Math.PI % 360 + 360) % 360);
       const dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
-      this.compassText.setText(`HDG ${String(deg).padStart(3, '0')} · ${dirs[Math.round(deg / 45) % 8]}`);
+      this.setT('comp', this.compassText, `HDG ${String(deg).padStart(3, '0')} · ${dirs[Math.round(deg / 45) % 8]}`);
     }
     // minimap 2x/sec + river shimmer
     (this as any)._mm = ((this as any)._mm || 0) + dt;
@@ -2011,8 +2019,8 @@ export class ArenaScene extends Phaser.Scene {
         }
       }
       if (this.fpsText) {
-        this.fpsText.setText(`${fps} FPS`);
-        this.fpsText.setColor(fps >= 50 ? '#4ade80' : fps >= 30 ? '#facc15' : '#ef4444');
+        this.setT('fps', this.fpsText, `${fps} FPS`,
+          fps >= 50 ? '#4ade80' : fps >= 30 ? '#facc15' : '#ef4444');
       }
       this.fpsAcc = 0; this.fpsN = 0;
     }

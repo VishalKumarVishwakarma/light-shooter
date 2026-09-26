@@ -144,6 +144,9 @@ export class ArenaScene extends Phaser.Scene {
   private reloadBar!: Phaser.GameObjects.Rectangle;
   private reloadBg!: Phaser.GameObjects.Rectangle;
   private ammoIcon!: Phaser.GameObjects.Image;
+  private clockCardG!: Phaser.GameObjects.Graphics;
+  private liveDot!: Phaser.GameObjects.Arc;
+  private clockStars = -1; // last rendered streak-star count
   private reloadTx!: Phaser.GameObjects.Text;
   private loadSlots: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text }> = [];
   private statusSegs: Array<{
@@ -332,31 +335,35 @@ export class ArenaScene extends Phaser.Scene {
     // red edge flash on damage
     this.dmgVin = this.add.image(480, 300, 'vignette').setTint(0xef4444)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // ammo strip (top-right): icon + weapon + count, and the whole strip IS
-    // the reload button — one control instead of a card plus a button
+    // ammo strip (top-right). Row 1 of the card is a strict 3-column grid —
+    // icon | weapon name | ammo count — and the reload/status line gets its
+    // OWN row below the card, so a long message can never run over the count.
     const ammoCard = this.add.graphics().setScrollFactor(0).setDepth(9);
     ammoCard.fillStyle(0x020617, 0.62);
-    ammoCard.fillRoundedRect(706, 2, 248, 30, 8);
+    ammoCard.fillRoundedRect(706, 2, 238, 32, 8);
     ammoCard.lineStyle(2, 0x22d3ee, 0.5);
-    ammoCard.strokeRoundedRect(706, 2, 248, 30, 8);
-    this.ammoIcon = this.add.image(722, 17, 'gun').setScale(0.55)
+    ammoCard.strokeRoundedRect(706, 2, 238, 32, 8);
+    this.ammoIcon = this.add.image(724, 18, 'gun').setScale(0.55)
       .setScrollFactor(0).setDepth(10).setAlpha(0.9);
-    this.ammoTitle = this.add.text(738, 7, 'PISTOL', {
+    this.ammoTitle = this.add.text(742, 12, 'PISTOL', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#94a3b8',
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount = this.add.text(946, 4, '12/12', {
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.ammoCount = this.add.text(936, 18, '12/12', {
       fontFamily: COND, fontSize: '20px', fontStyle: '700', color: '#fff',
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(10);
     this.ammoCount.setStroke('#020617', 4);
     this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
-    // reload progress = the strip's own underline; the strip itself reloads
-    this.add.rectangle(952, 33, 240, 3, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.reloadBar = this.add.rectangle(952, 33, 0, 3, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
-    this.reloadBg = this.add.rectangle(830, 17, 248, 30, 0xffffff, 0)
+    // reload progress rides the card's own underline
+    this.add.rectangle(938, 35, 232, 3, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.reloadBar = this.add.rectangle(938, 35, 0, 3, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
+    // the strip itself is the reload target (row 1 only, so the status line
+    // below is never a click target)
+    this.reloadBg = this.add.rectangle(825, 18, 238, 32, 0xffffff, 0)
       .setScrollFactor(0).setDepth(12);
-    this.reloadTx = this.add.text(838, 17, '', {
-      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
-    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
+    // status line: its own row, right-aligned, 10px — room for any message
+    this.reloadTx = this.add.text(944, 45, '', {
+      fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#facc15', align: 'right',
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.reloadTx.setStroke('#020617', 3);
     this.reloadBg.setInteractive({ useHandCursor: true });
     this.reloadBg.on('pointerdown', () => {
@@ -406,32 +413,31 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.grabBtn.c.setVisible(false);
     this.grabBtn.c.setScale(0.8);
-    // the match timer sits dead top-middle, with the streak stars in the pill
-    const clockCard = this.add.graphics().setScrollFactor(0).setDepth(10);
-    clockCard.fillStyle(0x020617, 0.72);
-    clockCard.fillRoundedRect(370, 2, 220, 30, 10);
-    clockCard.lineStyle(2, 0xfacc15, 0.55);
-    clockCard.strokeRoundedRect(370, 2, 220, 30, 10);
-    const liveDot = this.add.circle(390, 17, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
-    this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
-    this.clockText = this.add.text(436, 17, '2:00', {
+    // the match timer sits dead top-middle. The pill is sized to its content
+    // (compact with no streak, wider when the stars are showing) and shares
+    // the ammo card's 32px row, corner radius and rim treatment.
+    this.clockCardG = this.add.graphics().setScrollFactor(0).setDepth(10);
+    this.liveDot = this.add.circle(0, 18, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
+    this.tweens.add({ targets: this.liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
+    this.clockText = this.add.text(480, 18, '2:00', {
       fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.clockText.setStroke('#020617', 3);
     this.clockText.setShadow(0, 0, '#facc15', 10, false, true);
-    this.compassText = this.add.text(700, 46, 'HDG 090 · E', {
+    this.compassText = this.add.text(700, 45, 'HDG 090 · E', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#7dd3fc',
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.compassText.setStroke('#020617', 3);
     // wanted stars only render while a streak is live, so they cost nothing
-    this.wantedText = this.add.text(552, 17, '', {
+    this.wantedText = this.add.text(540, 18, '', {
       fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.wantedText.setStroke('#000000', 3);
-    this.roundText = this.add.text(480, 46, '', {
+    this.roundText = this.add.text(480, 45, '', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.roundText.setStroke('#020617', 3);
+    this.layoutClock(false); // now that the texts exist, size the pill to them
     try {
       if (new URLSearchParams(location.search).get('fps')) {
         this.fpsText = this.add.text(256, 468, '60', {
@@ -1656,6 +1662,24 @@ export class ArenaScene extends Phaser.Scene {
     this.scene.start('menu');
   }
 
+  // Draw the timer pill at exactly the width its content needs, always
+  // centred on 480 and always on the same 32px row as the ammo card.
+  private layoutClock(withStars: boolean) {
+    if (this.clockStars === (withStars ? 1 : 0)) return;
+    this.clockStars = withStars ? 1 : 0;
+    const w = withStars ? 226 : 132; // stars need room; the bare clock does not
+    const x = 480 - w / 2;
+    const g = this.clockCardG;
+    g.clear();
+    g.fillStyle(0x020617, 0.72);
+    g.fillRoundedRect(x, 2, w, 32, 8);
+    g.lineStyle(2, 0xfacc15, 0.55);
+    g.strokeRoundedRect(x, 2, w, 32, 8);
+    this.liveDot.setPosition(x + 20, 18);
+    this.clockText?.setPosition(x + (withStars ? 66 : 74), 18);
+    this.wantedText?.setPosition(x + w - 48, 18);
+  }
+
   // one status segment: label '' hides it, frac paints the mini bar
   private status(i: number, label: string, col: number, frac: number) {
     const s = this.statusSegs[i];
@@ -2022,6 +2046,7 @@ export class ArenaScene extends Phaser.Scene {
     // GTA wanted level from your streak (cap 5)
     const stars = Math.min(5, myStreak);
     this.setT('want', this.wantedText, stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
+    this.layoutClock(stars > 0);
     if (myStreak > this.prevStreak && stars > 0) {
       this.wantedText.setScale(1.6);
       this.tweens.add({ targets: this.wantedText, scaleX: 1, scaleY: 1, duration: 300, ease: 'Back.easeOut' });

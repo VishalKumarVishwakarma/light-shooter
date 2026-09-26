@@ -77,6 +77,30 @@ async function postUp(r, rid, v, vid, want = 170, tol = 30, tries = 4) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+// grabPad: claim a gun pad wherever it currently is. Pads respawn at RANDOM
+// spots once collected, so a test that hardcodes (800,300) silently walks onto
+// whichever gun relocated there instead. Always take the NEAREST pad of that
+// kind — snipers spawn as an east/west pair, and the far one is a long trek.
+async function grabPad(room, id, kind, want = 24) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const me = room.state.players.get(id).toJSON();
+    let best = null, bestD = Infinity;
+    room.state.pickups.forEach((q) => {
+      if (q.kind !== kind || !q.active) return;
+      const d = Math.hypot(q.x - me.x, q.y - me.y);
+      if (d < bestD) { bestD = d; best = q; }
+    });
+    if (!best) { await sleep(1200); continue; } // pad is respawning
+    await closeIn(room, id, best.x, best.y, want, 30);
+    for (let i = 0; i < 3; i++) {
+      room.send('interact', {});
+      await sleep(400);
+      if (room.state.players.get(id).weapon === kind) return true;
+    }
+  }
+  return false;
+}
+
 // gunMode: everyone spawns shielded (guard=true, knife-only). Bots that need
 // to shoot must lower first; victims must lower to be damageable.
 async function gunMode(room) {
@@ -516,8 +540,7 @@ async function main() {
     await sleep(200);
   }
   s1r.send('move', { dx: 0, dy: 0, angle: 0 });
-  s1r.send('interact', {});
-  await sleep(400);
+  await grabPad(s1r, s1r.sessionId, 'shotgun');
   const sg = s1r.state.players.get(s1r.sessionId).toJSON();
   ok(sg.weapon === 'shotgun' && sg.sammo === 6, `shotgun equipped (${sg.weapon} ${sg.sammo}/6)`);
   for (let i = 0; i < 20; i++) { // host east to the open pocket x~740 (clear lane y=200)
@@ -570,13 +593,11 @@ async function main() {
   }
   s2r.send('move', { dx: 0, dy: 0, angle: 0 });
   await sleep(300);
-  for (let i = 0; i < 3; i++) {
-    s2r.send('interact', {});
-    await sleep(400);
-    if (s2r.state.players.get(s2r.sessionId).weapon === 'sniper') break;
-  }
+  await grabPad(s2r, s2r.sessionId, 'sniper', 20);
   const sn = s2r.state.players.get(s2r.sessionId).toJSON();
   ok(sn.weapon === 'sniper' && sn.nammo === 5, `sniper equipped (${sn.weapon} ${sn.nammo}/5)`);
+  ok(sn.weapon === 'sniper', `sniper nest pad claimed (${sn.weapon})`);
+  await closeIn(s1r, s1r.sessionId, 1400, 470, 25, 30); // clear pocket, no cover between
   const snipeFeed = [];
   s1r.onMessage('kill', (k) => snipeFeed.push(k));
   for (let round = 0; round < 3; round++) {
@@ -644,21 +665,10 @@ async function main() {
   await sleep(400);
   const q2 = s2r.state.players.get(s2r.sessionId).toJSON();
   ok(q2.hp === kAfter, `knife cooldown blocks instant second swing (hp=${q2.hp})`);
-  // laser: home host onto the center-north lab, E-grab, full cell
-  for (let i = 0; i < 30; i++) {
-    const a = s1r.state.players.get(s1r.sessionId).toJSON();
-    const dx = 800 - a.x, dy = 300 - a.y, d = Math.hypot(dx, dy);
-    if (d < 22) break;
-    s1r.send('move', { dx: dx / d, dy: dy / d, angle: Math.atan2(dy, dx) });
-    await sleep(200);
-  }
+  // laser: grabPad walks to wherever the lab pad currently is, then E-claims
   s1r.send('move', { dx: 0, dy: 0, angle: 0 });
   await sleep(300);
-  for (let i = 0; i < 3; i++) {
-    s1r.send('interact', {});
-    await sleep(400);
-    if (s1r.state.players.get(s1r.sessionId).weapon === 'laser') break;
-  }
+  await grabPad(s1r, s1r.sessionId, 'laser');
   const lz = s1r.state.players.get(s1r.sessionId).toJSON();
   ok(lz.weapon === 'laser' && lz.lammo === 25, `laser equipped (${lz.weapon} ${lz.lammo}/25)`);
   await s1r.leave(); await s2r.leave();
@@ -768,13 +778,8 @@ async function main() {
   ok(await gunMode(v1r) && await gunMode(v2r), 'electric room in gun mode');
   await nav(v1r, v1r.sessionId, 1050, 200);
   await nav(v1r, v1r.sessionId, 1050, 1010);
-  const ep = await nav(v1r, v1r.sessionId, 1100, 1000);
-  ok(Math.hypot(ep.x - 1100, ep.y - 1000) < 60, `host on the electric pad (${ep.x.toFixed(0)},${ep.y.toFixed(0)})`);
-  for (let i = 0; i < 4; i++) {
-    v1r.send('interact', {});
-    await sleep(400);
-    if (v1r.state.players.get(v1r.sessionId).weapon === 'electric') break;
-  }
+  const gotVolt = await grabPad(v1r, v1r.sessionId, 'electric', 20);
+  ok(gotVolt, 'host claimed the electric pad');
   const eg = v1r.state.players.get(v1r.sessionId).toJSON();
   ok(eg.weapon === 'electric' && eg.electric === true && eg.eammo === 30,
     `electric equipped (${eg.weapon} ${eg.eammo}/30)`);

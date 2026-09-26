@@ -56,7 +56,7 @@ export class ArenaScene extends Phaser.Scene {
   private fpsAcc = 0;
   private fpsN = 0;
   private arenaBorn = 0;
-  private fightAt = 0; // when the current match went live (drives onboarding)
+  private fightAt = 0; // when the current match went live (diagnostics ordering)
   private lastAim = 0;
   private hpFrame!: Phaser.GameObjects.Rectangle;
   private hpFill!: Phaser.GameObjects.Rectangle;
@@ -118,7 +118,7 @@ export class ArenaScene extends Phaser.Scene {
   private pingTimer?: Phaser.Time.TimerEvent;
   private ammoTitle!: Phaser.GameObjects.Text;
   private ammoCount!: Phaser.GameObjects.Text;
-  private ammoHint!: Phaser.GameObjects.Text;
+
   private reloadBar!: Phaser.GameObjects.Rectangle;
   private reloadBg!: Phaser.GameObjects.Rectangle;
   private reloadTx!: Phaser.GameObjects.Text;
@@ -281,24 +281,30 @@ export class ArenaScene extends Phaser.Scene {
       const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
       Session.room?.send('switch', { weapon: next });
     });
-    // HP bar (top-left): metallic frame, ghost damage trail, gloss, segment ticks
-    this.hpFrame = this.add.rectangle(10, 12, 232, 26, 0x0b1220, 0.85).setOrigin(0, 0.5)
+    // ---- BOTTOM DASHBOARD (y >= 430) ----------------------------------
+    // Everything informational lives in one band across the bottom; the whole
+    // upper screen is left to the fight. Three columns, no overlap:
+    //   LEFT   x 6..250    vitals · status · kill feed · ordnance · stance
+    //   CENTER x 252..700  diagnostics · clock · objective · loadout · grab
+    //   RIGHT  x 706..954  ammo · minimap · standings
+    // HP bar (left column): frame, ghost damage trail, gloss, segment ticks
+    this.hpFrame = this.add.rectangle(6, 444, 240, 24, 0x0b1220, 0.85).setOrigin(0, 0.5)
       .setStrokeStyle(2.5, 0x22d3ee, 0.8).setScrollFactor(0).setDepth(10);
-    this.add.rectangle(14, 12, 224, 18, 0x020617, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.hpGhost = this.add.rectangle(14, 12, 224, 18, 0xfca5a5).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.hpFill = this.add.rectangle(14, 12, 224, 18, 0x22c55e).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.add.rectangle(14, 5.5, 224, 5, 0xffffff, 0.16).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
+    this.add.rectangle(10, 444, 232, 16, 0x020617, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.hpGhost = this.add.rectangle(10, 444, 232, 16, 0xfca5a5).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.hpFill = this.add.rectangle(10, 444, 232, 16, 0x22c55e).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.add.rectangle(10, 437.5, 232, 4, 0xffffff, 0.16).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     for (const f of [0.25, 0.5, 0.75]) {
-      this.add.rectangle(14 + 224 * f, 12, 2, 18, 0x000000, 0.55).setScrollFactor(0).setDepth(11);
+      this.add.rectangle(10 + 232 * f, 444, 2, 16, 0x000000, 0.55).setScrollFactor(0).setDepth(11);
     }
-    this.hpLabel = this.add.text(126, 12, 'HP 100 · 0 K', {
+    this.hpLabel = this.add.text(126, 444, 'HP 100 · 0 K', {
       fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#fff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
     this.hpLabel.setStroke('#000000', 3);
     this.hpLabel.setShadow(0, 0, '#22c55e', 8, false, true);
-    // ping lives bottom-left with the fps meter: diagnostics out of the way
-    this.pingText = this.add.text(12, 578, 'PING …', {
-      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: DIM,
+    // diagnostics sit in the gutter between the left and center columns
+    this.pingText = this.add.text(256, 452, 'PING …', {
+      fontFamily: COND, fontSize: '11px', fontStyle: '700', color: DIM,
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     this.pingText.setStroke('#020617', 3);
     this.dispHp = 100; this.ghostHp = 100;
@@ -308,55 +314,46 @@ export class ArenaScene extends Phaser.Scene {
     // red edge flash on damage
     this.dmgVin = this.add.image(480, 300, 'vignette').setTint(0xef4444)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // ammo readout (bottom-right, above minimap): one quiet card, two numbers
+    // ammo strip (right column): icon + weapon + count, and the whole strip
+    // IS the reload button — one control instead of a card plus a button
     const ammoCard = this.add.graphics().setScrollFactor(0).setDepth(9);
     ammoCard.fillStyle(0x020617, 0.62);
-    ammoCard.fillRoundedRect(800, 348, 156, 50, 10);
+    ammoCard.fillRoundedRect(706, 432, 248, 30, 8);
     ammoCard.lineStyle(2, 0x22d3ee, 0.5);
-    ammoCard.strokeRoundedRect(800, 348, 156, 50, 10);
-    this.add.image(820, 373, 'gun').setScale(0.62).setScrollFactor(0).setDepth(10).setAlpha(0.9);
-    this.ammoTitle = this.add.text(840, 356, 'PISTOL', {
-      fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
+    ammoCard.strokeRoundedRect(706, 432, 248, 30, 8);
+    this.add.image(722, 447, 'gun').setScale(0.55).setScrollFactor(0).setDepth(10).setAlpha(0.9);
+    this.ammoTitle = this.add.text(738, 437, 'PISTOL', {
+      fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#94a3b8',
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount = this.add.text(948, 352, '12/12', {
-      fontFamily: COND, fontSize: '22px', fontStyle: '700', color: '#fff',
+    this.ammoCount = this.add.text(946, 434, '12/12', {
+      fontFamily: COND, fontSize: '20px', fontStyle: '700', color: '#fff',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.ammoCount.setStroke('#020617', 4);
     this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
-    // control hint is ONBOARDING, not chrome: it shows at match start and
-    // whenever the mag runs dry, then gets out of the way
-    this.ammoHint = this.add.text(840, 380, '', {
-      fontFamily: COND, fontSize: '10px', fontStyle: '700', color: DIM,
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
-    this.ammoHint.setStroke('#020617', 3);
-    // reload progress bar under the ammo readout
-    this.add.rectangle(948, 404, 140, 4, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.reloadBar = this.add.rectangle(948, 404, 0, 4, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
-    // tappable RELOAD button (touch + mouse; R key works too)
-    this.reloadBg = this.add.rectangle(908, 424, 78, 22, 0x0b1220, 0.9)
-      .setStrokeStyle(2, 0xeab308, 0.9).setScrollFactor(0).setDepth(10);
-    this.reloadTx = this.add.text(908, 424, '⟳ RELOAD', {
+    // reload progress = the strip's own underline; the strip itself reloads
+    this.add.rectangle(952, 463, 240, 3, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.reloadBar = this.add.rectangle(952, 463, 0, 3, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
+    this.reloadBg = this.add.rectangle(830, 447, 248, 30, 0xffffff, 0)
+      .setScrollFactor(0).setDepth(12);
+    this.reloadTx = this.add.text(838, 447, '', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
+    this.reloadTx.setStroke('#020617', 3);
     this.reloadBg.setInteractive({ useHandCursor: true });
-    this.reloadBg.on('pointerover', () => this.reloadBg.setFillStyle(0x334155));
-    this.reloadBg.on('pointerout', () => this.reloadBg.setFillStyle(0x0b1220));
     this.reloadBg.on('pointerdown', () => {
       Session.room?.send('reload');
       sfx.reload();
-      this.reloadBg.setAlpha(0.6);
-      this.time.delayedCall(150, () => this.reloadBg.setAlpha(1));
     });
-    // throwable ordnance (bottom-left, above the guard button): tap to toss
+    // throwable ordnance (left column, under the feed): tap to toss
     const ords: Array<[string, string, string]> = [
       ['G', '💣', 'grenade'], ['X', '🔥', 'molly'], ['C', '💨', 'smoke'],
     ];
     this.throwBtns = [];
     ords.forEach(([key, icon, kind], i) => {
-      const x = 33 + i * 50;
-      const bg = this.add.rectangle(x, 410, 46, 26, 0x0b1220, 0.92)
+      const x = 28 + i * 48;
+      const bg = this.add.rectangle(x, 550, 44, 24, 0x0b1220, 0.92)
         .setStrokeStyle(2, 0x475569, 0.9).setScrollFactor(0).setDepth(10);
-      const tx = this.add.text(x, 410, `${key}${icon}·`, {
+      const tx = this.add.text(x, 550, `${key}${icon}·`, {
         fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#e2e8f0',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
       tx.setStroke('#020617', 2);
@@ -365,10 +362,10 @@ export class ArenaScene extends Phaser.Scene {
       this.throwBtns.push({ bg, tx, kind, key, icon });
     });
     // stance toggle (touch + mouse; Q works too): shield = knife-only, gun = fire
-    this.guardBg = this.add.rectangle(75, 448, 130, 30, 0x0b1220, 0.92)
+    this.guardBg = this.add.rectangle(76, 582, 130, 24, 0x0b1220, 0.92)
       .setStrokeStyle(2.5, 0x4ade80, 0.95).setScrollFactor(0).setDepth(10);
-    this.guardTx = this.add.text(75, 448, '🛡 SHIELD', {
-      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#4ade80',
+    this.guardTx = this.add.text(76, 582, '🛡 SHIELD', {
+      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: '#4ade80',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.guardTx.setStroke('#020617', 3);
     this.guardBg.setInteractive({ useHandCursor: true });
@@ -390,9 +387,9 @@ export class ArenaScene extends Phaser.Scene {
     this.loadSlots = [];
     slots.forEach(([key, nm, w], i) => {
       const x = 480 + (i - (slots.length - 1) / 2) * 42;
-      const bg = this.add.rectangle(x, 500, 38, 32, 0x020617, 0.78)
+      const bg = this.add.rectangle(x, 506, 38, 32, 0x020617, 0.78)
         .setStrokeStyle(2, 0x334155, 0.95).setScrollFactor(0).setDepth(10);
-      const tx = this.add.text(x, 500, `${key}\n${nm}`, {
+      const tx = this.add.text(x, 506, `${key}\n${nm}`, {
         fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
       tx.setStroke('#020617', 2);
@@ -412,12 +409,12 @@ export class ArenaScene extends Phaser.Scene {
     // lock share a single strip, so effects never stack three rows deep
     this.statusSegs = [];
     for (let i = 0; i < 3; i++) {
-      const x = 10 + i * 78;
-      const bg = this.add.rectangle(x, 39, 74, 15, 0x020617, 0.66)
+      const x = 6 + i * 78;
+      const bg = this.add.rectangle(x, 470, 74, 15, 0x020617, 0.66)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
-      const fill = this.add.rectangle(x + 2, 39, 0, 11, 0xffffff)
+      const fill = this.add.rectangle(x + 2, 470, 0, 11, 0xffffff)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
-      const tx = this.add.text(x + 6, 39, '', {
+      const tx = this.add.text(x + 6, 470, '', {
         fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#e2e8f0',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
       tx.setStroke('#020617', 2);
@@ -426,68 +423,65 @@ export class ArenaScene extends Phaser.Scene {
     // electric screen wash: violet edge pulse while YOU are locked
     this.zkVin = this.add.image(480, 300, 'vignette').setTint(0xa855f7)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // actionable pickup button: appears near a rifle, click/tap to grab (E works too)
+    // actionable pickup button (center column, under the loadout)
     this.grabBtn = makeButton(this, {
-      tex: 'btn220', x: 480, y: 556, tint: 0xca8a04, label: 'Ⓔ PICK UP RIFLE', fontSize: 15,
+      tex: 'btn220', x: 480, y: 562, tint: 0xca8a04, label: 'Ⓔ PICK UP RIFLE', fontSize: 15,
       depth: 11, scroll: true,
       onClick: () => Session.room?.send('interact'),
     });
     this.grabBtn.c.setVisible(false);
-    // clock + heading share ONE card: the top-center column used to stack six
-    // separate elements, which is what made the middle of the screen busy
+    this.grabBtn.c.setScale(0.8);
+    // clock + wanted stars share one pill in the center column
     const clockCard = this.add.graphics().setScrollFactor(0).setDepth(10);
     clockCard.fillStyle(0x020617, 0.72);
-    clockCard.fillRoundedRect(424, 1, 112, 38, 12);
-    clockCard.lineStyle(4, 0x020617, 0.8);
-    clockCard.strokeRoundedRect(423, 0, 114, 40, 13);
-    clockCard.lineStyle(2, 0xfacc15, 0.6);
-    clockCard.strokeRoundedRect(424, 1, 112, 38, 12);
-    const liveDot = this.add.circle(439, 14, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
+    clockCard.fillRoundedRect(370, 431, 220, 30, 10);
+    clockCard.lineStyle(2, 0xfacc15, 0.55);
+    clockCard.strokeRoundedRect(370, 431, 220, 30, 10);
+    const liveDot = this.add.circle(390, 446, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
     this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
-    this.clockText = this.add.text(486, 14, '2:00', {
+    this.clockText = this.add.text(436, 446, '2:00', {
       fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.clockText.setStroke('#020617', 3);
     this.clockText.setShadow(0, 0, '#facc15', 10, false, true);
-    this.compassText = this.add.text(480, 30, 'HDG 090 · E', {
+    this.compassText = this.add.text(700, 474, 'HDG 090 · E', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#7dd3fc',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.compassText.setStroke('#020617', 3);
     // wanted stars only render while a streak is live, so they cost nothing
-    this.wantedText = this.add.text(480, 56, '', {
-      fontFamily: COND, fontSize: '16px', fontStyle: '700', color: '#facc15',
+    this.wantedText = this.add.text(552, 446, '', {
+      fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.wantedText.setStroke('#000000', 3);
-    this.roundText = this.add.text(480, 76, '', {
+    this.roundText = this.add.text(480, 474, '', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.roundText.setStroke('#020617', 3);
     try {
       if (new URLSearchParams(location.search).get('fps')) {
-        this.fpsText = this.add.text(12, 560, '60', {
-          fontFamily: MONO, fontSize: '12px', color: '#4ade80',
+        this.fpsText = this.add.text(256, 468, '60', {
+          fontFamily: MONO, fontSize: '11px', color: '#4ade80',
         }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
       }
     } catch { /* noop */ }
     this.arenaBorn = Date.now();
-    // GTA cash counter top-right, scoreboard below it
-    this.cashText = this.add.text(950, 8, '$0', {
-      fontFamily: COND, fontSize: '22px', fontStyle: '700', color: '#4ade80',
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
+    // GTA cash + leaders ticker: bottom of the right column, under the map
+    this.cashText = this.add.text(948, 566, '$0', {
+      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#4ade80',
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.cashText.setStroke('#020617', 4);
     this.cashText.setShadow(0, 0, '#4ade80', 10, false, true);
-    // leaders ticker, deliberately quiet: TAB is the real scoreboard
-    this.scoreText = this.add.text(950, 36, '', {
-      fontFamily: MONO, fontSize: '13px', color: SUB, align: 'right', lineSpacing: 2,
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.scoreText = this.add.text(948, 586, '', {
+      fontFamily: MONO, fontSize: '11px', color: SUB, align: 'right', lineSpacing: 1,
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(10);
     this.scoreText.setStroke('#000000', 3);
-    // minimap frame (bottom-right): one plate, one rim
+    // minimap frame (right column): one plate, one rim
     this.minimap = this.add.graphics().setScrollFactor(0).setDepth(9);
     const mmFrame = this.add.graphics().setScrollFactor(0).setDepth(10);
     mmFrame.fillStyle(0x020617, 0.5);
-    mmFrame.fillRoundedRect(795, 471, 160, 122, 10);
+    mmFrame.fillRoundedRect(836, 468, 116, 88, 8);
     mmFrame.lineStyle(2, 0x22d3ee, 0.6);
-    mmFrame.strokeRoundedRect(795, 471, 160, 122, 10);
+    mmFrame.strokeRoundedRect(836, 468, 116, 88, 8);
 
     // impact spray, blood, movement dust
     this.sparks = this.add.particles(0, 0, 'dot', {
@@ -515,11 +509,11 @@ export class ArenaScene extends Phaser.Scene {
       if ((pt as any).wasTouch) { this.pressStick(pt); return; } // twin-sticks own touches
       // clicks on HUD buttons belong to the buttons, not the trigger
       if (this.grabBtn?.c.visible
-        && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
-      if (Math.abs(pt.x - 908) < 44 && Math.abs(pt.y - 424) < 15) return; // reload btn
-      if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return; // guard btn
-      if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return; // ordnance btns
-      if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 155) return; // loadout strip
+        && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
+      if (pt.y > 430 && pt.y < 466 && pt.x > 700) return; // ammo strip = reload
+      if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return; // guard btn
+      if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return; // ordnance btns
+      if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -570,11 +564,11 @@ export class ArenaScene extends Phaser.Scene {
   private pressStick(pt: Phaser.Input.Pointer) {
     this.touchMode = true;
     // HUD buttons handle themselves; sticks ignore those taps
-    if (this.grabBtn?.c.visible && Math.abs(pt.x - 480) < 130 && Math.abs(pt.y - 556) < 45) return;
-    if (Math.abs(pt.x - 908) < 44 && Math.abs(pt.y - 424) < 15) return;
-    if (Math.abs(pt.x - 75) < 70 && Math.abs(pt.y - 448) < 20) return;
-    if (pt.y > 395 && pt.y < 425 && pt.x > 5 && pt.x < 160) return;
-    if (pt.y > 482 && pt.y < 518 && Math.abs(pt.x - 480) < 155) return;
+    if (this.grabBtn?.c.visible && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
+    if (pt.y > 430 && pt.y < 466 && pt.x > 700) return; // ammo strip = reload
+    if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return;
+    if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return;
+    if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return;
     if (pt.x < 480 && !this.moveStick) {
       this.moveStick = { id: pt.id, ox: pt.x, oy: pt.y };
     } else if (pt.x >= 480 && !this.aimStick) {
@@ -1052,31 +1046,31 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       const w = (k.w || 'pistol').toUpperCase();
       const myName = (Session.room as any)?.state?.players.get(this.meId)?.name;
-      const rowY = (i: number) => 66 + i * 21; // clear of the HP + status column
+      const rowY = (i: number) => 494 + i * 19; // inside the bottom band
       // shift older rows down
       this.feedRows.forEach((r, i) => {
         const y = rowY(i + 1);
         r.bg.setY(y);
-        r.k.setY(y); r.m.setX(r.k.x + r.k.width + 5); r.m.setY(y);
-        r.v.setX(r.m.x + r.m.width + 5); r.v.setY(y);
+        r.k.setY(y); r.m.setX(r.k.x + r.k.width + 4); r.m.setY(y);
+        r.v.setX(r.m.x + r.m.width + 4); r.v.setY(y);
       });
-      const bg = this.add.rectangle(10, rowY(0), 330, 19, 0x020617, 0.72)
+      const bg = this.add.rectangle(6, rowY(0), 244, 17, 0x020617, 0.72)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9)
-        .setStrokeStyle(2, 0x22d3ee, 0.5);
-      const kk = this.add.text(16, rowY(0), k.killer, {
-        fontFamily: MONO, fontSize: '13px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
+        .setStrokeStyle(1.5, 0x22d3ee, 0.45);
+      const kk = this.add.text(12, rowY(0), k.killer, {
+        fontFamily: MONO, fontSize: '12px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       kk.setStroke('#000000', 3);
-      const mm = this.add.text(kk.x + kk.width + 5, rowY(0), `[${w}] 🔫`, {
-        fontFamily: MONO, fontSize: '13px', color: '#94a3b8',
+      const mm = this.add.text(kk.x + kk.width + 4, rowY(0), `[${w}]`, {
+        fontFamily: MONO, fontSize: '12px', color: '#94a3b8',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       mm.setStroke('#000000', 3);
-      const vv = this.add.text(mm.x + mm.width + 5, rowY(0), k.victim, {
-        fontFamily: MONO, fontSize: '13px', color: k.victim === myName ? '#ef4444' : '#e2e8f0',
+      const vv = this.add.text(mm.x + mm.width + 4, rowY(0), k.victim, {
+        fontFamily: MONO, fontSize: '12px', color: k.victim === myName ? '#ef4444' : '#e2e8f0',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       vv.setStroke('#000000', 3);
       this.feedRows.unshift({ bg, k: kk, m: mm, v: vv });
-      while (this.feedRows.length > 4) {
+      while (this.feedRows.length > 2) {
         const old = this.feedRows.pop()!;
         old.bg.destroy(); old.k.destroy(); old.m.destroy(); old.v.destroy();
       }
@@ -1184,7 +1178,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!live()) return;
       // mid-match arrivals/departures get a toast (skip the initial roster)
       if (Date.now() - this.arenaBorn > 4000 && id !== this.meId) {
-        toast(this, `${p.name} joined the fight`, '#4ade80');
+        toast(this, `${p.name} joined the fight`, '#4ade80', 344);
       }
       const mine = id === this.meId;
       const idx = Math.min(8, this.players.size + 1); // squad number by join order
@@ -1303,7 +1297,7 @@ export class ArenaScene extends Phaser.Scene {
         this.foeArcs.get(id)?.g.destroy(); // their arc must not outlive them
         this.foeArcs.delete(id);
         if (Date.now() - this.arenaBorn > 4000 && id !== this.meId && o) {
-          toast(this, `${o.label.text.split(' ')[0]} left the fight`, '#94a3b8');
+          toast(this, `${o.label.text.split(' ')[0]} left the fight`, '#94a3b8', 344);
         }
       });
     });
@@ -1597,7 +1591,7 @@ export class ArenaScene extends Phaser.Scene {
     this.firing = false;
     this.arcOffNow();
     Session.room = null;
-    try { toast(this, 'connection lost — back to menu', '#f87171'); } catch { /* scene dying */ }
+    try { toast(this, 'connection lost — back to menu', '#f87171', 344); } catch { /* scene dying */ }
     this.scene.start('menu');
   }
 
@@ -1637,13 +1631,13 @@ export class ArenaScene extends Phaser.Scene {
         low ? `LOW ${left}/${W.clip}` : `${left}/${W.clip}`,
         left === 0 ? '#ef4444' : low ? '#fb923c' : '#ffffff');
     }
-    // hint only while onboarding or when the mag is dry — then it disappears
-    const onboarding = this.fightAt > 0 && Date.now() - this.fightAt < 18000;
-    this.setT('ammoH', this.ammoHint,
-      onboarding ? 'R reload · F knife · Q guard' : left <= W.clip * 0.25 ? 'R RELOAD NOW' : '');
+    // the reload affordance lives inside the ammo strip, not as its own button
     const needReload = !p.reloading && left < W.clip;
-    this.reloadBg.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
-    this.reloadTx.setAlpha(p.reloading ? 0.45 : needReload ? 1 : 0.55);
+    const dry = left <= 0;
+    this.setT('rld', this.reloadTx,
+      p.reloading ? 'RELOADING…' : dry ? '⟳ R RELOAD' : needReload ? '⟳ RELOAD' : '');
+    this.reloadTx.setColor(dry ? '#ef4444' : '#facc15');
+    this.reloadTx.setAlpha(p.reloading ? 0.6 : needReload ? 1 : 0.35);
     // stance badge mirrors the server guard flag (drawAmmo runs for me on change)
     const guarded = !!p.guard;
     this.setT('guard', this.guardTx, guarded ? '🛡 SHIELD' : '🔫 GUN', guarded ? '#4ade80' : '#60a5fa');
@@ -1691,7 +1685,7 @@ export class ArenaScene extends Phaser.Scene {
     if (streak >= 2 && streak > this.lastStreak) {
       const names = ['DOUBLE KILL!', 'TRIPLE KILL!', 'RAMPAGE!', 'UNSTOPPABLE!'];
       const txt = names[Math.min(streak - 2, names.length - 1)];
-      const b = displayText(this, 480, 220, txt, 40, '#facc15', '#facc15', 30, true);
+      const b = displayText(this, 480, 310, txt, 36, '#facc15', '#facc15', 30, true);
       b.setScale(1.5).setAlpha(0);
       this.tweens.add({
         targets: b, scaleX: 1, scaleY: 1, alpha: 1, duration: 220, ease: 'Back.easeOut',
@@ -1749,21 +1743,21 @@ export class ArenaScene extends Phaser.Scene {
 
   private paintHp(main: number, ghost: number) {
     const pct = Math.max(0, Math.min(1, main / 100));
-    this.hpFill.displayWidth = Math.max(1, 224 * pct);
+    this.hpFill.displayWidth = Math.max(1, 232 * pct);
     this.hpFill.setFillStyle(this.hpColor(pct));
     const gpct = Math.max(0, Math.min(1, ghost / 100));
-    this.hpGhost.displayWidth = Math.max(1, 224 * gpct);
+    this.hpGhost.displayWidth = Math.max(1, 232 * gpct);
   }
 
   private drawMinimap() {
     const g = this.minimap;
     if (!g) return;
-    const s = 150 / W, x0 = 800, y0 = 476, h = H * s;
+    const s = 112 / W, x0 = 838, y0 = 470, h = H * s;
     const dot = (rc: { x: number; y: number; w: number; h: number }) =>
       g.fillRect(x0 + rc.x * s, y0 + rc.y * s, Math.max(1, rc.w * s), Math.max(1, rc.h * s));
     g.clear();
     g.fillStyle(0x020617, 0.72);
-    g.fillRect(x0, y0, 150, h);
+    g.fillRect(x0, y0, 112, h);
     g.fillStyle(0x7dd3fc, 0.5); // rivers
     for (const rc of WATER) dot(rc);
     g.fillStyle(0xcbd5e1, 0.75); // steel
@@ -1804,7 +1798,7 @@ export class ArenaScene extends Phaser.Scene {
       }
     });
     g.lineStyle(2.5, 0x22d3ee, 0.8);
-    g.strokeRect(x0, y0, 150, h);
+    g.strokeRect(x0, y0, 112, h);
   }
 
   private buildPickup(kind: string) {
@@ -1895,7 +1889,7 @@ export class ArenaScene extends Phaser.Scene {
     const lead = rows[0];
     // mini ticker: leaders only. TAB holds the full board — no need to keep
     // eight rows of standings burned into the corner all match
-    this.setT('score', this.scoreText, rows.slice(0, 3)
+    this.setT('score', this.scoreText, rows.slice(0, 2)
       .map((r, i) => `#${i + 1} ${r.name} ${r.kills}K/${r.deaths}D`).join('\n'));
     this.setT('round', this.roundText, lead && lead.kills > 0
       ? `FIRST TO ${target} · ${lead.name} ${lead.kills}K`
@@ -1950,7 +1944,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private showFight() {
     this.lastCd = -99;
-    this.fightAt = Date.now(); // onboarding hints run from GO, not from scene entry
+    this.fightAt = Date.now();
     this.cdBanner?.destroy(true);
     this.cdBanner = displayText(this, 480, 300, 'FIGHT!', 84, '#4ade80', '#4ade80', 30, true);
     this.tweens.add({
@@ -1958,6 +1952,11 @@ export class ArenaScene extends Phaser.Scene {
       onComplete: () => { this.cdBanner?.destroy(true); this.cdBanner = null; },
     });
     sfx.count(true);
+    // controls are taught once, in the lower band, then never shown again
+    this.time.delayedCall(1400, () => {
+      if (!this.scene.isActive()) return;
+      toast(this, 'R reload · F knife · Q guard · 1-6 guns', '#7dd3fc', 344);
+    });
     // red alert edges as the match goes hot
     this.tweens.killTweensOf(this.dmgVin);
     this.dmgVin.setAlpha(0.55);
@@ -2018,7 +2017,7 @@ export class ArenaScene extends Phaser.Scene {
         tex: 'btn220', x: cx, y: cy + 104, tint: 0x2563eb, label: 'REMATCH', fontSize: 15,
         depth: 21, scroll: true,
         onClick: () => {
-          toast(this, 'returning to lobby…', '#7dd3fc');
+          toast(this, 'returning to lobby…', '#7dd3fc', 344);
           Session.room?.send('rematch');
         },
       });
@@ -2341,7 +2340,7 @@ export class ArenaScene extends Phaser.Scene {
           this.tacScan?.setVisible(false);
           this.tacVin?.setVisible(false);
           try { this.dust.stop(); } catch { /* dying */ }
-          toast(this, 'AUTO LOW GRAPHICS — raise it in settings', '#facc15');
+          toast(this, 'AUTO LOW GRAPHICS — raise it in settings', '#facc15', 344);
         }
       }
       if (this.fpsText) {

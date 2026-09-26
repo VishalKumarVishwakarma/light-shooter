@@ -153,9 +153,11 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
 
 const toastY = { next: 0 };
 // Toast stack (top-center): glass pill + color dot, slides down, auto-dismisses.
-export function toast(scene: Phaser.Scene, msg: string, color = '#e2e8f0') {
+// y0 lets a scene place its toasts where its own layout wants them: the arena
+// pushes them down into the lower band so notifications never sit in the fight
+export function toast(scene: Phaser.Scene, msg: string, color = '#e2e8f0', y0 = 64) {
   const i = toastY.next++ % 3;
-  const y = 64 + i * 36;
+  const y = y0 + i * 32;
   const c = scene.add.container(480, y - 18).setDepth(60).setAlpha(0);
   const t = scene.add.text(12, 0, msg, {
     fontFamily: BTN_FONT, fontSize: '15px', fontStyle: '700', color,

@@ -800,6 +800,46 @@ async function main() {
   const c1 = v2r.state.players.get(v2r.sessionId).toJSON();
   ok(c0.x - c1.x > 15 && c0.x - c1.x < 150,
     `locked target crawls (${(c0.x - c1.x).toFixed(0)}px in ~1s vs ~260 base)`);
+  // the lock pierces the stance: re-raise the victim's shield, arc again
+  v2r.send('guard', { on: true });
+  await sleep(400);
+  const guarded = v2r.state.players.get(v2r.sessionId).toJSON();
+  ok(guarded.guard === true, 'victim raised the shield again');
+  await sleep(2800); // let the old lock wear off so the next one is unambiguous
+  for (let i = 0; i < 8; i++) {
+    const a = v1r.state.players.get(v1r.sessionId).toJSON();
+    const b = v2r.state.players.get(v2r.sessionId).toJSON();
+    v1r.send('shoot', { angle: Math.atan2(b.y - a.y, b.x - a.x) });
+    await sleep(280);
+    if (v2r.state.players.get(v2r.sessionId).slowT > 0) break;
+  }
+  const thru = v2r.state.players.get(v2r.sessionId).toJSON();
+  ok(thru.guard === true && thru.slowT > 0,
+    `arc locks through a raised shield (slowT=${thru.slowT.toFixed(1)}s)`);
+  ok(thru.hp === locked.hp, `shield still blocks the damage (hp stayed ${thru.hp})`);
+  // ammo law: burn the cell dry, then the gun must go silent (no free shots)
+  let dry = v1r.state.players.get(v1r.sessionId).toJSON();
+  const bHp0 = v2r.state.players.get(v2r.sessionId).hp;
+  for (let i = 0; i < 40 && dry.eammo > 0; i++) {
+    const a = v1r.state.players.get(v1r.sessionId).toJSON();
+    const b = v2r.state.players.get(v2r.sessionId).toJSON();
+    v1r.send('shoot', { angle: Math.atan2(b.y - a.y, b.x - a.x) });
+    await sleep(240);
+    dry = v1r.state.players.get(v1r.sessionId).toJSON();
+  }
+  ok(dry.eammo === 0, `cell burned dry (eammo=${dry.eammo})`);
+  v2r.send('guard', { on: false });
+  await sleep(400);
+  for (let i = 0; i < 4; i++) { // keep clicking: an empty gun may never fire again
+    const a = v1r.state.players.get(v1r.sessionId).toJSON();
+    const b = v2r.state.players.get(v2r.sessionId).toJSON();
+    v1r.send('shoot', { angle: Math.atan2(b.y - a.y, b.x - a.x) });
+    await sleep(260);
+  }
+  const afterDry = v1r.state.players.get(v1r.sessionId).toJSON();
+  const bHp1 = v2r.state.players.get(v2r.sessionId).hp;
+  ok(afterDry.eammo === 0 && bHp1 === bHp0,
+    `dry gun fires nothing (eammo=${afterDry.eammo}, foe hp ${bHp0}->${bHp1})`);
   await v1r.leave(); await v2r.leave();
 
   // 21. Shield stance: spawn guarded, bullets bounce off, guarded can't fire,

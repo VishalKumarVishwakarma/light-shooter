@@ -8,7 +8,8 @@ export const SPEED = 260, RADIUS = 16;
 export const MUZZLE = 46;
 
 // weapon rules: single source of truth (server enforces, client mirrors timing)
-// effective range = speed x life: shotgun shortest, pistol short, rifle long, sniper cross-map
+// effective range = speed x life: shotgun 250 < pistol 525 < electric 800 <
+// rifle 1080 < laser 1260 < sniper 1690 (cross-map). Every gun is unique.
 export const WEAPONS: Record<string, {
   dmg: number; interval: number; speed: number; life: number;
   auto: boolean; clip: number; reload: number; pellets?: number; spread?: number;

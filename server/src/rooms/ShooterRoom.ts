@@ -110,7 +110,7 @@ export class ShooterRoom extends Room<ShooterState> {
       if (this.state.phase !== 'playing') return;
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive) return;
-      // {on:true} raises (slot 6), {on:false} lowers, absent toggles (Q/button)
+      // {on:true} raises (slot 7), {on:false} lowers, absent toggles (Q/button)
       p.guard = typeof m?.on === 'boolean' ? m.on : !p.guard;
     });
     this.onMessage('throw', (c, m?: { kind?: string; angle?: number }) => {
@@ -138,7 +138,7 @@ export class ShooterRoom extends Room<ShooterState> {
         ? String(m?.weapon) : 'pistol';
       if (!this.owns(p, want)) return; // must pick one up first
       p.weapon = want;
-      p.guard = false; // drawing a gun holsters the shield (shield is slot 6)
+      p.guard = false; // drawing a gun holsters the shield (shield is slot 7)
       p.reloading = false;
       p.reloadLeft = 0;
       this.reloadT.delete(c.sessionId);

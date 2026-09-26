@@ -130,6 +130,11 @@ export class ArenaScene extends Phaser.Scene {
   private spChipBg!: Phaser.GameObjects.Rectangle;
   private spChipFill!: Phaser.GameObjects.Rectangle;
   private spChipTx!: Phaser.GameObjects.Text;
+  private zkChipBg!: Phaser.GameObjects.Rectangle;
+  private zkChipFill!: Phaser.GameObjects.Rectangle;
+  private zkChipTx!: Phaser.GameObjects.Text;
+  private zkVin!: Phaser.GameObjects.Image;
+  private prevSlow = 0; // last known electric lock on me (rising edge = cue)
   private raceBg!: Phaser.GameObjects.Rectangle;
   private raceFill!: Phaser.GameObjects.Rectangle;
   private grabBtn: Btn | null = null;
@@ -187,6 +192,7 @@ export class ArenaScene extends Phaser.Scene {
     this.myVel = { x: 0, y: 0 };
     this.camLocked = false;
     this.txtCache.clear(); // stale strings would skip first paint on fresh objects
+    this.prevSlow = 0; // scene restart must not re-fire the lock cue
     this.moveStick = null; this.aimStick = null;
     this.joyMove = { dx: 0, dy: 0 };
     this.tacVin = null; this.tacScan = null;
@@ -417,6 +423,17 @@ export class ArenaScene extends Phaser.Scene {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#fef08a',
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
     this.spChipTx.setStroke('#020617', 2);
+    // electric lock chip (third row): the victim's own readout of the crawl
+    this.zkChipBg = this.add.rectangle(10, 86, 150, 16, 0x020617, 0.72).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false)
+      .setStrokeStyle(2, 0xc084fc, 0.85);
+    this.zkChipFill = this.add.rectangle(12, 86, 0, 10, 0xa855f7).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+    this.zkChipTx = this.add.text(16, 86, '', {
+      fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#e9d5ff',
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
+    this.zkChipTx.setStroke('#020617', 2);
+    // electric screen wash: violet edge pulse while YOU are locked
+    this.zkVin = this.add.image(480, 300, 'vignette').setTint(0xa855f7)
+      .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
     // kill-target race bar (top-center, under the clock)
     this.raceBg = this.add.rectangle(480, 33, 150, 6, 0x020617, 0.72).setScrollFactor(0).setDepth(10);
     this.raceFill = this.add.rectangle(405, 33, 0, 6, 0xfacc15).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
@@ -823,12 +840,13 @@ export class ArenaScene extends Phaser.Scene {
   // electric bolt: jagged thunder from the barrel to the first thing it meets.
   // two offset re-randomised strokes per frame read as crawling lightning.
   private arcBolt(x1: number, y1: number, ang: number, skipId: string) {
-    const range = WEAPONS.electric.speed * WEAPONS.electric.life;
-    const end = this.rayEnd(x1, y1, Math.cos(ang), Math.sin(ang), range, skipId);
+    // the discharge is a muzzle lance, NOT a hitscan beam: the bolt is still
+    // in flight after this fades, so a full-length arc would lie about range
+    const reach = Math.min(WEAPONS.electric.speed * WEAPONS.electric.life, 280);
+    const end = this.rayEnd(x1, y1, Math.cos(ang), Math.sin(ang), reach, skipId);
     const g = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
     const segs = Math.max(4, Math.round(Math.hypot(end.x - x1, end.y - y1) / 26));
     const nx = -Math.sin(ang), ny = Math.cos(ang);
-    let last: Phaser.GameObjects.Image[] = [];
     for (let pass = 0; pass < 3; pass++) {
       g.lineStyle(pass === 2 ? 2 : pass === 1 ? 4.5 : 9, pass === 2 ? 0xffffff : pass === 1 ? 0xa855f7 : 0x6d28d9,
         pass === 2 ? 0.95 : pass === 1 ? 0.7 : 0.3);
@@ -841,12 +859,11 @@ export class ArenaScene extends Phaser.Scene {
       }
       g.strokePath();
     }
-    // charge orb at the barrel + impact burst at the far end
+    // charge orb at the barrel + crackle at the lance tip
     const src = this.add.image(x1, y1, 'zap').setDepth(7).setScale(0.5)
       .setBlendMode(Phaser.BlendModes.ADD);
     const dst = this.add.image(end.x, end.y, 'zap').setDepth(7).setScale(1.1)
       .setBlendMode(Phaser.BlendModes.ADD);
-    last = [src, dst];
     this.tweens.add({
       targets: [g, src], alpha: 0, duration: 150, ease: 'Quad.easeOut',
       onComplete: () => { g.destroy(); src.destroy(); },
@@ -1236,7 +1253,7 @@ export class ArenaScene extends Phaser.Scene {
       else if (bw === 'electric') img.setTint(0xc084fc); // violet arc heads
       else if (foe) img.setTint(0xfb923c);
       img.setRotation(a0);
-      img.setScale(bw === 'laser' ? 1.4 : 1.0, 1.0); // laser head rides inside its beam
+      img.setScale(bw === 'laser' ? 1.4 : bw === 'electric' ? 1.2 : 1.0, 1.0); // laser head rides inside its beam
       img.setAlpha(0); // fade in: no spawn pop, then dead-reckoning takes over
       this.tweens.add({ targets: img, alpha: 1, duration: 90 });
       this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
@@ -1815,6 +1832,26 @@ export class ArenaScene extends Phaser.Scene {
       this.setT('spc', this.spChipTx, `⚡ ${haste.toFixed(1)}s HASTE`);
       this.spChipFill.displayWidth = Math.max(1, 146 * Math.min(1, haste / 8));
     }
+    // electric lock on me: chip countdown + violet edge wash while it burns
+    const lock = mine?.slowT || 0;
+    this.zkChipBg.setVisible(lock > 0);
+    this.zkChipFill.setVisible(lock > 0);
+    this.zkChipTx.setVisible(lock > 0);
+    if (lock > 0) {
+      this.setT('zkc', this.zkChipTx, `⛓ LOCKED ${lock.toFixed(1)}s`);
+      this.zkChipFill.displayWidth = Math.max(1, 146 * Math.min(1, lock / 2.5));
+      // fresh arc (timer jumped back up) = hard cue: pulse + buzz
+      if (lock > this.prevSlow + 0.4) {
+        this.tweens.killTweensOf(this.zkVin);
+        this.zkVin.setAlpha(0.6);
+        this.tweens.add({ targets: this.zkVin, alpha: 0.18, duration: 260, yoyo: true, repeat: 1 });
+        try { (navigator as any).vibrate?.([25, 30, 25]); } catch { /* noop */ }
+      }
+      if (lock > 0.4) this.zkVin.setAlpha(0.1 + 0.07 * Math.sin(this.time.now / 90));
+    } else {
+      this.zkVin.setAlpha(0);
+    }
+    this.prevSlow = lock;
     // GTA wanted level from your streak (cap 5)
     const stars = Math.min(5, myStreak);
     this.setT('want', this.wantedText, stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '');
@@ -1939,10 +1976,16 @@ export class ArenaScene extends Phaser.Scene {
   private drawBoard() {
     const st: any = (Session.room as any)?.state;
     if (!st) return;
-    const rows: Array<{ name: string; kills: number; deaths: number; damage: number; shots: number; hits: number; id: string }> = [];
+    const rows: Array<{ name: string; kills: number; deaths: number; damage: number; shots: number; hits: number; id: string; load: string[] }> = [];
+    // arsenal pips: which guns each player is carrying (pistol is always owned)
+    const GUNS: Array<[string, number]> = [
+      ['rifle', 0xfacc15], ['shotgun', 0xfb923c], ['sniper', 0xc084fc],
+      ['laser', 0x22d3ee], ['electric', 0xa855f7],
+    ];
     st.players.forEach((p: any, id: string) => rows.push({
       name: p.name, kills: p.kills || 0, deaths: p.deaths || 0,
       damage: p.damage || 0, shots: p.shots || 0, hits: p.hitsMade || 0, id,
+      load: GUNS.filter(([g]) => p[g] === true).map(([g]) => g),
     }));
     rows.sort((a, b) => b.kills - a.kills || b.damage - a.damage);
     const target = st.killTarget || 15;
@@ -1978,6 +2021,13 @@ export class ArenaScene extends Phaser.Scene {
       }).setOrigin(0.5);
       row.setStroke('#020617', 3);
       this.board!.add(row);
+      // arsenal pips, right-aligned: owned guns in their own colour
+      r.load.forEach((g, k) => {
+        const col = GUNS.find(([gg]) => gg === g)?.[1] ?? 0xffffff;
+        const px = 168 + k * 13;
+        const pip = this.add.circle(px, y, 4.5, col, 1).setStrokeStyle(1, 0x020617, 0.8);
+        this.board!.add(pip);
+      });
     });
   }
 

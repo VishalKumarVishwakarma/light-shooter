@@ -1,4 +1,6 @@
 import { Client } from 'colyseus.js';
+import fs from 'node:fs';
+import { join } from 'node:path';
 
 const URL = 'ws://localhost:2567';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -78,5 +80,31 @@ await sleep(300);
 ok(foe().grenades === 0, 'empty slot throws nothing (no negative counts)');
 
 await r1.leave(); await r2.leave();
+
+// 7. the wheel's cycle rule, checked against the REAL slot table in the source.
+// The wheel handler is DOM-bound, so instead we parse SLOTS out of ArenaScene
+// and apply the same predicate: unowned guns drop out, throwables and the
+// shield always stay (even at zero), and the order matches the strip.
+const src = fs.readFileSync(join(import.meta.dirname, 'src/scenes/ArenaScene.ts'), 'utf8');
+const table = [...src.matchAll(/\{ key: '(\d)', nm: '([^']*)', id: '(\w+)', kind: '(\w+)' \}/g)]
+  .map((m) => ({ key: m[1], id: m[3], kind: m[4] }));
+ok(table.length === 10, `slot table has 10 entries (${table.length})`);
+ok(table.map((s) => s.key).join('') === '1234567890', `keys run 1-0 in order (${table.map((s) => s.key).join('')})`);
+const cycleFor = (p) => table.filter((s) => s.kind !== 'gun' || (s.id === 'pistol' || p[s.id] === true));
+const bare = cycleFor({}).map((s) => s.id).join(',');
+ok(bare === 'pistol,grenade,smoke,molly,shield', `bare cycle: ${bare}`);
+const armed = cycleFor({ rifle: true, laser: true, shotgun: false, sniper: false, electric: false })
+  .map((s) => s.id).join(',');
+ok(armed === 'pistol,rifle,laser,grenade,smoke,molly,shield',
+  `owned guns slot in strip order: ${armed}`);
+ok(!armed.includes('shotgun') && !armed.includes('sniper') && !armed.includes('electric'),
+  'unowned guns never enter the cycle');
+ok(armed.endsWith('grenade,smoke,molly,shield'), 'throwables + shield sit at the tail');
+// a full cycle from the pistol wraps back to the pistol
+const full = cycleFor({ rifle: true, laser: true, electric: true, shotgun: true, sniper: true });
+let cur = full.findIndex((s) => s.id === 'pistol');
+for (let i = 0; i < full.length; i++) cur = (cur + 1) % full.length;
+ok(full[cur].id === 'pistol', 'one full lap returns to where it started');
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

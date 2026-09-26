@@ -288,15 +288,14 @@ export class ArenaScene extends Phaser.Scene {
     this.input.on('wheel', () => {
       const st: any = (Session.room as any)?.state;
       const me = st?.players.get(Session.room?.sessionId || '');
-      const owned = ['pistol'];
-      if (me?.rifle) owned.push('rifle');
-      if (me?.shotgun) owned.push('shotgun');
-      if (me?.sniper) owned.push('sniper');
-      if (me?.laser) owned.push('laser');
-      if (me?.electric) owned.push('electric');
-      const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
-      this.activeSlot = next; // keep the strip honest about what is in hand
-      Session.room?.send('switch', { weapon: next });
+      // the wheel walks the very same slot list as 1-0: owned guns in strip
+      // order, then the three throwables, then the shield. Throwables stay in
+      // the cycle even at zero so the order never shifts under your fingers.
+      const cycle = SLOTS.filter((s) => s.kind !== 'gun'
+        || (s.id === 'pistol' || me?.[s.id] === true));
+      const i = cycle.findIndex((s) => s.id === this.activeSlot);
+      const next = cycle[(i + 1) % cycle.length];
+      if (next) this.selectSlot(next.id, false);
     });
     // ---- READOUTS: the three things you must never hunt for -------------
     //   TOP LEFT   health + status (shield / haste / electric lock)

@@ -241,7 +241,7 @@ export class MenuScene extends Phaser.Scene {
     });
     rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-0 switch item · Q shield · G/X/C quick throw',
+      'move WASD/arrows · aim mouse · fire click(hold)\nwheel or 1-0 switch item · R reload · Q shield · G/X/C throw',
       { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
     ctl.setStroke('#020617', 3);
     m.body.add(ctl);
@@ -261,6 +261,7 @@ export class MenuScene extends Phaser.Scene {
       ['⚡', 'Electric gun: every hit LOCKS them for 2.5s.'],
       ['🛡️', 'Spawn SHIELDED. A raised shield blocks every bullet.'],
       ['💣', 'G / X / C throw instantly. Slot 7/8/9 arms, click tosses.'],
+      ['🎚️', 'The mouse wheel cycles those same slots, guns and throwables.'],
       ['✚', 'Crosses heal 50. Yellow boxes refill ammo.'],
       ['🧱', 'Bricks crumble, steel never does. Rivers block you.'],
       ['🏆', 'Most kills at the whistle, or first to the target.'],

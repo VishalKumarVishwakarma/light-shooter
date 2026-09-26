@@ -134,6 +134,8 @@ export class ArenaScene extends Phaser.Scene {
   private zkChipFill!: Phaser.GameObjects.Rectangle;
   private zkChipTx!: Phaser.GameObjects.Text;
   private zkVin!: Phaser.GameObjects.Image;
+  private arcG: Phaser.GameObjects.Graphics | null = null; // my live electric arc
+  private foeArcs = new Map<string, { g: Phaser.GameObjects.Graphics; t: number }>();
   private prevSlow = 0; // last known electric lock on me (rising edge = cue)
   private raceBg!: Phaser.GameObjects.Rectangle;
   private raceFill!: Phaser.GameObjects.Rectangle;
@@ -218,6 +220,12 @@ export class ArenaScene extends Phaser.Scene {
     this.myMove = { dx: 0, dy: 0 };
     this.firing = false;
     this.lastFire = 0;
+    // scene restart: kill any discharge bed left droning from the last visit
+    sfx.arcOff();
+    this.arcG?.destroy();
+    this.arcG = null;
+    this.foeArcs.forEach((a) => a.g.destroy());
+    this.foeArcs.clear();
     this.tacVin = this.add.image(480, 300, 'vignette').setDisplaySize(960, 600).setScrollFactor(0).setDepth(9)
       .setVisible(!lowQ);
     // TAC frame: corner brackets + scanlines over the viewport
@@ -837,39 +845,130 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
-  // electric bolt: jagged thunder from the barrel to the first thing it meets.
-  // two offset re-randomised strokes per frame read as crawling lightning.
-  private arcBolt(x1: number, y1: number, ang: number, skipId: string) {
-    // the discharge is a muzzle lance, NOT a hitscan beam: the bolt is still
-    // in flight after this fades, so a full-length arc would lie about range
-    const reach = Math.min(WEAPONS.electric.speed * WEAPONS.electric.life, 280);
-    const end = this.rayEnd(x1, y1, Math.cos(ang), Math.sin(ang), reach, skipId);
-    const g = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
-    const segs = Math.max(4, Math.round(Math.hypot(end.x - x1, end.y - y1) / 26));
-    const nx = -Math.sin(ang), ny = Math.cos(ang);
+  // CONTINUOUS electric fire: while the trigger is held the gun keeps a live
+  // arc crawling off the prongs and a sustained discharge bed droning under the
+  // per-shot cracks. One driver for both, so nothing can desync.
+  private driveArc(me: PObj, ang: number, playing: boolean) {
+    const st: any = (Session.room as any)?.state?.players.get(this.meId);
+    const mag = st?.eammo ?? 0;
+    const live = playing && this.firing && me.alive && st?.weapon === 'electric'
+      && !st?.guard && !st?.reloading && mag > 0;
+    if (live) {
+      if (!this.arcG) {
+        this.arcG = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
+      }
+      // redrawn (new jitter) every frame = crawling current, not a static shape
+      const flick = 0.7 + 0.3 * Math.random();
+      this.arcStream(this.arcG, me.gfx.x + Math.cos(ang) * MUZZLE,
+        me.gfx.y + Math.sin(ang) * MUZZLE, ang, 190, flick);
+      this.arcG.setVisible(true);
+      if (!sfx.arcLive) sfx.arcOn();
+      if (Math.random() < 0.55) {
+        // continuous spark shed off the live arc, not just on trigger frames
+        const t = 0.2 + Math.random() * 0.8;
+        this.sparks.explode(1,
+          me.gfx.x + Math.cos(ang) * (MUZZLE + 190 * t) + (Math.random() - 0.5) * 26,
+          me.gfx.y + Math.sin(ang) * (MUZZLE + 190 * t) + (Math.random() - 0.5) * 26);
+      }
+      if (Math.random() < 0.22) { // muzzle corona while it runs hot
+        const z = this.add.image(me.gfx.x + Math.cos(ang) * MUZZLE,
+          me.gfx.y + Math.sin(ang) * MUZZLE, 'zap').setDepth(7)
+          .setScale(0.3 + Math.random() * 0.25).setAngle(Math.random() * 360)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: z, scaleX: 0, scaleY: 0, alpha: 0, duration: 110 + Math.random() * 90,
+          onComplete: () => z.destroy(),
+        });
+      }
+    } else {
+      this.arcG?.clear();
+      this.arcG?.setVisible(false);
+      if (sfx.arcLive) sfx.arcOff();
+    }
+  }
+
+  // scene teardown: silence the discharge bed, or it drones over the lobby
+  shutdown() {
+    sfx.arcOff();
+  }
+
+  private arcOffNow() {
+    this.arcG?.clear();
+    this.arcG?.setVisible(false);
+    if (sfx.arcLive) sfx.arcOff();
+  }
+
+  // a foe's electric stream: each shot re-opens a window, so sustained fire
+  // from them reads as continuous too (no trigger state to poll remotely)
+  private foeArc(id: string, hold: number) {
+    let a = this.foeArcs.get(id);
+    if (!a) {
+      const g = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
+      a = { g, t: 0 };
+      this.foeArcs.set(id, a);
+    }
+    a.t = Math.max(a.t, hold);
+  }
+
+  private tickFoeArcs(dt: number) {
+    this.foeArcs.forEach((a, id) => {
+      const o = this.players.get(id);
+      if (!o || !o.alive) { a.g.destroy(); this.foeArcs.delete(id); return; }
+      a.t -= dt;
+      if (a.t <= 0) {
+        a.g.clear();
+        this.foeArcs.delete(id);
+        a.g.destroy();
+        return;
+      }
+      const ang = o.gun.rotation;
+      this.arcStream(a.g, o.gfx.x + Math.cos(ang) * MUZZLE,
+        o.gfx.y + Math.sin(ang) * MUZZLE, ang, 190, Math.min(1, a.t / 0.3) * 0.85);
+    });
+  }
+
+  // jagged 3-pass lightning path — re-rolled every call, so a redraw each frame
+  // reads as crawling current rather than a static polygon
+  private arcStream(g: Phaser.GameObjects.Graphics, x: number, y: number,
+    ang: number, reach: number, alpha = 1) {
+    if (alpha <= 0) { g.clear(); return; }
+    const dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx;
+    const segs = Math.max(4, Math.round(reach / 22));
+    g.clear();
     for (let pass = 0; pass < 3; pass++) {
-      g.lineStyle(pass === 2 ? 2 : pass === 1 ? 4.5 : 9, pass === 2 ? 0xffffff : pass === 1 ? 0xa855f7 : 0x6d28d9,
-        pass === 2 ? 0.95 : pass === 1 ? 0.7 : 0.3);
+      g.lineStyle(pass === 2 ? 1.6 : pass === 1 ? 4 : 8,
+        pass === 2 ? 0xffffff : pass === 1 ? 0xa855f7 : 0x6d28d9,
+        (pass === 2 ? 0.9 : pass === 1 ? 0.6 : 0.25) * alpha);
       g.beginPath();
-      g.moveTo(x1, y1);
+      g.moveTo(x, y);
       for (let i = 1; i <= segs; i++) {
         const t = i / segs;
-        const jag = i === segs ? 0 : (Math.random() - 0.5) * 34 * (pass === 2 ? 0.4 : 1);
-        g.lineTo(x1 + (end.x - x1) * t + nx * jag, y1 + (end.y - y1) * t + ny * jag);
+        const jag = i === segs ? 0 : (Math.random() - 0.5) * 30 * (pass === 2 ? 0.4 : 1);
+        g.lineTo(x + dx * reach * t + nx * jag, y + dy * reach * t + ny * jag);
       }
       g.strokePath();
     }
+  }
+
+  // per-shot discharge accent. The discharge is a muzzle lance, NOT a hitscan
+  // beam: the bolt is still in flight after this fades, so a full-length arc
+  // would lie about range.
+  private arcBolt(x1: number, y1: number, ang: number, skipId: string) {
+    const reach = Math.min(WEAPONS.electric.speed * WEAPONS.electric.life, 280);
+    const end = this.rayEnd(x1, y1, Math.cos(ang), Math.sin(ang), reach, skipId);
+    const g = this.add.graphics().setDepth(7).setBlendMode(Phaser.BlendModes.ADD);
+    this.arcStream(g, x1, y1, ang, Math.hypot(end.x - x1, end.y - y1));
     // charge orb at the barrel + crackle at the lance tip
     const src = this.add.image(x1, y1, 'zap').setDepth(7).setScale(0.5)
       .setBlendMode(Phaser.BlendModes.ADD);
     const dst = this.add.image(end.x, end.y, 'zap').setDepth(7).setScale(1.1)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({
-      targets: [g, src], alpha: 0, duration: 150, ease: 'Quad.easeOut',
+      targets: [g, src], alpha: 0, duration: 130, ease: 'Quad.easeOut',
       onComplete: () => { g.destroy(); src.destroy(); },
     });
     this.tweens.add({
-      targets: dst, scaleX: 1.9, scaleY: 1.9, alpha: 0, duration: 240, ease: 'Quad.easeOut',
+      targets: dst, scaleX: 1.9, scaleY: 1.9, alpha: 0, duration: 220, ease: 'Quad.easeOut',
       onComplete: () => dst.destroy(),
     });
     this.sparks.explode(5, end.x, end.y);
@@ -1232,6 +1331,8 @@ export class ArenaScene extends Phaser.Scene {
         const o = this.players.get(id);
         o?.gfx.destroy(true);
         this.players.delete(id);
+        this.foeArcs.get(id)?.g.destroy(); // their arc must not outlive them
+        this.foeArcs.delete(id);
         if (Date.now() - this.arenaBorn > 4000 && id !== this.meId && o) {
           toast(this, `${o.label.text.split(' ')[0]} left the fight`, '#94a3b8');
         }
@@ -1267,7 +1368,10 @@ export class ArenaScene extends Phaser.Scene {
         this.recoil(own.gun);
         // enemy lasers burn their beam from the visible barrel too
         if (bw === 'laser') this.beam(mx, my, a, b.ownerId);
-        if (bw === 'electric') this.arcBolt(mx, my, a, b.ownerId);
+        if (bw === 'electric') {
+          this.arcBolt(mx, my, a, b.ownerId);
+          this.foeArc(b.ownerId, 0.3); // hold the stream open across the burst
+        }
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
       // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.
@@ -1522,6 +1626,7 @@ export class ArenaScene extends Phaser.Scene {
     if (this.backToLobby) return;
     this.backToLobby = true;
     this.firing = false;
+    this.arcOffNow();
     Session.room = null;
     try { toast(this, 'connection lost — back to menu', '#f87171'); } catch { /* scene dying */ }
     this.scene.start('menu');
@@ -2107,6 +2212,7 @@ export class ArenaScene extends Phaser.Scene {
         o.bootR.y += (8 - o.bootR.y) * Math.min(1, dt * 8);
       }
     });
+    this.tickFoeArcs(dt);
     if (me && Session.room && playing) {
       if (this.firing) this.fireNow();
       let dx = 0, dy = 0;
@@ -2136,7 +2242,8 @@ export class ArenaScene extends Phaser.Scene {
       me.gun.setRotation(ang);
       // electric gun idles with a live charge crackling off the prongs
       const mySt: any = (Session.room as any)?.state?.players.get(this.meId);
-      if (mySt?.weapon === 'electric' && me.alive && Math.random() < 0.3) {
+      const volt = mySt?.weapon === 'electric';
+      if (volt && me.alive && Math.random() < 0.3) {
         const zx = me.gfx.x + Math.cos(ang) * (MUZZLE + 4), zy = me.gfx.y + Math.sin(ang) * (MUZZLE + 4);
         const z = this.add.image(zx, zy, 'zap').setDepth(5)
           .setScale(0.26 + Math.random() * 0.22).setAngle(Math.random() * 360)
@@ -2146,6 +2253,7 @@ export class ArenaScene extends Phaser.Scene {
           onComplete: () => z.destroy(),
         });
       }
+      this.driveArc(me, ang, playing);
       // lock the camera once: re-issuing startFollow every frame resets its
       // lerp state and reads as micro-stutter
       if (!this.camLocked) {
@@ -2175,6 +2283,8 @@ export class ArenaScene extends Phaser.Scene {
       }
     } else {
       this.myMove = { dx: 0, dy: 0 };
+      // no body / no room / not playing: the discharge must not linger
+      this.arcOffNow();
     }
     // interpolate remotes: render 66ms behind the server, lerping between
     // the two bracketing snapshots — constant velocity instead of chase judder

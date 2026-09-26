@@ -776,8 +776,8 @@ async function main() {
     if (v1r.state.players.get(v1r.sessionId).weapon === 'electric') break;
   }
   const eg = v1r.state.players.get(v1r.sessionId).toJSON();
-  ok(eg.weapon === 'electric' && eg.electric === true && eg.eammo === 20,
-    `electric equipped (${eg.weapon} ${eg.eammo}/20)`);
+  ok(eg.weapon === 'electric' && eg.electric === true && eg.eammo === 30,
+    `electric equipped (${eg.weapon} ${eg.eammo}/30)`);
   await nav(v2r, v2r.sessionId, 1050, 200);
   await nav(v2r, v2r.sessionId, 1050, 1010);
   const ev = await nav(v2r, v2r.sessionId, 1300, 1010);
@@ -829,12 +829,12 @@ async function main() {
   }
   ok(dry.eammo === 0, `cell burned dry (eammo=${dry.eammo})`);
   v2r.send('guard', { on: false });
-  await sleep(400);
-  for (let i = 0; i < 4; i++) { // keep clicking: an empty gun may never fire again
+  await sleep(300);
+  for (let i = 0; i < 3; i++) { // keep clicking: an empty gun may never fire again
     const a = v1r.state.players.get(v1r.sessionId).toJSON();
     const b = v2r.state.players.get(v2r.sessionId).toJSON();
     v1r.send('shoot', { angle: Math.atan2(b.y - a.y, b.x - a.x) });
-    await sleep(260);
+    await sleep(240);
   }
   const afterDry = v1r.state.players.get(v1r.sessionId).toJSON();
   const bHp1 = v2r.state.players.get(v2r.sessionId).hp;

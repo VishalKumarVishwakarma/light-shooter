@@ -25,11 +25,20 @@ class SFX {
 
   setMuted(m: boolean) {
     this.muted = m;
+    if (m) this.arcOff(); // never leave a discharge droning under a mute
     try { localStorage.setItem('shooter_mute', m ? '1' : '0'); } catch { /* noop */ }
   }
 
   setVolume(v: number) {
     this.volume = Math.max(0, Math.min(1, v));
+    const a = this.arc;
+    if (a) { // live stream follows the volume slider
+      const ctx = this.ac();
+      if (ctx) {
+        a.oGain.gain.setTargetAtTime(0.085 * this.volume, ctx.currentTime, 0.03);
+        a.nGain.gain.setTargetAtTime(0.075 * this.volume, ctx.currentTime, 0.03);
+      }
+    }
     try { localStorage.setItem('shooter_vol', String(this.volume)); } catch { /* noop */ }
   }
 
@@ -77,6 +86,77 @@ class SFX {
   private jitter(f: number, amt = 0.05) {
     return f * (1 + (Math.random() - 0.5) * 2 * amt);
   }
+
+  // ---- sustained electric arc (continuous fire) -------------------------
+  // A looping discharge bed: detuned saw whine wobbling under a bandpassed
+  // crackle. Lives for as long as the trigger is held, so the electric gun
+  // sounds like one continuous weapon instead of a burst of identical zaps.
+  private arc: {
+    osc: OscillatorNode; lfo: OscillatorNode; oGain: GainNode;
+    src: AudioBufferSourceNode; filt: BiquadFilterNode; nGain: GainNode;
+  } | null = null;
+
+  arcOn() {
+    if (this.arc || this.muted) return;
+    const ctx = this.ac();
+    if (!ctx) return;
+    // whine: saw ~95Hz with a wobble LFO, plus a quiet octave for grit
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 95;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 16;
+    const lfoG = ctx.createGain();
+    lfoG.gain.value = 42;
+    lfo.connect(lfoG).connect(osc.frequency);
+    const oGain = ctx.createGain();
+    oGain.gain.value = 0;
+    osc.connect(oGain).connect(ctx.destination);
+    // crackle: looped white noise through a wobbling bandpass
+    const len = Math.max(1, Math.floor(ctx.sampleRate * 0.35));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 2400; filt.Q.value = 0.7;
+    const nLfo = ctx.createOscillator();
+    nLfo.type = 'square';
+    nLfo.frequency.value = 11;
+    const nLfoG = ctx.createGain();
+    nLfoG.gain.value = 900;
+    nLfo.connect(nLfoG).connect(filt.frequency);
+    const nGain = ctx.createGain();
+    nGain.gain.value = 0;
+    src.connect(filt).connect(nGain).connect(ctx.destination);
+    osc.start(); lfo.start(); nLfo.start(); src.start();
+    const now = ctx.currentTime;
+    oGain.gain.setTargetAtTime(0.085 * this.volume, now, 0.025); // spin up fast
+    nGain.gain.setTargetAtTime(0.075 * this.volume, now, 0.03);
+    this.arc = { osc, lfo, oGain, src, filt, nGain };
+    // keep the reference to nLfo alive for its lifetime
+    (this.arc as any).nLfo = nLfo;
+  }
+
+  arcOff() {
+    const a = this.arc;
+    if (!a) return;
+    this.arc = null;
+    const ctx = this.ac();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    a.oGain.gain.cancelScheduledValues(now);
+    a.nGain.gain.cancelScheduledValues(now);
+    a.oGain.gain.setTargetAtTime(0, now, 0.03);
+    a.nGain.gain.setTargetAtTime(0, now, 0.04);
+    const stop = [a.osc, a.lfo, a.src, (a as any).nLfo].filter(Boolean) as OscillatorNode[];
+    for (const n of stop) { try { n.stop(now + 0.25); } catch { /* already stopped */ } }
+  }
+
+  get arcLive() { return !!this.arc; }
+
   private clack(vol: number, delay = 0.012) {
     this.tone(this.jitter(1750, 0.08), 0.03, 'triangle', vol, -600, delay);
   }
@@ -122,13 +202,13 @@ class SFX {
     this.clack(0.07 * g, 0.015);
   }
   // Electric: capacitor discharge — buzzing square stab, ring-down whine,
-  // and a gritty arc crackle so it never sounds like the laser.
+  // and a gritty arc crackle so it never sounds like the laser. Kept lean
+  // because arcOn() already carries the sustained body while firing.
   shootElectric(g = 1, bright = 1) {
-    this.tone(this.jitter(320, 0.06), 0.1, 'square', 0.2 * g, -180); // buzz stab
-    this.tone(this.jitter(1750, 0.05), 0.2, 'sawtooth', 0.14 * g, -900); // ring-down
-    this.noise(0.05, 0.4 * g, 9000 * bright); // crack
-    this.noise(0.16, 0.18 * g, 5200 * bright, 0.01, 'bandpass', 2200); // arc hiss
-    this.tone(90, 0.12, 'triangle', 0.16 * g, 30); // thump
+    this.tone(this.jitter(320, 0.06), 0.08, 'square', 0.12 * g, -180); // buzz stab
+    this.tone(this.jitter(1750, 0.05), 0.14, 'sawtooth', 0.08 * g, -900); // ring-down
+    this.noise(0.04, 0.3 * g, 9000 * bright); // crack
+    this.tone(90, 0.1, 'triangle', 0.1 * g, 30); // thump
   }
   // Electric impact on a body: tighter crackle with a locking clank.
   zap(g = 1) {

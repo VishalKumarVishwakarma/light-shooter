@@ -19,7 +19,7 @@ export const WEAPONS: Record<string, {
   shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.32, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
   sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
   laser: { dmg: 12, interval: 0.09, speed: 1400, life: 0.9, auto: true, clip: 25, reload: 2.2 },
-  electric: { dmg: 10, interval: 0.22, speed: 1000, life: 0.8, auto: true, clip: 20, reload: 2 },
+  electric: { dmg: 8, interval: 0.14, speed: 1000, life: 0.8, auto: true, clip: 30, reload: 2.2 },
 };
 
 export const SPAWNS: Array<[number, number]> = [

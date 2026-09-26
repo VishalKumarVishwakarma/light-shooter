@@ -241,7 +241,7 @@ export class MenuScene extends Phaser.Scene {
     });
     rowLabel(y0 + 80, 'CONTROLS');
     const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-6 swap · E grab · Q/7 shield · G/X/C throw',
+      'move WASD/arrows · aim mouse · fire click(hold)\nR reload · 1-0 switch item · Q shield · G/X/C quick throw',
       { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
     ctl.setStroke('#020617', 3);
     m.body.add(ctl);
@@ -255,16 +255,15 @@ export class MenuScene extends Phaser.Scene {
     const rows = [
       ['✋', 'Move with WASD or arrow keys.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
-      ['🔫', 'Grab rifles/shotguns/snipers/lasers/electric with E — R reloads, 1-6 or wheel swaps.'],
-      ['🔪', 'F is a knife: 50 damage up close, 0.8s cooldown. It pierces shields.'],
-      ['⚡', 'Electric gun: every hit LOCKS them — 2.5s at a crawl, even through a shield.'],
-      ['🛡️', 'Everyone spawns SHIELDED (slot 7): bullets bounce, knife only. 1-6 draws a gun, Q toggles.'],
-      ['✚', 'Green crosses heal 50 HP. Yellow boxes refill ammo.'],
-      ['🧱', 'Orange bricks crumble under fire. Silver steel never does.'],
-      ['🌊', 'Rivers block you (not bullets). Ice is slippery. Bushes hide you.'],
-      ['🏆', 'Most kills at the whistle — or first to the kill target — wins.'],
-      ['💣', 'G lobs grenades — big damage even through shields.'],
-      ['🔥', 'X torches a molly (burns through shields), C drops hiding smoke.'],
+      ['🔫', 'Grab guns with E. Keys 1-0 switch ANY slot:'],
+      ['', 'guns · 💣 grenade · 💨 smoke · 🔥 molly · 🛡 shield'],
+      ['🔪', 'F is a knife: 50 damage up close. It pierces shields.'],
+      ['⚡', 'Electric gun: every hit LOCKS them for 2.5s.'],
+      ['🛡️', 'Spawn SHIELDED. A raised shield blocks every bullet.'],
+      ['💣', 'G / X / C throw instantly. Slot 7/8/9 arms, click tosses.'],
+      ['✚', 'Crosses heal 50. Yellow boxes refill ammo.'],
+      ['🧱', 'Bricks crumble, steel never does. Rivers block you.'],
+      ['🏆', 'Most kills at the whistle, or first to the target.'],
     ];
     rows.forEach(([icon, txt], i) => {
       const row = this.add.text(-240, -140 + i * 30, `${icon}   ${txt}`, {

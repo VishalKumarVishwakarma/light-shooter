@@ -33,13 +33,32 @@ function angLerp(a: number, b: number, t: number) {
 }
 type BObj = { img: Phaser.GameObjects.Image; vx: number; vy: number };
 
+// The loadout is one uniform list: guns, throwables and the shield are all
+// switchable slots. `kind` decides what selecting/using the slot means.
+type Slot = { key: string; nm: string; id: string; kind: 'gun' | 'ord' | 'shield' };
+const SLOTS: Slot[] = [
+  { key: '1', nm: 'PIS', id: 'pistol', kind: 'gun' },
+  { key: '2', nm: 'RIF', id: 'rifle', kind: 'gun' },
+  { key: '3', nm: 'SG', id: 'shotgun', kind: 'gun' },
+  { key: '4', nm: 'SNP', id: 'sniper', kind: 'gun' },
+  { key: '5', nm: 'LSR', id: 'laser', kind: 'gun' },
+  { key: '6', nm: 'ELC', id: 'electric', kind: 'gun' },
+  { key: '7', nm: '\u{1F4A3}', id: 'grenade', kind: 'ord' },
+  { key: '8', nm: '\u{1F4A8}', id: 'smoke', kind: 'ord' },
+  { key: '9', nm: '\u{1F525}', id: 'molly', kind: 'ord' },
+  { key: '0', nm: 'SHD', id: 'shield', kind: 'shield' },
+];
+const isGunSlot = (id: string) => SLOTS.some((s) => s.id === id && s.kind === 'gun');
+const ORD_ICON: Record<string, string> = { grenade: '\u{1F4A3}', smoke: '\u{1F4A8}', molly: '\u{1F525}' };
+
 export class ArenaScene extends Phaser.Scene {
   meId = '';
   players = new Map<string, PObj>();
   bullets = new Map<string, BObj>();
   throws = new Map<string, { img: Phaser.GameObjects.Image; vx: number; vy: number }>();
   clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[]; timers: Phaser.Time.TimerEvent[] }>();
-  throwBtns: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text; kind: string; key: string; icon: string }> = [];
+  activeSlot = 'pistol'; // the switchable item in hand (gun, ord, or shield)
+  private fireWas = false; // rising edge of the trigger, for one-shot items
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -121,9 +140,8 @@ export class ArenaScene extends Phaser.Scene {
 
   private reloadBar!: Phaser.GameObjects.Rectangle;
   private reloadBg!: Phaser.GameObjects.Rectangle;
+  private ammoIcon!: Phaser.GameObjects.Image;
   private reloadTx!: Phaser.GameObjects.Text;
-  private guardBg!: Phaser.GameObjects.Rectangle;
-  private guardTx!: Phaser.GameObjects.Text;
   private loadSlots: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text }> = [];
   private statusSegs: Array<{
     bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text;
@@ -187,6 +205,8 @@ export class ArenaScene extends Phaser.Scene {
     this.myVel = { x: 0, y: 0 };
     this.camLocked = false;
     this.txtCache.clear(); // stale strings would skip first paint on fresh objects
+    this.activeSlot = 'pistol';
+    this.fireWas = false;
     this.prevSlow = 0; // scene restart must not re-fire the lock cue
     this.moveStick = null; this.aimStick = null;
     this.joyMove = { dx: 0, dy: 0 };
@@ -197,7 +217,6 @@ export class ArenaScene extends Phaser.Scene {
     this.bullets.clear();
     this.throws.clear();
     this.clouds.clear();
-    this.throwBtns = [];
     this.pickups.clear();
     this.pkDots.clear();
     this.feedRows.forEach((r) => { r.bg.destroy(); r.k.destroy(); r.m.destroy(); r.v.destroy(); });
@@ -235,7 +254,7 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,F,TAB') as any;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT,NINE,ZERO,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -243,16 +262,13 @@ export class ArenaScene extends Phaser.Scene {
       const kb = this.input.keyboard!;
       kb.on('keydown-R', () => { Session.room?.send('reload'); sfx.reload(); });
       kb.on('keydown-E', () => Session.room?.send('interact'));
-      kb.on('keydown-ONE', () => Session.room?.send('switch', { weapon: 'pistol' }));
-      kb.on('keydown-TWO', () => Session.room?.send('switch', { weapon: 'rifle' }));
-      kb.on('keydown-THREE', () => Session.room?.send('switch', { weapon: 'shotgun' }));
-      kb.on('keydown-FOUR', () => Session.room?.send('switch', { weapon: 'sniper' }));
-      kb.on('keydown-FIVE', () => Session.room?.send('switch', { weapon: 'laser' }));
-      kb.on('keydown-SIX', () => Session.room?.send('switch', { weapon: 'electric' }));
-      kb.on('keydown-SEVEN', () => {
-        Session.room?.send('guard', { on: true }); // slot 7: raise the shield
-        sfx.guard(true);
-      });
+      // 1-0 select any slot: guns equip, throwables arm, 0 raises the shield
+      const KEYMAP: Array<[string, string]> = [
+        ['ONE', 'pistol'], ['TWO', 'rifle'], ['THREE', 'shotgun'], ['FOUR', 'sniper'],
+        ['FIVE', 'laser'], ['SIX', 'electric'], ['SEVEN', 'grenade'], ['EIGHT', 'smoke'],
+        ['NINE', 'molly'], ['ZERO', 'shield'],
+      ];
+      KEYMAP.forEach(([code, id]) => kb.on('keydown-' + code, () => this.selectSlot(id, false)));
       kb.on('keydown-G', () => this.throwOrd('grenade'));
       kb.on('keydown-X', () => this.throwOrd('molly'));
       kb.on('keydown-C', () => this.throwOrd('smoke'));
@@ -279,6 +295,7 @@ export class ArenaScene extends Phaser.Scene {
       if (me?.laser) owned.push('laser');
       if (me?.electric) owned.push('electric');
       const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
+      this.activeSlot = next; // keep the strip honest about what is in hand
       Session.room?.send('switch', { weapon: next });
     });
     // ---- READOUTS: the three things you must never hunt for -------------
@@ -320,7 +337,8 @@ export class ArenaScene extends Phaser.Scene {
     ammoCard.fillRoundedRect(706, 2, 248, 30, 8);
     ammoCard.lineStyle(2, 0x22d3ee, 0.5);
     ammoCard.strokeRoundedRect(706, 2, 248, 30, 8);
-    this.add.image(722, 17, 'gun').setScale(0.55).setScrollFactor(0).setDepth(10).setAlpha(0.9);
+    this.ammoIcon = this.add.image(722, 17, 'gun').setScale(0.55)
+      .setScrollFactor(0).setDepth(10).setAlpha(0.9);
     this.ammoTitle = this.add.text(738, 7, 'PISTOL', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#94a3b8',
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
@@ -343,65 +361,21 @@ export class ArenaScene extends Phaser.Scene {
       Session.room?.send('reload');
       sfx.reload();
     });
-    // throwable ordnance (left column, under the feed): tap to toss
-    const ords: Array<[string, string, string]> = [
-      ['G', '💣', 'grenade'], ['X', '🔥', 'molly'], ['C', '💨', 'smoke'],
-    ];
-    this.throwBtns = [];
-    ords.forEach(([key, icon, kind], i) => {
-      const x = 28 + i * 48;
-      const bg = this.add.rectangle(x, 550, 44, 24, 0x0b1220, 0.92)
-        .setStrokeStyle(2, 0x475569, 0.9).setScrollFactor(0).setDepth(10);
-      const tx = this.add.text(x, 550, `${key}${icon}·`, {
-        fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#e2e8f0',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
-      tx.setStroke('#020617', 2);
-      bg.setInteractive({ useHandCursor: true });
-      bg.on('pointerdown', () => this.throwOrd(kind));
-      this.throwBtns.push({ bg, tx, kind, key, icon });
-    });
-    // stance toggle (touch + mouse; Q works too): shield = knife-only, gun = fire
-    this.guardBg = this.add.rectangle(76, 582, 130, 24, 0x0b1220, 0.92)
-      .setStrokeStyle(2.5, 0x4ade80, 0.95).setScrollFactor(0).setDepth(10);
-    this.guardTx = this.add.text(76, 582, '🛡 SHIELD', {
-      fontFamily: COND, fontSize: '14px', fontStyle: '700', color: '#4ade80',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
-    this.guardTx.setStroke('#020617', 3);
-    this.guardBg.setInteractive({ useHandCursor: true });
-    this.guardBg.on('pointerover', () => this.guardBg.setFillStyle(0x1e293b));
-    this.guardBg.on('pointerout', () => this.guardBg.setFillStyle(0x0b1220));
-    this.guardBg.on('pointerdown', () => {
-      Session.room?.send('guard');
-      const g = (Session.room as any)?.state?.players.get(Session.room?.sessionId || '');
-      sfx.guard(!g?.guard);
-      this.guardBg.setAlpha(0.6);
-      this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
-    });
-    // loadout strip (bottom-center): 7 tappable slots — guns + shield, live states
-    const slots: Array<[string, string, string]> = [
-      ['1', 'PISTOL', 'pistol'], ['2', 'RIFLE', 'rifle'], ['3', 'SG', 'shotgun'],
-      ['4', 'SNP', 'sniper'], ['5', 'LSR', 'laser'], ['6', 'ELC', 'electric'],
-      ['7', 'SHD', 'shield'],
-    ];
+    // loadout strip (bottom-center): 10 tappable slots — every gun, every
+    // throwable and the shield are switchable items, exactly like each other
     this.loadSlots = [];
-    slots.forEach(([key, nm, w], i) => {
-      const x = 480 + (i - (slots.length - 1) / 2) * 42;
-      const bg = this.add.rectangle(x, 506, 38, 32, 0x020617, 0.78)
+    SLOTS.forEach((s, i) => {
+      const x = 480 + (i - (SLOTS.length - 1) / 2) * 40;
+      const bg = this.add.rectangle(x, 506, 36, 34, 0x020617, 0.78)
         .setStrokeStyle(2, 0x334155, 0.95).setScrollFactor(0).setDepth(10);
-      const tx = this.add.text(x, 506, `${key}\n${nm}`, {
+      const tx = this.add.text(x, 506, `${s.key}\n${s.nm}`, {
         fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#475569', align: 'center', lineSpacing: 0,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
       tx.setStroke('#020617', 2);
       bg.setInteractive({ useHandCursor: true });
-      bg.on('pointerdown', () => {
-        if (w === 'shield') {
-          Session.room?.send('guard', { on: true });
-          sfx.guard(true);
-        } else {
-          Session.room?.send('switch', { weapon: w });
-          sfx.click();
-        }
-      });
+      // tapping a throwable slot throws it right away (one tap, PUBG-style);
+      // guns equip, the shield slot raises the stance
+      bg.on('pointerdown', () => this.selectSlot(s.id, true));
       this.loadSlots.push({ bg, tx });
     });
     // status row (one line under the HP bar): shield points / haste / electric
@@ -510,9 +484,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.grabBtn?.c.visible
         && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
       if (pt.y < 40 && pt.x > 700) return; // ammo strip = reload
-      if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return; // guard btn
-      if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return; // ordnance btns
-      if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return; // loadout strip
+      if (pt.y > 488 && pt.y < 526 && Math.abs(pt.x - 480) < 205) return; // loadout strip
       if (pt.leftButtonDown()) {
         this.firing = true;
         this.fireNow();
@@ -565,9 +537,7 @@ export class ArenaScene extends Phaser.Scene {
     // HUD buttons handle themselves; sticks ignore those taps
     if (this.grabBtn?.c.visible && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
     if (pt.y < 40 && pt.x > 700) return; // ammo strip = reload
-    if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return;
-    if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return;
-    if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return;
+    if (pt.y > 488 && pt.y < 526 && Math.abs(pt.x - 480) < 205) return;
     if (pt.x < 480 && !this.moveStick) {
       this.moveStick = { id: pt.id, ox: pt.x, oy: pt.y };
     } else if (pt.x >= 480 && !this.aimStick) {
@@ -644,6 +614,25 @@ export class ArenaScene extends Phaser.Scene {
       ? w : 'pistol';
   }
 
+  // select a loadout slot. `use` = fire it now (tap on touch, click on the
+  // slot): guns equip, throwables toss, the shield raises the stance.
+  private selectSlot(id: string, use: boolean) {
+    const slot = SLOTS.find((s) => s.id === id);
+    if (!slot) return;
+    this.activeSlot = id;
+    if (slot.kind === 'gun') {
+      Session.room?.send('switch', { weapon: id });
+      sfx.click();
+      if (use) this.fireNow(true);
+    } else if (slot.kind === 'ord') {
+      sfx.click();
+      if (use) this.throwOrd(id); // arm now, toss on the key/fire button
+    } else {
+      Session.room?.send('guard', { on: true });
+      sfx.guard(true);
+    }
+  }
+
   // toss ordnance toward the cursor (shield must be lowered first)
   private throwOrd(kind: string) {
     const room = Session.room;
@@ -666,16 +655,29 @@ export class ArenaScene extends Phaser.Scene {
     sfx.melee();
   }
 
-  private fireNow() {
+  private fireNow(edge = true) {
     const room = Session.room;
     if (!room || (room as any).state?.phase !== 'playing') return;
     const me = this.players.get(this.meId);
     if (!me) return;
     const st = (room as any).state?.players.get(this.meId);
+    // the selected slot decides what the trigger does. One-shot items fire on
+    // the press edge only, so holding the mouse can't carpet-bomb grenades.
+    const slot = SLOTS.find((s) => s.id === this.activeSlot);
+    if (slot && slot.kind === 'ord') {
+      if (!edge) return;
+      this.throwOrd(slot.id);
+      return;
+    }
+    if (slot && slot.kind === 'shield') {
+      if (!edge) return;
+      room.send('guard');
+      sfx.guard(!st?.guard);
+      return;
+    }
     if (st?.guard) { // shield raised: guns are dead — knife (F) or lower (Q)
       sfx.empty();
-      this.guardBg.setAlpha(0.5);
-      this.time.delayedCall(150, () => this.guardBg.setAlpha(1));
+      toast(this, 'SHIELD UP - Q or slot 0 to lower', '#4ade80', 344);
       return;
     }
     const w = WEAPONS[this.ownWeapon()] || WEAPONS.pistol;
@@ -1610,11 +1612,24 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private drawAmmo(p: any) {
+    // keep the strip in step with server truth: a respawn or a death resets
+    // the gun to the pistol, and a quick G/X/C throw doesn't change the slot
+    if (isGunSlot(this.activeSlot) && p.weapon !== this.activeSlot) {
+      this.activeSlot = p.weapon;
+    }
+    const slot = SLOTS.find((s) => s.id === this.activeSlot);
+    // non-gun slots render their own readout in the same strip
+    if (slot && slot.kind !== 'gun') {
+      this.drawItemStrip(slot, p);
+      this.drawLoadout(p);
+      return;
+    }
     const W = WEAPONS[p.weapon] || WEAPONS.pistol;
     const colors: Record<string, string> = {
       pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
       sniper: '#c084fc', laser: '#22d3ee', electric: '#a855f7',
     };
+    this.ammoIcon.setVisible(true).setTexture(p.weapon === 'electric' ? 'egun' : 'gun');
     this.setT('ammoT', this.ammoTitle, p.weapon.toUpperCase(), colors[p.weapon] || '#94a3b8');
     const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
       : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo
@@ -1637,40 +1652,54 @@ export class ArenaScene extends Phaser.Scene {
       p.reloading ? 'RELOADING…' : dry ? '⟳ R RELOAD' : needReload ? '⟳ RELOAD' : '');
     this.reloadTx.setColor(dry ? '#ef4444' : '#facc15');
     this.reloadTx.setAlpha(p.reloading ? 0.6 : needReload ? 1 : 0.35);
-    // stance badge mirrors the server guard flag (drawAmmo runs for me on change)
-    const guarded = !!p.guard;
-    this.setT('guard', this.guardTx, guarded ? '🛡 SHIELD' : '🔫 GUN', guarded ? '#4ade80' : '#60a5fa');
-    this.guardBg.setStrokeStyle(2.5, guarded ? 0x4ade80 : 0x60a5fa, 0.95);
-    this.drawLoadout(p);
-    // ordnance counts on the throw buttons
-    const ordN: Record<string, number> = {
-      grenade: p.grenades || 0, molly: p.mollies || 0, smoke: p.smokes || 0,
-    };
-    this.throwBtns.forEach((b) => {
-      this.setT('ord' + b.kind, b.tx, `${b.key}${b.icon}${ordN[b.kind] ?? 0}`);
-      b.bg.setAlpha((ordN[b.kind] ?? 0) > 0 ? 1 : 0.45);
-    });
+  }
+
+  // throwable / shield readout: same strip, different payload
+  private drawItemStrip(slot: Slot, p: any) {
+    this.ammoIcon.setVisible(false);
+    if (slot.kind === 'shield') {
+      const up = !!p.guard;
+      this.setT('ammoT', this.ammoTitle, 'RIOT SHIELD', up ? '#4ade80' : '#94a3b8');
+      this.setT('ammoC', this.ammoCount, up ? 'UP' : 'DOWN', up ? '#4ade80' : '#cbd5e1');
+      this.setT('rld', this.reloadTx, up ? 'BLOCKS ALL BULLETS' : 'KNIFE ONLY',
+        up ? '#4ade80' : '#94a3b8');
+      this.reloadTx.setAlpha(0.9);
+      this.reloadBar.displayWidth = 1;
+      return;
+    }
+    const n = slot.id === 'grenade' ? (p.grenades || 0)
+      : slot.id === 'molly' ? (p.mollies || 0) : (p.smokes || 0);
+    this.setT('ammoT', this.ammoTitle, (ORD_ICON[slot.id] || '') + ' ' + slot.id.toUpperCase(),
+      n > 0 ? '#e2e8f0' : '#64748b');
+    this.setT('ammoC', this.ammoCount, 'x' + n, n > 0 ? '#ffffff' : '#ef4444');
+    this.setT('rld', this.reloadTx, n > 0 ? 'TAP SLOT / G TO THROW' : 'NONE LEFT - RESTOCK AT PADS',
+      n > 0 ? '#facc15' : '#ef4444');
+    this.reloadTx.setAlpha(1);
+    this.reloadBar.displayWidth = 1;
   }
 
   private drawLoadout(p: any) {
-    const keys = ['pistol', 'rifle', 'shotgun', 'sniper', 'laser', 'electric', 'shield'];
     const cols: Record<string, string> = {
-      pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
-      sniper: '#c084fc', laser: '#22d3ee', electric: '#a855f7', shield: '#4ade80',
+      pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c', sniper: '#c084fc',
+      laser: '#22d3ee', electric: '#a855f7', grenade: '#e2e8f0', smoke: '#e2e8f0',
+      molly: '#fdba74', shield: '#4ade80',
     };
-    const names: Record<string, string> = {
-      pistol: 'PISTOL', rifle: 'RIFLE', shotgun: 'SG',
-      sniper: 'SNP', laser: 'LSR', electric: 'ELC', shield: 'SHD',
-    };
-    keys.forEach((w, i) => {
+    SLOTS.forEach((slot, i) => {
       const s = this.loadSlots[i];
       if (!s) return;
-      const owned = w === 'pistol' || w === 'shield' || p[w] === true;
-      const cur = w === 'shield' ? !!p.guard : p.weapon === w;
-      this.setT('load' + i, s.tx, `${i + 1}\n${names[w]}`,
-        cur ? '#ffffff' : owned ? cols[w] : '#334155');
-      if (cur) {
-        s.bg.setFillStyle(0x0e2a3a, 0.95).setStrokeStyle(2.5, 0x22d3ee, 1);
+      const owned = slot.kind === 'gun' ? (slot.id === 'pistol' || p[slot.id] === true) : true;
+      const held = slot.id === this.activeSlot; // the switchable item in hand
+      const n = slot.kind === 'ord'
+        ? (slot.id === 'grenade' ? (p.grenades || 0)
+          : slot.id === 'molly' ? (p.mollies || 0) : (p.smokes || 0))
+        : -1;
+      const label = slot.kind === 'ord' ? `${slot.key}\n${slot.nm}${n}` : `${slot.key}\n${slot.nm}`;
+      this.setT('load' + i, s.tx, label,
+        held ? '#ffffff' : n === 0 ? '#475569' : owned ? cols[slot.id] : '#334155');
+      if (held) {
+        // the shield slot glows green while the stance is actually up
+        s.bg.setFillStyle(0x0e2a3a, 0.95)
+          .setStrokeStyle(2.5, slot.kind === 'shield' && p.guard ? 0x4ade80 : 0x22d3ee, 1);
       } else if (owned) {
         s.bg.setFillStyle(0x020617, 0.78).setStrokeStyle(2, 0x475569, 0.95);
       } else {
@@ -1954,7 +1983,7 @@ export class ArenaScene extends Phaser.Scene {
     // controls are taught once, in the lower band, then never shown again
     this.time.delayedCall(1400, () => {
       if (!this.scene.isActive()) return;
-      toast(this, 'R reload · F knife · Q guard · 1-6 guns', '#7dd3fc', 344);
+      toast(this, 'R reload - F knife - Q guard - 1-0 switch item', '#7dd3fc', 344);
     });
     // red alert edges as the match goes hot
     this.tweens.killTweensOf(this.dmgVin);
@@ -2181,8 +2210,10 @@ export class ArenaScene extends Phaser.Scene {
       }
     });
     this.tickFoeArcs(dt);
+    const edge = this.firing && !this.fireWas;
+    this.fireWas = this.firing;
     if (me && Session.room && playing) {
-      if (this.firing) this.fireNow();
+      if (this.firing) this.fireNow(edge);
       let dx = 0, dy = 0;
       if (this.keys.W.isDown || this.keys.UP.isDown) dy -= 1;
       if (this.keys.S.isDown || this.keys.DOWN.isDown) dy += 1;

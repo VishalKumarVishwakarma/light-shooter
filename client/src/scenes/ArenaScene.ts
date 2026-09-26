@@ -59,6 +59,9 @@ export class ArenaScene extends Phaser.Scene {
   clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[]; timers: Phaser.Time.TimerEvent[] }>();
   activeSlot = 'pistol'; // the switchable item in hand (gun, ord, or shield)
   private fireWas = false; // rising edge of the trigger, for one-shot items
+  private pendingSlot = ''; // gun asked for, not yet acknowledged by the server
+  private pendingAt = 0;
+  private pendingFire = false; // fire the moment that switch is confirmed
   keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -613,23 +616,81 @@ export class ArenaScene extends Phaser.Scene {
       ? w : 'pistol';
   }
 
-  // select a loadout slot. `use` = fire it now (tap on touch, click on the
+  // Select a loadout slot. `use` = fire it now (tap on touch, click on the
   // slot): guns equip, throwables toss, the shield raises the stance.
+  //
+  // A gun switch is a REQUEST, not a fact: the server owns p.weapon and only
+  // confirms it on the next patch. So the selection goes pending until the
+  // server agrees (or refuses) — otherwise the highlight snaps back on the
+  // first stale patch, and a tap fires the gun we were holding a moment ago.
   private selectSlot(id: string, use: boolean) {
     const slot = SLOTS.find((s) => s.id === id);
     if (!slot) return;
-    this.activeSlot = id;
     if (slot.kind === 'gun') {
+      const st: any = (Session.room as any)?.state?.players.get(this.meId);
+      if (st && id !== 'pistol' && st[id] !== true) {
+        // tell the player why nothing happened instead of a silent no-op
+        sfx.empty();
+        this.flashSlot(SLOTS.findIndex((s) => s.id === id), 380);
+        toast(this, `${slot.nm} not picked up yet — grab it with E`, '#facc15', 344);
+        return;
+      }
+      this.activeSlot = id;
+      this.pendingSlot = id;
+      this.pendingAt = this.time.now;
+      this.pendingFire = use;
       Session.room?.send('switch', { weapon: id });
       sfx.click();
-      if (use) this.fireNow(true);
-    } else if (slot.kind === 'ord') {
+      return;
+    }
+    // selecting anything but the shield means the stance comes down, so an
+    // armed throwable is always legal to use the moment you pick it
+    this.pendingSlot = '';
+    this.activeSlot = id;
+    if (slot.kind === 'ord') {
+      Session.room?.send('guard', { on: false });
       sfx.click();
       if (use) this.throwOrd(id); // arm now, toss on the key/fire button
     } else {
       Session.room?.send('guard', { on: true });
       sfx.guard(true);
     }
+  }
+
+  // called from drawAmmo on every local patch: settle an in-flight switch
+  private settlePending(p: any) {
+    if (!this.pendingSlot) {
+      // no request in flight: the server is the only truth for gun slots
+      if (isGunSlot(this.activeSlot) && p.weapon !== this.activeSlot) {
+        this.activeSlot = p.weapon;
+      }
+      return;
+    }
+    if (p.weapon === this.pendingSlot) {
+      const wantFire = this.pendingFire;
+      this.pendingSlot = '';
+      this.pendingFire = false;
+      if (wantFire) this.fireNow(true); // the new gun is live: it may fire
+      return;
+    }
+    if (this.time.now - this.pendingAt > 600) {
+      // never confirmed: refused (dead, wrong phase) or lost in the wire
+      this.pendingSlot = '';
+      this.pendingFire = false;
+      this.activeSlot = p.weapon;
+    }
+  }
+
+  // brief red flash on a slot that cannot be equipped
+  private flashSlot(idx: number, ms: number) {
+    const s = this.loadSlots[idx];
+    if (!s) return;
+    this.tweens.killTweensOf(s.bg);
+    s.bg.setStrokeStyle(2.5, 0xef4444, 1);
+    this.time.delayedCall(ms, () => {
+      const p: any = (Session.room as any)?.state?.players.get(this.meId);
+      if (p) this.drawLoadout(p);
+    });
   }
 
   // toss ordnance toward the cursor (shield must be lowered first)
@@ -1611,11 +1672,9 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private drawAmmo(p: any) {
-    // keep the strip in step with server truth: a respawn or a death resets
-    // the gun to the pistol, and a quick G/X/C throw doesn't change the slot
-    if (isGunSlot(this.activeSlot) && p.weapon !== this.activeSlot) {
-      this.activeSlot = p.weapon;
-    }
+    // settle any in-flight switch FIRST: it is the only thing that may
+    // override the server's truth about p.weapon
+    this.settlePending(p);
     const slot = SLOTS.find((s) => s.id === this.activeSlot);
     // non-gun slots render their own readout in the same strip
     if (slot && slot.kind !== 'gun') {
@@ -1628,7 +1687,20 @@ export class ArenaScene extends Phaser.Scene {
       pistol: '#94a3b8', rifle: '#facc15', shotgun: '#fb923c',
       sniper: '#c084fc', laser: '#22d3ee', electric: '#a855f7',
     };
-    this.ammoIcon.setVisible(true).setTexture(p.weapon === 'electric' ? 'egun' : 'gun');
+    this.ammoIcon.setVisible(true);
+    // while a switch is in flight, name the gun we are switching TO and admit
+    // it: the old name beside the new slot highlight is what read as broken
+    if (this.pendingSlot) {
+      this.ammoIcon.setTexture(this.pendingSlot === 'electric' ? 'egun' : 'gun');
+      this.setT('ammoT', this.ammoTitle, this.pendingSlot.toUpperCase(), colors[this.pendingSlot] || '#94a3b8');
+      this.setT('ammoC', this.ammoCount, '···', colors[this.pendingSlot] || '#94a3b8');
+      this.setT('rld', this.reloadTx, 'SWITCHING…', '#94a3b8');
+      this.reloadTx.setAlpha(0.8);
+      this.reloadBar.displayWidth = 1;
+      this.drawLoadout(p);
+      return;
+    }
+    this.ammoIcon.setTexture(p.weapon === 'electric' ? 'egun' : 'gun');
     this.setT('ammoT', this.ammoTitle, p.weapon.toUpperCase(), colors[p.weapon] || '#94a3b8');
     const left = p.weapon === 'rifle' ? p.ammo : p.weapon === 'shotgun' ? p.sammo
       : p.weapon === 'sniper' ? p.nammo : p.weapon === 'laser' ? p.lammo
@@ -2209,6 +2281,12 @@ export class ArenaScene extends Phaser.Scene {
       }
     });
     this.tickFoeArcs(dt);
+    // a switch the server never acknowledges must not strand the strip on
+    // "SWITCHING" - state changes drive the happy path, this drives the timeout
+    if (this.pendingSlot) {
+      const sp: any = (Session.room as any)?.state?.players.get(this.meId);
+      if (sp) this.settlePending(sp);
+    }
     const edge = this.firing && !this.fireWas;
     this.fireWas = this.firing;
     if (me && Session.room && playing) {

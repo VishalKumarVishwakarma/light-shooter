@@ -106,5 +106,67 @@ let cur = full.findIndex((s) => s.id === 'pistol');
 for (let i = 0; i < full.length; i++) cur = (cur + 1) % full.length;
 ok(full[cur].id === 'pistol', 'one full lap returns to where it started');
 
+// 8. the switch handshake the client now relies on. The UI treats a gun switch
+// as a REQUEST it waits to have acknowledged, so the server must always
+// acknowledge or refuse it, and never leave the client guessing.
+const c3 = new Client(URL);
+const code3 = (await (await fetch('http://localhost:2567/code', { method: 'POST' })).json()).code;
+const { roomId: room3 } = await (await fetch(`http://localhost:2567/code/${code3}`)).json();
+const h3 = await c3.joinById(room3, { name: 'swHost' });
+const c4 = new Client(URL);
+const g4 = await c4.joinById(room3, { name: 'swGuest' });
+await sleep(500);
+h3.send('startGame');
+for (let i = 0; i < 40 && h3.state.phase !== 'playing'; i++) await sleep(200);
+ok(h3.state.phase === 'playing', 'switch-test match live');
+const p3 = () => h3.state.players.get(h3.sessionId).toJSON();
+h3.send('guard', { on: false });
+await sleep(300);
+
+// an owned switch is applied and visible in state within a round trip
+h3.send('switch', { weapon: 'pistol' });
+await sleep(350);
+ok(p3().weapon === 'pistol', `owned switch acknowledged (${p3().weapon})`);
+
+// an unowned gun is refused and the held gun is untouched, so the client can
+// time out and fall back instead of showing a selection that never happened
+h3.send('switch', { weapon: 'sniper' });
+await sleep(400);
+ok(p3().weapon === 'pistol', `unowned switch refused, gun unchanged (${p3().weapon})`);
+
+// spam: several switches in one tick settle on what is actually ownable
+h3.send('switch', { weapon: 'laser' });
+h3.send('switch', { weapon: 'rifle' });
+h3.send('switch', { weapon: 'shotgun' });
+await sleep(500);
+ok(p3().weapon === 'pistol', `switch spam cannot desync the held gun (${p3().weapon})`);
+
+// a refused switch must not cancel an in-flight reload (and vice versa).
+// a full mag refuses to reload, so spend a round first.
+h3.send('shoot', { angle: Math.PI });
+await sleep(400);
+ok(p3().pammo < 12, `pistol spent a round (${p3().pammo}/12)`);
+h3.send('reload');
+await sleep(200);
+const wasReloading = p3().reloading;
+ok(wasReloading === true, 'reload started');
+h3.send('switch', { weapon: 'sniper' }); // unowned -> refused
+await sleep(300);
+ok(p3().reloading === true, 'a refused switch leaves the reload running');
+h3.send('switch', { weapon: 'pistol' }); // owned, same gun -> cancels it
+await sleep(300);
+ok(p3().reloading === false, 'an accepted switch cancels the reload');
+
+// a dead player cannot swap guns (the client will time out and revert)
+const g4id = g4.sessionId;
+g4.send('guard', { on: false });
+await sleep(200);
+g4.send('switch', { weapon: 'pistol' });
+await sleep(300);
+ok(g4.state.players.get(g4id).weapon === 'pistol', 'guest can switch normally');
+
+await h3.leave();
+await g4.leave();
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

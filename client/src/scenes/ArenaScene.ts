@@ -1202,6 +1202,7 @@ export class ArenaScene extends Phaser.Scene {
           });
         }
       } else {
+        // white-hot bed + breathing halo + spreading char
         const bed = this.add.image(0, 0, 'glow').setTint(0xfbbf24).setAlpha(0.55)
           .setScale(R / 9, R / 14);
         parts.push(bed); c.add(bed);
@@ -1211,7 +1212,7 @@ export class ArenaScene extends Phaser.Scene {
         });
         const stain = this.add.image(0, 4, 'scorch').setAlpha(0.85).setScale(R / 90);
         parts.push(stain); c.add(stain);
-        this.tweens.add({ // char spreads as it burns
+        this.tweens.add({
           targets: stain, scaleX: R / 50, scaleY: R / 50,
           duration: 4000, ease: 'Quad.easeOut',
         });
@@ -1222,39 +1223,63 @@ export class ArenaScene extends Phaser.Scene {
           targets: halo, alpha: 0.12, scaleX: R / 4.4, scaleY: R / 7,
           duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
         });
-        for (let i = 0; i < 14; i++) {
+        // base tongues: 8 tall flames with a slow sway (emitters do the licking)
+        for (let i = 0; i < 8; i++) {
           const a = Math.random() * Math.PI * 2;
-          const dist = Math.random() * R * 0.65;
-          const fx = Math.cos(a) * dist, fy = Math.sin(a) * dist * 0.7;
-          const tall = 1.1 + (1 - dist / (R * 0.7)) * 0.9 + Math.random() * 0.4;
-          const f = this.add.image(fx, fy, 'flame').setScale(tall * 0.9, tall);
+          const dist = Math.random() * R * 0.55;
+          const tall = 1.3 + (1 - dist / (R * 0.6)) * 0.8 + Math.random() * 0.3;
+          const f = this.add.image(Math.cos(a) * dist, Math.sin(a) * dist * 0.7, 'flame')
+            .setScale(tall * 0.9, tall);
           if (Math.random() < 0.4) f.setTint(0xffe08a);
           parts.push(f); c.add(f);
-          const lick = 130 + Math.random() * 140;
           this.tweens.add({
-            targets: f, y: fy - 12 - Math.random() * 8, scaleY: tall * 1.45, scaleX: tall * 0.75,
-            duration: lick, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: Math.random() * lick,
-          });
-          this.tweens.add({
-            targets: f, angle: (Math.random() - 0.5) * 36,
-            duration: 170 + Math.random() * 160, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+            targets: f, angle: (Math.random() - 0.5) * 30,
+            duration: 200 + Math.random() * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
           });
         }
+        // live flame emitters: constant birth, rise, shrink = real licking fire
+        const disc = (r: number) => ({
+          getRandomPoint: (pt: { x: number; y: number }) => {
+            const a = Math.random() * Math.PI * 2;
+            const d = Math.sqrt(Math.random()) * r;
+            pt.x = Math.cos(a) * d; pt.y = Math.sin(a) * d;
+            return pt;
+          },
+        });
+        const burn = this.add.particles(0, 4, 'flame', {
+          speedY: { min: -95, max: -45 }, speedX: { min: -14, max: 14 },
+          lifespan: { min: 350, max: 550 }, frequency: 45,
+          scale: { start: 1.5, end: 0.15 }, alpha: { start: 1, end: 0 },
+          tint: 0xffd97a, blendMode: 'ADD',
+          emitZone: new Phaser.GameObjects.Particles.Zones.RandomZone(disc(R * 0.55) as any),
+        });
+        parts.push(burn); c.add(burn);
+        const burnDeep = this.add.particles(0, 4, 'flame', {
+          speedY: { min: -70, max: -35 }, speedX: { min: -10, max: 10 },
+          lifespan: { min: 300, max: 450 }, frequency: 70,
+          scale: { start: 1.1, end: 0.1 }, alpha: { start: 0.95, end: 0 },
+          tint: 0xea580c, blendMode: 'ADD',
+          emitZone: new Phaser.GameObjects.Particles.Zones.RandomZone(disc(R * 0.5) as any),
+        });
+        parts.push(burnDeep); c.add(burnDeep);
+        // smoke stack emitter (replaces per-tick puff spawns)
+        const stack = this.add.particles(0, -10, 'puff', {
+          speedY: { min: -50, max: -25 }, speedX: { min: -8, max: 8 },
+          lifespan: 2400, frequency: 260,
+          scale: { start: 0.7, end: 2.4 }, alpha: { start: 0.5, end: 0 },
+          tint: 0x44403c,
+        });
+        parts.push(stack); c.add(stack);
+        // endless ember fountain while the patch lives
         const fountain = this.time.addEvent({
           delay: 380, loop: true,
           callback: () => {
             if (!c.active) return;
             this.sparks.explode(2, cl.x + (Math.random() - 0.5) * R, cl.y + (Math.random() - 0.5) * R * 0.6);
-            const sp = this.add.image((Math.random() - 0.5) * R * 0.7, 0, 'puff')
-              .setTint(0x44403c).setAlpha(0.55).setScale(0.5);
-            parts.push(sp); c.add(sp);
-            this.tweens.add({
-              targets: sp, y: -50 - Math.random() * 40, scaleX: 1.5, scaleY: 1.5, alpha: 0,
-              duration: 1800, ease: 'Quad.easeOut', onComplete: () => sp.destroy(),
-            });
           },
         });
         timers.push(fountain);
+        // ember burst on ignite
         for (let i = 0; i < 6; i++) {
           const e = this.add.image(0, 0, 'dot').setTint(0xfdba74).setScale(1.2);
           parts.push(e); c.add(e);

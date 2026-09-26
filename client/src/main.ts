@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
 import { LobbyScene } from './scenes/LobbyScene';
-import { ArenaScene } from './scenes/ArenaScene';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -15,7 +14,11 @@ const game = new Phaser.Game({
   fps: { target: 60, smoothStep: true }, // clamp delta spikes so hitches don't cascade
   dom: { createContainer: true }, // required for the callsign <input/> overlay
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [BootScene, MenuScene, LobbyScene, ArenaScene],
+  // The arena is NOT in this list: it is the heaviest thing we ship and the
+  // menu never touches it. LobbyScene warms it on entry (the last stop before a
+  // match), so the first paint stays light and the match still starts
+  // instantly. Same class, same pixels — only the download is deferred.
+  scene: [BootScene, MenuScene, LobbyScene],
 });
 watchContextLoss(game);
 

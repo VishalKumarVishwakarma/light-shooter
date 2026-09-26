@@ -4,7 +4,7 @@ import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, displayText, kicker } from '../fonts';
-import qrcode from 'qrcode-generator';
+import { ensureArena, preloadArena } from './loadArena';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
 import { SERVER_HTTP } from '../net/serverUrl';
@@ -18,12 +18,27 @@ export function roomLink(code: string) {
   return base;
 }
 
+// The QR encoder is only needed when someone opens the share sheet, so it is
+// pulled in on demand (warmed on lobby entry, so the click never waits).
+let qrLib: any = null;
+let qrPending: Promise<any> | null = null;
+function loadQr() {
+  if (qrLib) return Promise.resolve(qrLib);
+  if (!qrPending) {
+    qrPending = import('qrcode-generator')
+      .then((m: any) => { qrLib = m.default || m; return qrLib; })
+      .catch((e) => { qrPending = null; throw e; });
+  }
+  return qrPending;
+}
+export function preloadQr() { void loadQr().catch(() => { /* retried on demand */ }); }
+
 function qrKey(scene: Phaser.Scene, text: string) {
   const key = 'qr_' + text;
   if (scene.textures.exists(key)) return key;
   // NOTE: never evict these (textures.remove + a live image = updateUVs crash).
   // Keys are tiny canvases, one per distinct link — bounded in practice.
-  const qr = qrcode(0, 'M');
+  const qr = qrLib(0, 'M');
   qr.addData(text);
   qr.make();
   const n = qr.getModuleCount(), s = 5, pad = 10;
@@ -61,6 +76,10 @@ export class LobbyScene extends Phaser.Scene {
   constructor() { super('lobby'); }
 
   create() {
+    // warm the two deferred chunks while the player reads the code: the arena
+    // (needed the instant a match starts) and the invite QR
+    preloadQr();
+    void preloadArena(this.game);
     ensureTextures(this);
     this.cameras.main.fadeIn(250, 0, 0, 0);
     this.gone = false;
@@ -185,7 +204,14 @@ export class LobbyScene extends Phaser.Scene {
     const code = Session.code;
     const link = roomLink(code);
     const m = modal(this, 'INVITE PLAYERS', 500, 420);
-    m.body.add(this.add.image(0, -80, qrKey(this, link)).setDisplaySize(150, 150));
+    // the QR encoder arrives as its own chunk; the modal's 240ms open animation
+    // covers the fetch, so the code is in place before anyone can look at it
+    const qrSlot = this.add.image(0, -80, 'btn220').setVisible(false);
+    m.body.add(qrSlot);
+    void loadQr().then(() => {
+      if (!this.scene.isActive() || !m.root.active) return;
+      qrSlot.setTexture(qrKey(this, link)).setDisplaySize(150, 150).setVisible(true);
+    }).catch(() => { /* link + code still work without the picture */ });
     const linkT = this.add.text(0, 20, link, {
       fontFamily: MONO, fontSize: '12px', color: '#7dd3fc', align: 'center', wordWrap: { width: 440 },
     }).setOrigin(0.5, 0);
@@ -380,7 +406,12 @@ export class LobbyScene extends Phaser.Scene {
     if (!Session.room) return;
     if (phase === 'playing' && !this.gone) {
       this.gone = true;
-      this.scene.start('arena');
+      // the arena ships as its own chunk; make sure it is registered before the
+      // switch (preloaded during the countdown, so this resolves immediately)
+      void ensureArena(this.game).then((ok) => {
+        if (ok) this.scene.start('arena');
+        else toast(this, 'could not load the arena - refresh', '#ef4444', 348);
+      });
     } else if (phase === 'countdown') {
       const s = Math.ceil((Session.room as any).state.countdown);
       if (s !== this.lastCdSec) {

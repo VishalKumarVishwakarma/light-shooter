@@ -1089,21 +1089,31 @@ export class ArenaScene extends Phaser.Scene {
     room.state.bullets.onAdd((b: any, id: string) => {
       if (!live()) return;
       const foe = b.ownerId !== this.meId;
-      const img = this.add.image(b.x, b.y, 'bolt').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
       const bw = typeof b.weapon === 'string' ? b.weapon : 'pistol';
+      const a0 = Math.atan2(b.vy, b.vx);
+      // spawn at the RENDERED barrel (remotes lag 66ms behind server truth —
+      // spawning at truth pops tracers out of thin air ahead of the gun)
+      const own0 = this.players.get(b.ownerId);
+      const sx = own0 ? own0.gfx.x + Math.cos(a0) * MUZZLE : b.x;
+      const sy = own0 ? own0.gfx.y + Math.sin(a0) * MUZZLE : b.y;
+      const img = this.add.image(sx, sy, 'bolt').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
       if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
       else if (foe) img.setTint(0xfb923c);
-      img.setRotation(Math.atan2(b.vy, b.vx));
+      img.setRotation(a0);
       img.setScale(bw === 'laser' ? 1.4 : 1.0, 1.0); // laser head rides inside its beam
+      img.setAlpha(0); // fade in: no spawn pop, then dead-reckoning takes over
+      this.tweens.add({ targets: img, alpha: 1, duration: 90 });
       this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
-      // muzzle flash + recoil at the shooter's barrel
+      // muzzle flash + recoil at the shooter's barrel — foes only.
+      // (own shots already flashed + recoiled at fire time; the echo would double it)
       const own = this.players.get(b.ownerId);
-      if (own) {
+      if (own && foe) {
         const a = Math.atan2(b.vy, b.vx);
-        this.flash(own.gfx.x + Math.cos(a) * MUZZLE, own.gfx.y + Math.sin(a) * MUZZLE, a, false, bw === 'laser' ? 0x22d3ee : 0);
+        const mx = own.gfx.x + Math.cos(a) * MUZZLE, my = own.gfx.y + Math.sin(a) * MUZZLE;
+        this.flash(mx, my, a, false, bw === 'laser' ? 0x22d3ee : 0);
         this.recoil(own.gun);
-        // enemy lasers burn their beam on arrival (own beam already drew at fire time)
-        if (bw === 'laser' && foe) this.beam(b.x, b.y, a);
+        // enemy lasers burn their beam from the visible barrel too
+        if (bw === 'laser') this.beam(mx, my, a);
       }
       // distant guns stay audible: correct weapon, volume falls off with range.
       // throttled per shooter so a shotgun volley (6 pellets, 1 tick) booms once.

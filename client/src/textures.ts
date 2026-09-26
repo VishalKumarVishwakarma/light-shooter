@@ -279,35 +279,52 @@ function scorch() {
   return c;
 }
 
-// riot barrier: frontal energy shield (tall axis = perpendicular to aim)
+// ballistic riot shield: transparent armored glass in a steel frame (tall axis
+// = perpendicular to aim). Soldier shows through the glass.
 function guardTex() {
-  const { c, ctx } = cv(20, 52);
-  // outer glow shell
-  const glow = ctx.createLinearGradient(0, 0, 20, 0);
-  glow.addColorStop(0, 'rgba(74,222,128,0)');
-  glow.addColorStop(0.5, 'rgba(74,222,128,0.55)');
-  glow.addColorStop(1, 'rgba(74,222,128,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, 20, 52);
-  // glass body
-  const glass = ctx.createLinearGradient(0, 0, 20, 0);
-  glass.addColorStop(0, 'rgba(6,40,24,0.85)');
-  glass.addColorStop(0.5, 'rgba(34,197,94,0.5)');
-  glass.addColorStop(1, 'rgba(6,40,24,0.85)');
+  const { c, ctx } = cv(24, 56);
+  // steel frame: top/bottom rails + side stiles with brushed gradient
+  const steel = ctx.createLinearGradient(0, 0, 24, 0);
+  steel.addColorStop(0, '#3f4753');
+  steel.addColorStop(0.5, '#9aa3b2');
+  steel.addColorStop(1, '#333a45');
+  ctx.fillStyle = steel;
+  ctx.fillRect(0, 0, 24, 6); // top rail
+  ctx.fillRect(0, 50, 24, 6); // bottom rail
+  ctx.fillRect(0, 0, 4, 56); // left stile
+  ctx.fillRect(20, 0, 4, 56); // right stile
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'; // rail highlight
+  ctx.fillRect(0, 0, 24, 1.5);
+  ctx.fillRect(0, 0, 1.5, 56);
+  // armored glass: barely-there tint so the soldier reads through
+  const glass = ctx.createLinearGradient(4, 0, 20, 0);
+  glass.addColorStop(0, 'rgba(140,190,220,0.28)');
+  glass.addColorStop(0.5, 'rgba(200,235,250,0.14)');
+  glass.addColorStop(1, 'rgba(140,190,220,0.28)');
   ctx.fillStyle = glass;
+  ctx.fillRect(4, 6, 16, 44);
+  // diagonal reflection sweep
+  ctx.fillStyle = 'rgba(255,255,255,0.30)';
   ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(4, 2, 12, 48, 6);
-  else ctx.rect(4, 2, 12, 48);
-  ctx.fill();
-  // bright rims + slats
-  ctx.fillStyle = 'rgba(187,247,208,0.95)';
-  ctx.fillRect(4, 2, 2, 48);
-  ctx.fillRect(14, 2, 2, 48);
-  ctx.fillStyle = 'rgba(187,247,208,0.6)';
-  for (const y of [12, 24, 36]) ctx.fillRect(5, y, 10, 2);
-  // top shine
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillRect(6, 3, 8, 2);
+  ctx.moveTo(4, 50); ctx.lineTo(12, 6); ctx.lineTo(17, 6); ctx.lineTo(9, 50);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(11, 50); ctx.lineTo(19, 6); ctx.lineTo(20, 6); ctx.lineTo(20, 14); ctx.lineTo(14, 50);
+  ctx.closePath(); ctx.fill();
+  // center spine + rivets
+  ctx.fillStyle = '#2b313b';
+  ctx.fillRect(11, 6, 2, 44);
+  ctx.fillStyle = '#d7dde6';
+  for (const [x, y] of [[6, 9], [18, 9], [6, 47], [18, 47], [12, 28]] as Array<[number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+  // scratches + edge wear
+  ctx.strokeStyle = 'rgba(230,240,248,0.5)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(6, 18); ctx.lineTo(14, 30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(16, 36); ctx.lineTo(10, 44); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(0.75, 0.75, 22.5, 54.5); // dark outer rim
   return c;
 }
 

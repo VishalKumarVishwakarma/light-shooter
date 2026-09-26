@@ -885,6 +885,15 @@ export class ArenaScene extends Phaser.Scene {
       // floating damage number on every impact (grey BLOCKED when shielded)
       const blocked = (h.dmg ?? 0) <= 0;
       this.damageNumber(h.x, h.y, blocked ? 'BLOCKED' : `-${h.dmg ?? 0}`, blocked ? '#94a3b8' : '#fecaca');
+      // blocked on a raised shield: the barrier visibly takes the hit
+      if (blocked && h.to) {
+        const o = this.players.get(h.to);
+        if (o && o.gring.visible) {
+          this.tweens.killTweensOf(o.gring);
+          o.gring.setScale(1.18);
+          this.tweens.add({ targets: o.gring, scaleX: 1, scaleY: 1, duration: 180, ease: 'Quad.easeOut' });
+        }
+      }
       // damage direction arc for the victim (screen-edge red arc toward the shooter)
       const me = this.players.get(this.meId);
       if (h.to === this.meId && me && h.ox !== undefined && h.oy !== undefined) {
@@ -1815,6 +1824,8 @@ export class ArenaScene extends Phaser.Scene {
       o.label.setVisible(!vanished);
       if (o.gring.visible) { // riot barrier faces the aim (self) or the gun (foes)
         o.gring.setRotation(id === this.meId ? this.lastAim : o.gun.rotation);
+        const sh = o.gring.getAt(0) as Phaser.GameObjects.Image; // glass shimmer
+        sh.setAlpha(0.8 + 0.2 * Math.sin(_t / 300 + h));
       }
       if (o.ring.visible) {
         const s = 1 + 0.09 * Math.sin(_t / 240 + h);

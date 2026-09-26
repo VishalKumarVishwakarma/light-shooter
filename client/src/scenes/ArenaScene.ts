@@ -281,23 +281,22 @@ export class ArenaScene extends Phaser.Scene {
       const next = owned[(owned.indexOf(me?.weapon) + 1) % owned.length];
       Session.room?.send('switch', { weapon: next });
     });
-    // ---- BOTTOM DASHBOARD (y >= 430) ----------------------------------
-    // Everything informational lives in one band across the bottom; the whole
-    // upper screen is left to the fight. Three columns, no overlap:
-    //   LEFT   x 6..250    vitals · status · kill feed · ordnance · stance
-    //   CENTER x 252..700  diagnostics · clock · objective · loadout · grab
-    //   RIGHT  x 706..954  ammo · minimap · standings
-    // HP bar (left column): frame, ghost damage trail, gloss, segment ticks
-    this.hpFrame = this.add.rectangle(6, 444, 240, 24, 0x0b1220, 0.85).setOrigin(0, 0.5)
+    // ---- READOUTS: the three things you must never hunt for -------------
+    //   TOP LEFT   health + status (shield / haste / electric lock)
+    //   TOP MIDDLE the match timer (+ streak stars, objective, heading)
+    //   TOP RIGHT  the gun in your hands and its ammo
+    // Everything else (feed, controls, map, standings) stays in the bottom band.
+    // HP bar (top-left): frame, ghost damage trail, gloss, segment ticks
+    this.hpFrame = this.add.rectangle(10, 16, 236, 24, 0x0b1220, 0.85).setOrigin(0, 0.5)
       .setStrokeStyle(2.5, 0x22d3ee, 0.8).setScrollFactor(0).setDepth(10);
-    this.add.rectangle(10, 444, 232, 16, 0x020617, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.hpGhost = this.add.rectangle(10, 444, 232, 16, 0xfca5a5).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.hpFill = this.add.rectangle(10, 444, 232, 16, 0x22c55e).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
-    this.add.rectangle(10, 437.5, 232, 4, 0xffffff, 0.16).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
+    this.add.rectangle(14, 16, 228, 16, 0x020617, 1).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.hpGhost = this.add.rectangle(14, 16, 228, 16, 0xfca5a5).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.hpFill = this.add.rectangle(14, 16, 228, 16, 0x22c55e).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.add.rectangle(14, 9.5, 228, 4, 0xffffff, 0.16).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     for (const f of [0.25, 0.5, 0.75]) {
-      this.add.rectangle(10 + 232 * f, 444, 2, 16, 0x000000, 0.55).setScrollFactor(0).setDepth(11);
+      this.add.rectangle(14 + 228 * f, 16, 2, 16, 0x000000, 0.55).setScrollFactor(0).setDepth(11);
     }
-    this.hpLabel = this.add.text(126, 444, 'HP 100 · 0 K', {
+    this.hpLabel = this.add.text(128, 16, 'HP 100 · 0 K', {
       fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#fff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
     this.hpLabel.setStroke('#000000', 3);
@@ -314,28 +313,28 @@ export class ArenaScene extends Phaser.Scene {
     // red edge flash on damage
     this.dmgVin = this.add.image(480, 300, 'vignette').setTint(0xef4444)
       .setDisplaySize(960, 600).setScrollFactor(0).setDepth(8).setAlpha(0);
-    // ammo strip (right column): icon + weapon + count, and the whole strip
-    // IS the reload button — one control instead of a card plus a button
+    // ammo strip (top-right): icon + weapon + count, and the whole strip IS
+    // the reload button — one control instead of a card plus a button
     const ammoCard = this.add.graphics().setScrollFactor(0).setDepth(9);
     ammoCard.fillStyle(0x020617, 0.62);
-    ammoCard.fillRoundedRect(706, 432, 248, 30, 8);
+    ammoCard.fillRoundedRect(706, 2, 248, 30, 8);
     ammoCard.lineStyle(2, 0x22d3ee, 0.5);
-    ammoCard.strokeRoundedRect(706, 432, 248, 30, 8);
-    this.add.image(722, 447, 'gun').setScale(0.55).setScrollFactor(0).setDepth(10).setAlpha(0.9);
-    this.ammoTitle = this.add.text(738, 437, 'PISTOL', {
+    ammoCard.strokeRoundedRect(706, 2, 248, 30, 8);
+    this.add.image(722, 17, 'gun').setScale(0.55).setScrollFactor(0).setDepth(10).setAlpha(0.9);
+    this.ammoTitle = this.add.text(738, 7, 'PISTOL', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#94a3b8',
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(10);
-    this.ammoCount = this.add.text(946, 434, '12/12', {
+    this.ammoCount = this.add.text(946, 4, '12/12', {
       fontFamily: COND, fontSize: '20px', fontStyle: '700', color: '#fff',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
     this.ammoCount.setStroke('#020617', 4);
     this.ammoCount.setShadow(0, 0, '#22d3ee', 10, false, true);
     // reload progress = the strip's own underline; the strip itself reloads
-    this.add.rectangle(952, 463, 240, 3, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
-    this.reloadBar = this.add.rectangle(952, 463, 0, 3, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
-    this.reloadBg = this.add.rectangle(830, 447, 248, 30, 0xffffff, 0)
+    this.add.rectangle(952, 33, 240, 3, 0x000000, 0.5).setOrigin(1, 0).setScrollFactor(0).setDepth(10);
+    this.reloadBar = this.add.rectangle(952, 33, 0, 3, 0xfb923c).setOrigin(1, 0).setScrollFactor(0).setDepth(11);
+    this.reloadBg = this.add.rectangle(830, 17, 248, 30, 0xffffff, 0)
       .setScrollFactor(0).setDepth(12);
-    this.reloadTx = this.add.text(838, 447, '', {
+    this.reloadTx = this.add.text(838, 17, '', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     this.reloadTx.setStroke('#020617', 3);
@@ -409,12 +408,12 @@ export class ArenaScene extends Phaser.Scene {
     // lock share a single strip, so effects never stack three rows deep
     this.statusSegs = [];
     for (let i = 0; i < 3; i++) {
-      const x = 6 + i * 78;
-      const bg = this.add.rectangle(x, 470, 74, 15, 0x020617, 0.66)
+      const x = 10 + i * 78;
+      const bg = this.add.rectangle(x, 44, 74, 15, 0x020617, 0.66)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
-      const fill = this.add.rectangle(x + 2, 470, 0, 11, 0xffffff)
+      const fill = this.add.rectangle(x + 2, 44, 0, 11, 0xffffff)
         .setOrigin(0, 0.5).setScrollFactor(0).setDepth(10).setVisible(false);
-      const tx = this.add.text(x + 6, 470, '', {
+      const tx = this.add.text(x + 6, 44, '', {
         fontFamily: COND, fontSize: '10px', fontStyle: '700', color: '#e2e8f0',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
       tx.setStroke('#020617', 2);
@@ -431,29 +430,29 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.grabBtn.c.setVisible(false);
     this.grabBtn.c.setScale(0.8);
-    // clock + wanted stars share one pill in the center column
+    // the match timer sits dead top-middle, with the streak stars in the pill
     const clockCard = this.add.graphics().setScrollFactor(0).setDepth(10);
     clockCard.fillStyle(0x020617, 0.72);
-    clockCard.fillRoundedRect(370, 431, 220, 30, 10);
+    clockCard.fillRoundedRect(370, 2, 220, 30, 10);
     clockCard.lineStyle(2, 0xfacc15, 0.55);
-    clockCard.strokeRoundedRect(370, 431, 220, 30, 10);
-    const liveDot = this.add.circle(390, 446, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
+    clockCard.strokeRoundedRect(370, 2, 220, 30, 10);
+    const liveDot = this.add.circle(390, 17, 4.5, 0xef4444).setScrollFactor(0).setDepth(11);
     this.tweens.add({ targets: liveDot, alpha: 0.25, duration: 800, yoyo: true, repeat: -1 });
-    this.clockText = this.add.text(436, 446, '2:00', {
+    this.clockText = this.add.text(436, 17, '2:00', {
       fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.clockText.setStroke('#020617', 3);
     this.clockText.setShadow(0, 0, '#facc15', 10, false, true);
-    this.compassText = this.add.text(700, 474, 'HDG 090 · E', {
+    this.compassText = this.add.text(700, 46, 'HDG 090 · E', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: '#7dd3fc',
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.compassText.setStroke('#020617', 3);
     // wanted stars only render while a streak is live, so they cost nothing
-    this.wantedText = this.add.text(552, 446, '', {
+    this.wantedText = this.add.text(552, 17, '', {
       fontFamily: COND, fontSize: '15px', fontStyle: '700', color: '#facc15',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.wantedText.setStroke('#000000', 3);
-    this.roundText = this.add.text(480, 474, '', {
+    this.roundText = this.add.text(480, 46, '', {
       fontFamily: COND, fontSize: '12px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.roundText.setStroke('#020617', 3);
@@ -510,7 +509,7 @@ export class ArenaScene extends Phaser.Scene {
       // clicks on HUD buttons belong to the buttons, not the trigger
       if (this.grabBtn?.c.visible
         && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
-      if (pt.y > 430 && pt.y < 466 && pt.x > 700) return; // ammo strip = reload
+      if (pt.y < 40 && pt.x > 700) return; // ammo strip = reload
       if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return; // guard btn
       if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return; // ordnance btns
       if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return; // loadout strip
@@ -565,7 +564,7 @@ export class ArenaScene extends Phaser.Scene {
     this.touchMode = true;
     // HUD buttons handle themselves; sticks ignore those taps
     if (this.grabBtn?.c.visible && Math.abs(pt.x - 480) < 100 && Math.abs(pt.y - 562) < 28) return;
-    if (pt.y > 430 && pt.y < 466 && pt.x > 700) return; // ammo strip = reload
+    if (pt.y < 40 && pt.x > 700) return; // ammo strip = reload
     if (Math.abs(pt.x - 76) < 68 && Math.abs(pt.y - 582) < 16) return;
     if (pt.y > 536 && pt.y < 564 && pt.x > 5 && pt.x < 150) return;
     if (pt.y > 488 && pt.y < 524 && Math.abs(pt.x - 480) < 155) return;
@@ -1743,10 +1742,10 @@ export class ArenaScene extends Phaser.Scene {
 
   private paintHp(main: number, ghost: number) {
     const pct = Math.max(0, Math.min(1, main / 100));
-    this.hpFill.displayWidth = Math.max(1, 232 * pct);
+    this.hpFill.displayWidth = Math.max(1, 228 * pct);
     this.hpFill.setFillStyle(this.hpColor(pct));
     const gpct = Math.max(0, Math.min(1, ghost / 100));
-    this.hpGhost.displayWidth = Math.max(1, 232 * gpct);
+    this.hpGhost.displayWidth = Math.max(1, 228 * gpct);
   }
 
   private drawMinimap() {

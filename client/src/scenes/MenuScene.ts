@@ -219,69 +219,125 @@ export class MenuScene extends Phaser.Scene {
     return t;
   }
 
+  // Modal rows are WRAPPED and stacked by their real measured height, laid
+  // out in columns, and MEASURED BEFORE the panel exists so the glass can be
+  // sized to the content. One plan drives both the measurement and the render,
+  // so the two can never disagree about how tall a row is.
+  private planRows(rows: Array<[string, string]>, w: number, size = 16, gap = 10, columns = 1) {
+    const colW = (w - 52) / columns;
+    const per = Math.ceil(rows.length / columns);
+    const probe = this.add.text(0, 0, '', {
+      fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600',
+      wordWrap: { width: colW - 16 }, lineSpacing: 5,
+    });
+    const items: Array<{ s: string; x: number; y: number; h: number }> = [];
+    let tallest = 0;
+    for (let c = 0; c < columns; c++) {
+      let y = 0;
+      for (const [icon, txt] of rows.slice(c * per, (c + 1) * per)) {
+        const s = icon ? `${icon}   ${txt}` : txt;
+        probe.setText(s);
+        items.push({ s, x: -w / 2 + 26 + c * colW, y, h: probe.height });
+        y += probe.height + gap;
+      }
+      tallest = Math.max(tallest, y - gap);
+    }
+    probe.destroy();
+    return { items, height: tallest, colW };
+  }
+
+  private drawPlan(m: any, plan: ReturnType<MenuScene['planRows']>, yTop: number,
+    size = 16, color = TXT) {
+    for (const it of plan.items) {
+      const row = this.add.text(it.x, yTop + it.y, it.s, {
+        fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600', color,
+        wordWrap: { width: plan.colW - 16 }, lineSpacing: 5,
+      }).setOrigin(0, 0);
+      row.setStroke('#020617', 3);
+      m.body.add(row);
+    }
+  }
+
+  // vertical space a modal body actually has: below the title block, above the
+  // bottom rim. The body container sits 22px below the panel centre.
+  private bodyTop(h: number) {
+    return -h / 2 + 92;
+  }
+
   private openSettings() {
-    const m = modal(this, 'SETTINGS', 520, 360);
-    const y0 = -110;
-    const rowLabel = (y: number, str: string) => {
-      const t = this.add.text(-220, y, str, {
-        fontFamily: COND, fontSize: '15px', fontStyle: '700', color: SUB,
-      }).setOrigin(0, 0.5);
+    const W = 520;
+    // the control list used to be one 60-char line per row, which ran ~110px
+    // past the right edge of a 520-wide panel
+    const ctl: Array<[string, string]> = [
+      ['', 'move WASD / arrows · aim with mouse · hold click to fire'],
+      ['', 'wheel or 1-0 switches any slot · R reloads · Q toggles the shield'],
+      ['', 'G / X / C throw now · F knife · E grabs a gun'],
+    ];
+    const ctlPlan = this.planRows(ctl, W, 14, 7);
+    const ctlH = ctlPlan.height;
+    const h = Math.min(560, Math.max(320, 150 + 40 * 2 + 26 + ctlH + 34));
+    const m = modal(this, 'SETTINGS', W, h);
+    const x0 = -W / 2 + 26;
+    let y = this.bodyTop(h);
+    const rowLabel = (yTop: number, str: string) => {
+      const t = this.add.text(x0, yTop, str, {
+        fontFamily: COND, fontSize: '14px', fontStyle: '700', color: SUB,
+      }).setOrigin(0, 0);
       t.setStroke('#020617', 3);
       m.body.add(t);
     };
-    rowLabel(y0, 'GRAPHICS');
     const q = quality();
-    this.linkButton(m.body, 120, y0, 'HIGH', q === 'high', () => { setQuality('high'); m.close(); this.openSettings(); });
-    this.linkButton(m.body, 190, y0, 'LOW', q === 'low', () => { setQuality('low'); m.close(); this.openSettings(); });
-    rowLabel(y0 + 40, 'SOUND');
-    this.linkButton(m.body, 120, y0 + 40, sfx.muted ? 'OFF' : 'ON', !sfx.muted, () => {
+    rowLabel(y, 'GRAPHICS');
+    this.linkButton(m.body, x0 + 190, y + 8, 'HIGH', q === 'high', () => { setQuality('high'); m.close(); this.openSettings(); });
+    this.linkButton(m.body, x0 + 262, y + 8, 'LOW', q === 'low', () => { setQuality('low'); m.close(); this.openSettings(); });
+    y += 40;
+    rowLabel(y, 'SOUND');
+    this.linkButton(m.body, x0 + 190, y + 8, sfx.muted ? 'OFF' : 'ON', !sfx.muted, () => {
       sfx.setMuted(!sfx.muted); m.close(); this.openSettings();
     });
-    this.linkButton(m.body, 170, y0 + 40, '−', false, () => {
+    this.linkButton(m.body, x0 + 240, y + 8, '\u2212', false, () => {
       sfx.setVolume(sfx.volume - 0.1); sfx.click(); m.close(); this.openSettings();
     });
-    const vol = this.add.text(205, y0 + 40, `${Math.round(sfx.volume * 100)}%`, {
-      fontFamily: COND, fontSize: '17px', fontStyle: '700', color: TXT,
-    }).setOrigin(0.5);
+    const vol = this.add.text(x0 + 275, y + 8, `${Math.round(sfx.volume * 100)}%`, {
+      fontFamily: COND, fontSize: '16px', fontStyle: '700', color: TXT,
+    }).setOrigin(0.5, 0.5);
     vol.setStroke('#020617', 3);
     m.body.add(vol);
-    this.linkButton(m.body, 240, y0 + 40, '+', false, () => {
+    this.linkButton(m.body, x0 + 310, y + 8, '+', false, () => {
       sfx.setVolume(sfx.volume + 0.1); sfx.click(); m.close(); this.openSettings();
     });
-    rowLabel(y0 + 80, 'CONTROLS');
-    const ctl = this.add.text(-60, y0 + 80,
-      'move WASD/arrows · aim mouse · fire click(hold)\nwheel or 1-0 switch item · R reload · Q shield · G/X/C throw',
-      { fontFamily: BODY, fontSize: '14px', fontStyle: '600', color: TXT, lineSpacing: 4 }).setOrigin(0, 0.5);
-    ctl.setStroke('#020617', 3);
-    m.body.add(ctl);
-    this.linkButton(m.body, 0, y0 + 140, 'RESET CALLSIGN', false, () => {
+    y += 40;
+    rowLabel(y, 'CONTROLS');
+    this.drawPlan(m, ctlPlan, y + 22, 14);
+    this.linkButton(m.body, 0, this.bodyTop(h) + h - 96, 'RESET CALLSIGN', false, () => {
       Session.setName(randomName()); toast(this, 'callsign: ' + Session.name); m.close();
     });
   }
 
   private openHow() {
-    const m = modal(this, 'HOW TO PLAY', 560, 400);
-    const rows = [
-      ['✋', 'Move with WASD or arrow keys.'],
+    const W = 560;
+    const rows: Array<[string, string]> = [
+      ['✋', 'Move with WASD or arrows.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
-      ['🔫', 'Grab guns with E. Keys 1-0 switch ANY slot:'],
-      ['', 'guns · 💣 grenade · 💨 smoke · 🔥 molly · 🛡 shield'],
-      ['🔪', 'F is a knife: 50 damage up close. It pierces shields.'],
-      ['⚡', 'Electric gun: every hit LOCKS them for 2.5s.'],
-      ['🛡️', 'Spawn SHIELDED. A raised shield blocks every bullet.'],
-      ['💣', 'G / X / C throw instantly. Slot 7/8/9 arms, click tosses.'],
-      ['🎚️', 'The mouse wheel cycles those same slots, guns and throwables.'],
-      ['✚', 'Crosses heal 50. Yellow boxes refill ammo.'],
+      ['🔫', 'Grab guns with E. 1-0 or the wheel switches any slot.'],
+      ['🔪', 'F is a knife: 50 damage, and it pierces shields.'],
+      ['⚡', 'Electric gun: every hit locks them for 2.5s.'],
+      ['🛡️', 'You spawn SHIELDED; a raised shield stops every bullet.'],
+      ['💣', 'G/X/C throw now; slots 7/8/9 arm one, click tosses.'],
+      ['🎚️', 'Guns, throwables and the shield are all switchable slots.'],
+      ['✚', 'Crosses heal 50, yellow boxes refill ammo.'],
       ['🧱', 'Bricks crumble, steel never does. Rivers block you.'],
       ['🏆', 'Most kills at the whistle, or first to the target.'],
     ];
-    rows.forEach(([icon, txt], i) => {
-      const row = this.add.text(-240, -140 + i * 30, `${icon}   ${txt}`, {
-        fontFamily: BODY, fontSize: '16px', fontStyle: '600', color: TXT,
-      }).setOrigin(0, 0.5);
-      row.setStroke('#020617', 3);
-      m.body.add(row);
-    });
+    // 12 rows on a fixed 30px pitch ran straight off the bottom of a 400-tall
+    // panel. Rows are now MEASURED, the glass is sized to them, and the copy is
+    // trimmed so every line fits the column on one line: no ragged wrapping.
+    const plan = this.planRows(rows, W, 15, 8, 1);
+    const h = Math.min(520, Math.max(300, plan.height + 132));
+    const m = modal(this, 'HOW TO PLAY', W, h);
+    const top = this.bodyTop(h);
+    const usable = h - 92 - 24;
+    this.drawPlan(m, plan, top + Math.max(0, (usable - plan.height) / 2), 15);
   }
 
   private openCredits() {

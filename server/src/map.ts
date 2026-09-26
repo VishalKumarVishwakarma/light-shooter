@@ -15,7 +15,7 @@ export const WEAPONS: Record<string, {
 }> = {
   pistol: { dmg: 25, interval: 0.28, speed: 700, life: 0.75, auto: false, clip: 12, reload: 1.2 },
   rifle: { dmg: 15, interval: 0.11, speed: 900, life: 1.2, auto: true, clip: 30, reload: 2 },
-  shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.45, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
+  shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.32, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
   sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
   laser: { dmg: 12, interval: 0.09, speed: 1400, life: 0.9, auto: true, clip: 25, reload: 2.2 },
 };

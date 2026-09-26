@@ -113,7 +113,7 @@ ok(spotOk, '50 seeded spots all on open ground');
 ok(seen.size > 40, `spots spread out (${seen.size}/50 unique)`);
 ok(range('sniper') > WORLD.w, `sniper crosses the map (${range('sniper') | 0} > ${WORLD.w})`);
 ok(range('pistol') < diag / 2, `pistol can't cross half the map (${range('pistol') | 0})`);
-ok(range('shotgun') < 400, `shotgun is a room broom (${range('shotgun') | 0})`);
+ok(range('shotgun') < 300, `shotgun is a room broom (${range('shotgun') | 0})`);
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

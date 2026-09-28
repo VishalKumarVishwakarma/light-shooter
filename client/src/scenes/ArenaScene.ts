@@ -467,13 +467,16 @@ export class ArenaScene extends Phaser.Scene {
       }
     } catch { /* noop */ }
     this.arenaBorn = Date.now();
-    // GTA cash + leaders ticker: bottom of the right column, under the map
-    this.cashText = this.add.text(948, 566, '$0', {
+    // GTA cash + leaders ticker: bottom of the right column, under the map.
+    // The column is budgeted, not eyeballed: map 440-528, cash 533-553,
+    // ticker 560-588. Stacked any tighter the cash sat ON the ticker and the
+    // ticker ran off the bottom edge (see test-hud.mjs).
+    this.cashText = this.add.text(948, 543, '$0', {
       fontFamily: COND, fontSize: '17px', fontStyle: '700', color: '#4ade80',
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(11);
     this.cashText.setStroke('#020617', 4);
     this.cashText.setShadow(0, 0, '#4ade80', 10, false, true);
-    this.scoreText = this.add.text(948, 586, '', {
+    this.scoreText = this.add.text(948, 574, '', {
       fontFamily: MONO, fontSize: '11px', color: SUB, align: 'right', lineSpacing: 1,
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(10);
     this.scoreText.setStroke('#000000', 3);
@@ -481,9 +484,9 @@ export class ArenaScene extends Phaser.Scene {
     this.minimap = this.add.graphics().setScrollFactor(0).setDepth(9);
     const mmFrame = this.add.graphics().setScrollFactor(0).setDepth(10);
     mmFrame.fillStyle(0x020617, 0.5);
-    mmFrame.fillRoundedRect(836, 468, 116, 88, 8);
+    mmFrame.fillRoundedRect(836, 440, 116, 88, 8);
     mmFrame.lineStyle(2, 0x22d3ee, 0.6);
-    mmFrame.strokeRoundedRect(836, 468, 116, 88, 8);
+    mmFrame.strokeRoundedRect(836, 440, 116, 88, 8);
 
     // impact spray, blood, movement dust
     this.sparks = this.add.particles(0, 0, 'dot', {
@@ -1223,9 +1226,6 @@ export class ArenaScene extends Phaser.Scene {
         r.k.setY(y); r.m.setX(r.k.x + r.k.width + 4); r.m.setY(y);
         r.v.setX(r.m.x + r.m.width + 4); r.v.setY(y);
       });
-      const bg = this.add.rectangle(6, rowY(0), 244, 17, 0x020617, 0.72)
-        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9)
-        .setStrokeStyle(1.5, 0x22d3ee, 0.45);
       const kk = this.add.text(12, rowY(0), k.killer, {
         fontFamily: MONO, fontSize: '12px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
@@ -1238,6 +1238,13 @@ export class ArenaScene extends Phaser.Scene {
         fontFamily: MONO, fontSize: '12px', color: k.victim === myName ? '#ef4444' : '#e2e8f0',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       vv.setStroke('#000000', 3);
+      // Measure, then draw the plate: two 12-char names plus [ELECTRIC] run to
+      // x=265, so a fixed 244px plate left ~15px of text hanging off its own
+      // background. Clamped so the row can never reach the loadout strip.
+      const bg = this.add.rectangle(6, rowY(0),
+        Math.max(244, Math.min(270, vv.x + vv.width + 10 - 6)), 17, 0x020617, 0.72)
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(9)
+        .setStrokeStyle(1.5, 0x22d3ee, 0.45);
       this.feedRows.unshift({ bg, k: kk, m: mm, v: vv });
       while (this.feedRows.length > 2) {
         const old = this.feedRows.pop()!;
@@ -1986,7 +1993,7 @@ export class ArenaScene extends Phaser.Scene {
   private drawMinimap() {
     const g = this.minimap;
     if (!g) return;
-    const s = 112 / W, x0 = 838, y0 = 470, h = H * s;
+    const s = 112 / W, x0 = 838, y0 = 442, h = H * s;
     const dot = (rc: { x: number; y: number; w: number; h: number }) =>
       g.fillRect(x0 + rc.x * s, y0 + rc.y * s, Math.max(1, rc.w * s), Math.max(1, rc.h * s));
     g.clear();

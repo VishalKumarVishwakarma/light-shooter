@@ -1,5 +1,7 @@
 // Unit tests for arena geometry. Run after `npm run build`: node test-map.cjs
 const M = require('./dist/map.js');
+const fs = require('fs');
+const path = require('path');
 const { STEEL, BRICKS, BRICK_HP, WATER, ICE, BUSH, SPAWNS, PICKUP_POINTS, WEAPONS, WORLD } = M;
 const { collideCircle, pointInWall, inRect, stepMove, randomSpot } = M;
 let pass = 0, fail = 0;
@@ -7,6 +9,14 @@ const ok = (cond, msg) => {
   if (cond) { pass++; console.log(`PASS: ${msg}`); }
   else { fail++; console.log(`FAIL: ${msg}`); }
 };
+
+// 0. The client's map.ts is a hand-maintained duplicate of this one. If they
+// drift, the client renders ranges/geometry the server does not simulate -- and
+// nothing else in the build would catch it. Compare content, not line endings.
+const norm = (f) => fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n').trim();
+const clientMap = path.join(__dirname, '..', 'client', 'src', 'map.ts');
+ok(fs.existsSync(clientMap) && norm(clientMap) === norm(path.join(__dirname, 'src', 'map.ts')),
+  'client/src/map.ts is in sync with server/src/map.ts');
 
 // 1. Center-inside point gets pushed out (fortress west face)
 const c = collideCircle(800, 600, 16, STEEL);
@@ -66,6 +76,15 @@ ok(new Set(rgs).size === rgs.length, `all ${rgs.length} guns have unique ranges`
 ok(WEAPONS.electric.speed * WEAPONS.electric.life > 200
   && WEAPONS.electric.speed * WEAPONS.electric.life < 1000,
 `electric range mid-pack (${(WEAPONS.electric.speed * WEAPONS.electric.life) | 0})`);
+// the electric rail was given 2 extra world tiles of reach (1 tile = 60px of
+// world art), so it must cover 800 + 120 = 920px -- and must not have crept
+// past the rifle while doing it.
+const elec = WEAPONS.electric.speed * WEAPONS.electric.life;
+const TILE = 60;
+ok(elec === 800 + 2 * TILE, `electric covers 800 + 2 tiles (${elec | 0}px)`);
+ok(elec > WEAPONS.pistol.speed * WEAPONS.pistol.life
+  && elec < WEAPONS.rifle.speed * WEAPONS.rifle.life,
+`electric still sits pistol-to-rifle (${(WEAPONS.pistol.speed * WEAPONS.pistol.life) | 0} < ${elec | 0} < ${(WEAPONS.rifle.speed * WEAPONS.rifle.life) | 0})`);
 for (const k of ['grenade', 'smoke', 'molly']) {
   ok(PICKUP_POINTS.some(([kk]) => kk === k), `${k} pad on the map`);
 }

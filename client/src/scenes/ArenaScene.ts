@@ -902,7 +902,9 @@ export class ArenaScene extends Phaser.Scene {
       if (px < 0 || py < 0 || px > W || py > H) return { x: px, y: py };
       if (pointInWall(px, py, walls)) return { x: x + dx * (t - 8), y: y + dy * (t - 8) };
       for (const b of bodies) {
-        if (Math.hypot(px - b.x, py - b.y) < 20) return { x: b.x, y: b.y };
+        // 22px = the server's bullet-vs-player radius, so the beam/arc stops
+        // exactly where the shot stops instead of a few pixels past it
+        if (Math.hypot(px - b.x, py - b.y) < 22) return { x: b.x, y: b.y };
       }
     }
     return { x: x + dx * maxD, y: y + dy * maxD };
@@ -941,16 +943,18 @@ export class ArenaScene extends Phaser.Scene {
       }
       // redrawn (new jitter) every frame = crawling current, not a static shape
       const flick = 0.7 + 0.3 * Math.random();
-      this.arcStream(this.arcG, me.gfx.x + Math.cos(ang) * MUZZLE,
-        me.gfx.y + Math.sin(ang) * MUZZLE, ang, 190, flick);
+      const mx = me.gfx.x + Math.cos(ang) * MUZZLE, my = me.gfx.y + Math.sin(ang) * MUZZLE;
+      // clipped to the first blocker: no arc through a body, a wall or a crate
+      const reach = this.arcReach(mx, my, ang, 190, this.meId);
+      this.arcStream(this.arcG, mx, my, ang, reach, flick);
       this.arcG.setVisible(true);
       if (!sfx.arcLive) sfx.arcOn();
-      if (Math.random() < 0.55) {
+      if (Math.random() < 0.55 && reach > 8) {
         // continuous spark shed off the live arc, not just on trigger frames
         const t = 0.2 + Math.random() * 0.8;
         this.sparks.explode(1,
-          me.gfx.x + Math.cos(ang) * (MUZZLE + 190 * t) + (Math.random() - 0.5) * 26,
-          me.gfx.y + Math.sin(ang) * (MUZZLE + 190 * t) + (Math.random() - 0.5) * 26);
+          mx + Math.cos(ang) * (reach * t) + (Math.random() - 0.5) * 26,
+          my + Math.sin(ang) * (reach * t) + (Math.random() - 0.5) * 26);
       }
       if (Math.random() < 0.22) { // muzzle corona while it runs hot
         const z = this.add.image(me.gfx.x + Math.cos(ang) * MUZZLE,
@@ -1004,9 +1008,22 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
       const ang = o.gun.rotation;
-      this.arcStream(a.g, o.gfx.x + Math.cos(ang) * MUZZLE,
-        o.gfx.y + Math.sin(ang) * MUZZLE, ang, 190, Math.min(1, a.t / 0.3) * 0.85);
+      const mx = o.gfx.x + Math.cos(ang) * MUZZLE, my = o.gfx.y + Math.sin(ang) * MUZZLE;
+      // same clip as my own arc: a foe's current stops at me, at steel, at brick
+      const reach = this.arcReach(mx, my, ang, 190, id);
+      this.arcStream(a.g, mx, my, ang, reach, Math.min(1, a.t / 0.3) * 0.85);
     });
+  }
+
+  // The arc is current, not a ghost: it stops at the first thing that would stop
+  // the bolt — a body, standing steel or brick, or the map edge. Without this the
+  // muzzle stream drew straight through teammates, walls and crates while the
+  // shot itself was being absorbed by them. Same rule for my arc, a foe's arc
+  // and the per-shot lance, so all three agree with the authoritative sim.
+  private arcReach(x: number, y: number, ang: number, want: number, skipId: string) {
+    if (want <= 0) return 0;
+    const end = this.rayEnd(x, y, Math.cos(ang), Math.sin(ang), want, skipId);
+    return Math.min(want, Math.hypot(end.x - x, end.y - y));
   }
 
   // Every in-flight electric shot is a bolt, not a bullet: current running from

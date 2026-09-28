@@ -59,6 +59,48 @@ const arcCallers = [...arena.matchAll(/this\.arcStream\(([^;]*?)\);/g)].map((m) 
 ok(arcCallers.length >= 4, `arcStream still has its original callers (${arcCallers.length})`);
 ok(arcCallers.filter((c) => c.includes(', false')).length === 1, 'exactly one caller opts out of clearing (the tether pass)');
 
+// ---- the arc must stop where the bolt stops ----------------------------------
+// The muzzle streams used to draw a fixed 190px regardless of what was in the
+// way, so the arc phased through bodies, walls and crates while the shot itself
+// was being absorbed by them.
+ok(/private arcReach\(x: number, y: number, ang: number, want: number, skipId: string\)/.test(arena),
+  'arcReach exists: clip the arc to the first blocker');
+const reach = arena.slice(arena.indexOf('private arcReach('), arena.indexOf('// Every in-flight electric shot'));
+ok(/this\.rayEnd\(x, y, Math\.cos\(ang\), Math\.sin\(ang\), want, skipId\)/.test(reach),
+  'arcReach marches with the same raycast the laser beam uses');
+ok(/Math\.min\(want, Math\.hypot\(end\.x - x, end\.y - y\)\)/.test(reach), 'arc never reaches past the blocker');
+ok(/if \(want <= 0\) return 0;/.test(reach), 'a zero-length want cannot loop the march');
+
+// my own live stream
+const drive = arena.slice(arena.indexOf('private driveArc('), arena.indexOf('// scene teardown'));
+ok(/const reach = this\.arcReach\(mx, my, ang, 190, this\.meId\)/.test(drive),
+  'my muzzle stream is clipped (skips only me)');
+ok(/this\.arcStream\(this\.arcG, mx, my, ang, reach, flick\)/.test(drive),
+  'my stream draws the clipped reach, not the raw 190');
+ok(/Math\.random\(\) < 0\.55 && reach > 8/.test(drive), 'shed sparks ride the clipped arc, not through the wall');
+ok(!/MUZZLE \+ 190 \* t/.test(drive), 'no spark is thrown past the blocker any more');
+
+// a foe's live stream
+const foe = arena.slice(arena.indexOf('private tickFoeArcs('), arena.indexOf('// The arc is current, not a ghost'));
+ok(/const reach = this\.arcReach\(mx, my, ang, 190, id\)/.test(foe),
+  "a foe's stream is clipped too (skips them, stops at me)");
+ok(/this\.arcStream\(a\.g, mx, my, ang, reach,/.test(foe), "a foe's stream draws the clipped reach");
+
+// the per-shot lance
+const lance = arena.slice(arena.indexOf('private arcBolt('), arena.indexOf('// electric impact'));
+ok(/this\.rayEnd\(x1, y1, Math\.cos\(ang\), Math\.sin\(ang\), reach, skipId\)/.test(lance),
+  'the per-shot lance is clipped as well');
+// rayEnd must test bodies at the server's own collision radius
+const ray = arena.slice(arena.indexOf('private rayEnd('), arena.indexOf('private beam('));
+ok(/Math\.hypot\(px - b\.x, py - b\.y\) < 22/.test(ray),
+  'body stop uses the server 22px radius, so the arc ends where the bolt does');
+ok(/id !== skipId && o\.alive/.test(ray), 'only living, non-owner bodies stop the arc (matches the sim)');
+ok(/pointInWall\(px, py, walls\)/.test(ray), 'standing steel and brick stop the arc');
+
+// nothing may reintroduce a hard-coded arc reach
+ok(!/arcStream\([^)]*,\s*190\s*,/.test(arena), 'no caller hard-codes the 190px reach any more');
+ok(!/arcStream\([^)]*,\s*280\s*,/.test(arena), 'no caller hard-codes the 280px lance reach any more');
+
 // ---- server: the projectile is still authoritative ----------------------------
 ok(/b\.weapon === 'electric'\) p\.slowT = ELECTRIC_SLOW/.test(room),
   'server still applies the electric lock on contact (render-only change)');

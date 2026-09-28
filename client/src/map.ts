@@ -8,8 +8,9 @@ export const SPEED = 260, RADIUS = 16;
 export const MUZZLE = 46;
 
 // weapon rules: single source of truth (server enforces, client mirrors timing)
-// effective range = speed x life: shotgun 250 < pistol 525 < electric 800 <
+// effective range = speed x life: shotgun 250 < pistol 525 < electric 920 <
 // rifle 1080 < laser 1260 < sniper 1690 (cross-map). Every gun is unique.
+// One world tile is 60px, so the electric rail covers 800 + 2 tiles.
 export const WEAPONS: Record<string, {
   dmg: number; interval: number; speed: number; life: number;
   auto: boolean; clip: number; reload: number; pellets?: number; spread?: number;
@@ -19,7 +20,7 @@ export const WEAPONS: Record<string, {
   shotgun: { dmg: 12, interval: 0.9, speed: 780, life: 0.32, auto: false, clip: 6, reload: 2.5, pellets: 6, spread: 0.18 },
   sniper: { dmg: 100, interval: 1.6, speed: 1300, life: 1.3, auto: false, clip: 5, reload: 3 },
   laser: { dmg: 12, interval: 0.09, speed: 1400, life: 0.9, auto: true, clip: 25, reload: 2.2 },
-  electric: { dmg: 8, interval: 0.14, speed: 1000, life: 0.8, auto: true, clip: 30, reload: 2.2 },
+  electric: { dmg: 8, interval: 0.14, speed: 1000, life: 0.92, auto: true, clip: 30, reload: 2.2 },
 };
 
 export const SPAWNS: Array<[number, number]> = [

@@ -7,6 +7,10 @@ import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
 
 const RADIUS = 16;
+// how many in-flight electric bolts get a drawn tether at once. The gun fires
+// every 0.14s and a bolt lives 0.8s, so one shooter can have ~6 up; beyond the
+// cap the newest tips still show (they are sprites) and the frame stays bounded.
+const ARC_TETHER_MAX = 8;
 type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
@@ -31,7 +35,12 @@ function angLerp(a: number, b: number, t: number) {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
-type BObj = { img: Phaser.GameObjects.Image; vx: number; vy: number };
+type BObj = {
+  img: Phaser.GameObjects.Image;
+  vx: number; vy: number;
+  arc?: string; // set on electric shots: owner id, so the bolt can be drawn
+                // from their muzzle instead of as a travelling round
+};
 
 // The loadout is one uniform list: guns, throwables and the shield are all
 // switchable slots. `kind` decides what selecting/using the slot means.
@@ -159,6 +168,7 @@ export class ArenaScene extends Phaser.Scene {
   }> = [];
   private zkVin!: Phaser.GameObjects.Image;
   private arcG: Phaser.GameObjects.Graphics | null = null; // my live electric arc
+  private boltG: Phaser.GameObjects.Graphics | null = null; // every in-flight bolt tether
   private foeArcs = new Map<string, { g: Phaser.GameObjects.Graphics; t: number }>();
   private prevSlow = 0; // last known electric lock on me (rising edge = cue)
   private grabBtn: Btn | null = null;
@@ -250,6 +260,8 @@ export class ArenaScene extends Phaser.Scene {
     sfx.arcOff();
     this.arcG?.destroy();
     this.arcG = null;
+    this.boltG?.destroy();
+    this.boltG = null;
     this.foeArcs.forEach((a) => a.g.destroy());
     this.foeArcs.clear();
     this.tacVin = this.add.image(480, 300, 'vignette').setDisplaySize(960, 600).setScrollFactor(0).setDepth(9)
@@ -997,14 +1009,47 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
+  // Every in-flight electric shot is a bolt, not a bullet: current running from
+  // the shooter's muzzle out to where the discharge tip is right now. One shared
+  // Graphics for all of them, re-rolled every frame so it crawls. Drawn after
+  // dead-reckoning, so the tether always ends exactly at the rendered tip, and
+  // capped so a burst (0.14s interval) can never flood the frame.
+  private drawArcTethers() {
+    let n = 0;
+    this.bullets.forEach((o) => { if (o.arc) n++; });
+    if (!n) {
+      this.boltG?.clear();
+      this.boltG?.setVisible(false);
+      return;
+    }
+    if (!this.boltG) {
+      this.boltG = this.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
+    }
+    this.boltG.setVisible(true).clear();
+    let drawn = 0;
+    this.bullets.forEach((o) => {
+      if (!o.arc || drawn >= ARC_TETHER_MAX) return;
+      const own = this.players.get(o.arc);
+      if (!own || !own.alive) return; // shooter gone or dead: nothing to anchor to
+      const dx = o.img.x - own.gfx.x, dy = o.img.y - own.gfx.y;
+      const reach = Math.hypot(dx, dy);
+      if (reach < MUZZLE + 6) return; // still inside the barrel
+      const a = Math.atan2(dy, dx);
+      this.arcStream(this.boltG!, own.gfx.x + Math.cos(a) * MUZZLE,
+        own.gfx.y + Math.sin(a) * MUZZLE, a, reach - MUZZLE, 0.85, false);
+      drawn++;
+    });
+  }
+
   // jagged 3-pass lightning path — re-rolled every call, so a redraw each frame
-  // reads as crawling current rather than a static polygon
+  // reads as crawling current rather than a static polygon. clearFirst=false
+  // lets several bolts share one Graphics (the screen-wide tether pass).
   private arcStream(g: Phaser.GameObjects.Graphics, x: number, y: number,
-    ang: number, reach: number, alpha = 1) {
-    if (alpha <= 0) { g.clear(); return; }
+    ang: number, reach: number, alpha = 1, clearFirst = true) {
+    if (alpha <= 0) { if (clearFirst) g.clear(); return; }
+    if (clearFirst) g.clear();
     const dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx;
     const segs = Math.max(4, Math.round(reach / 22));
-    g.clear();
     for (let pass = 0; pass < 3; pass++) {
       g.lineStyle(pass === 2 ? 1.6 : pass === 1 ? 4 : 8,
         pass === 2 ? 0xffffff : pass === 1 ? 0xa855f7 : 0x6d28d9,
@@ -1419,15 +1464,24 @@ export class ArenaScene extends Phaser.Scene {
       const own0 = this.players.get(b.ownerId);
       const sx = own0 ? own0.gfx.x + Math.cos(a0) * MUZZLE : b.x;
       const sy = own0 ? own0.gfx.y + Math.sin(a0) * MUZZLE : b.y;
-      const img = this.add.image(sx, sy, 'bolt').setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
+      // The electric gun throws no bullet. Its shot is a live bolt: the server
+      // still simulates a projectile (that is what carries the damage and the
+      // lock, and it is what stops at bodies and walls), but on screen it is
+      // current running from the shooter's muzzle out to the discharge tip --
+      // a travelling slug on top of an arc read as two weapons firing at once.
+      const isArc = bw === 'electric';
+      const img = this.add.image(sx, sy, isArc ? 'zap' : 'bolt')
+        .setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
       if (bw === 'laser') img.setTint(0x22d3ee); // cyan bolts, both sides
-      else if (bw === 'electric') img.setTint(0xc084fc); // violet arc heads
-      else if (foe) img.setTint(0xfb923c);
+      else if (foe && !isArc) img.setTint(0xfb923c);
       img.setRotation(a0);
-      img.setScale(bw === 'laser' ? 1.4 : bw === 'electric' ? 1.2 : 1.0, 1.0); // laser head rides inside its beam
+      // the arc tip is a soft charge head, never a round; laser head rides
+      // inside its beam
+      if (isArc) img.setScale(0.5);
+      else img.setScale(bw === 'laser' ? 1.4 : 1.0, 1.0);
       img.setAlpha(0); // fade in: no spawn pop, then dead-reckoning takes over
-      this.tweens.add({ targets: img, alpha: 1, duration: 90 });
-      this.bullets.set(id, { img, vx: b.vx, vy: b.vy });
+      this.tweens.add({ targets: img, alpha: isArc ? 0.95 : 1, duration: 90 });
+      this.bullets.set(id, { img, vx: b.vx, vy: b.vy, arc: isArc ? b.ownerId : undefined });
       // muzzle flash + recoil at the shooter's barrel — foes only.
       // (own shots already flashed + recoiled at fire time; the echo would double it)
       const own = this.players.get(b.ownerId);
@@ -1461,7 +1515,7 @@ export class ArenaScene extends Phaser.Scene {
         // authoritative tick correction (small — extrapolation covers the gaps)
         o.img.setPosition(b.x, b.y);
         o.vx = b.vx; o.vy = b.vy;
-        o.img.setRotation(Math.atan2(b.vy, b.vx));
+        if (!o.arc) o.img.setRotation(Math.atan2(b.vy, b.vx)); // the arc tip is a round glow: no spin
       });
       b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); });
     });
@@ -2522,5 +2576,7 @@ export class ArenaScene extends Phaser.Scene {
       }
       this.fpsAcc = 0; this.fpsN = 0;
     }
+    // last: the bolts follow the tips dead-reckoning just moved
+    this.drawArcTethers();
   }
 }

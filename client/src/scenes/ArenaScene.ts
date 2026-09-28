@@ -11,6 +11,15 @@ const RADIUS = 16;
 // every 0.14s and a bolt lives 0.8s, so one shooter can have ~6 up; beyond the
 // cap the newest tips still show (they are sprites) and the frame stays bounded.
 const ARC_TETHER_MAX = 8;
+// Mouse-wheel selector. One physical notch is ~100px of wheel deltaY (Chrome
+// reports 100, Firefox 3 lines x 33, pages x 400), so dividing by that turns
+// both a wheel and a trackpad into a count of NOTCHES instead of a count of
+// events -- a wheel sends one event per notch, a trackpad dozens per second.
+const WHEEL_NOTCH = 100;
+const WHEEL_EVENT_MAX = 3;    // one event (a momentum fling) is never worth >3
+const WHEEL_GESTURE_MAX = 10; // ...nor is a whole gesture worth more than 10
+const WHEEL_GESTURE_MS = 320; // gap that starts a new gesture
+const WHEEL_SETTLE_MS = 150; // quiet period before a gesture is committed
 type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
@@ -114,6 +123,16 @@ export class ArenaScene extends Phaser.Scene {
   private backToLobby = false;
   private endShown = false;
   private subGen = 0; // subscription generation: stale room callbacks exit early
+  // Disposers for every Colyseus subscription made in connect(). The schema's
+  // $callbacks arrays hang off the STATE object, which outlives this scene, and
+  // onAdd defaults to triggerAll=true -- so without this each arena visit added
+  // another handler per entity, and every later patch walked a list that was
+  // mostly dead code. live() kept the stale handlers from drawing anything, so
+  // it read as a mild slow-down rather than a bug. Flushed on shutdown.
+  private colyOff: Array<() => void> = [];
+  private keep(d: unknown) {
+    if (typeof d === 'function') this.colyOff.push(d as () => void);
+  }
   private kbWired = false;
   private myMove = { dx: 0, dy: 0 };
   private firing = false;
@@ -161,6 +180,10 @@ export class ArenaScene extends Phaser.Scene {
   private clockCardG!: Phaser.GameObjects.Graphics;
   private liveDot!: Phaser.GameObjects.Arc;
   private clockStars = -1; // last rendered streak-star count
+  // the tween targets for the HP bar. They live on the instance so drawHp can
+  // kill the previous pair before minting a new one.
+  private hpProxy = { v: 100 };
+  private hpGhostProxy = { v: 100 };
   private reloadTx!: Phaser.GameObjects.Text;
   private loadSlots: Array<{ bg: Phaser.GameObjects.Rectangle; tx: Phaser.GameObjects.Text }> = [];
   private statusSegs: Array<{
@@ -187,6 +210,19 @@ export class ArenaScene extends Phaser.Scene {
       // noise bed droning over the whole lobby and menu, unsilenceable except
       // through Settings.
       sfx.arcOff();
+      // The KeyboardPlugin is cached per InputPlugin instance and survives the
+      // scene, but its shutdown() calls removeAllListeners() -- which wipes every
+      // keydown-* handler. The instance is then reused by the next create(), so
+      // the kbWired guard below would skip re-registering them and EVERY
+      // shortcut (R, E, 1-0, G/X/C, Q, TAB, F) would be dead after one rematch.
+      // WASD kept working because addKeys is unconditional, which is exactly
+      // why this survived a casual playtest. Clear the guard on the way out.
+      this.kbWired = false;
+      // detach every Colyseus subscription made in connect(), so a rematch
+      // starts from a clean callback list instead of stacking another handler
+      // per entity on the room state
+      for (const d of this.colyOff) { try { d(); } catch { /* state already gone */ } }
+      this.colyOff = [];
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // ground: grid + film-grain noise + vignette
@@ -260,6 +296,12 @@ export class ArenaScene extends Phaser.Scene {
     this.lastCd = -1;
     this.cdBanner = null;
     this.prevStreak = 0;
+    // layoutClock() early-returns when the star count is unchanged, and it is
+    // the only thing that draws the timer plate and positions the live dot. If
+    // the previous match ended with no streak, clockStars was already 0, so the
+    // fresh clockCardG stayed empty: no timer plate at all for the whole match,
+    // and liveDot sat at its constructor x=0 as a red dot on the HP bar.
+    this.clockStars = -1;
     this.myMove = { dx: 0, dy: 0 };
     this.firing = false;
     this.lastFire = 0;
@@ -318,18 +360,25 @@ export class ArenaScene extends Phaser.Scene {
         if (me) this.slash(me.gfx.x, me.gfx.y, this.lastAim);
       });
     }
-    // The wheel is a SELECTOR, not a twitch. Browsers fire a burst of wheel
-    // events for one physical notch and trackpads fire dozens per second, so
-    // stepping on every event made a single flick jump half the loadout - and
-    // each jump clicked and spammed the server with a switch request. Events
-    // are accumulated into a gesture and committed once, when they stop.
+    // The wheel is a SELECTOR, not a twitch. A gesture is accumulated and
+    // committed once, when the events stop, so a fast roll does not spam the
+    // server with a switch request per notch.
     this.input.on('wheel', (_p: unknown, _g: unknown, _dx: number, dy: number) => {
       const now = this.time.now;
-      if (now - this.wheelAt > 320) this.wheelAcc = 0; // a new gesture
+      if (now - this.wheelAt > WHEEL_GESTURE_MS) this.wheelAcc = 0; // a new gesture
       this.wheelAt = now;
-      if (dy > 0) this.wheelAcc += 1;
-      else if (dy < 0) this.wheelAcc -= 1;
-      this.wheelAcc = Math.max(-4, Math.min(4, this.wheelAcc));
+      // Weight by MAGNITUDE, not by event count. Counting events was wrong in
+      // both directions at once: a 6-notch mouse roll arrived as 6 events and
+      // was capped at 4, so two notches vanished and a long scroll saturated
+      // and then ignored everything after the fourth -- the wheel looked dead.
+      // Meanwhile a trackpad flick arrived as ~18 events and was capped at the
+      // same 4, so one flick jumped four slots, which is exactly what the cap
+      // existed to prevent. One mouse notch is ~100px of deltaY, so dividing by
+      // that counts notches on both kinds of device.
+      const notches = Math.max(-WHEEL_EVENT_MAX,
+        Math.min(WHEEL_EVENT_MAX, dy / WHEEL_NOTCH));
+      this.wheelAcc = Math.max(-WHEEL_GESTURE_MAX,
+        Math.min(WHEEL_GESTURE_MAX, this.wheelAcc + notches));
     });
     // ---- READOUTS: the three things you must never hunt for -------------
     //   TOP LEFT   health + status (shield / haste / electric lock)
@@ -525,8 +574,14 @@ export class ArenaScene extends Phaser.Scene {
       if (pt.y < 40 && pt.x > 700) return; // ammo strip = reload
       if (pt.y > 488 && pt.y < 526 && Math.abs(pt.x - 480) < 205) return; // loadout strip
       if (pt.leftButtonDown()) {
+        // Only set the flag. update() owns the trigger edge: this DOM handler
+        // runs BETWEEN frames, so calling fireNow() here fired it a second
+        // time on the same click. Guns hid the double because the per-weapon rate
+        // limit rejected the second call -- but the one-shot branches return
+        // BEFORE that limit, so a click threw two grenades, and the shield slot
+        // sent two `guard` toggles that cancelled each other (the stance simply
+        // never came up).
         this.firing = true;
-        this.fireNow();
       }
     });
     this.input.on('pointerup', (pt: Phaser.Input.Pointer) => {
@@ -736,10 +791,13 @@ export class ArenaScene extends Phaser.Scene {
 
   // called every frame: commits a wheel gesture once its events stop arriving
   private commitWheel() {
-    if (!this.wheelAcc) return;
-    if (this.time.now - this.wheelAt < 150) return; // still receiving
-    const steps = this.wheelAcc;
-    this.wheelAcc = 0;
+    if (this.time.now - this.wheelAt < WHEEL_SETTLE_MS) return; // still receiving
+    // whole notches only: a fraction means the scroll has not travelled far
+    // enough yet, and it carries into the next gesture so slow scrolling still
+    // adds up instead of resetting every gesture
+    const steps = Math.trunc(this.wheelAcc);
+    if (!steps) return;
+    this.wheelAcc -= steps;
     const cycle = this.slotCycle();
     if (cycle.length < 2) return;
     const i = cycle.findIndex((s) => s.id === this.activeSlot);
@@ -1203,7 +1261,7 @@ export class ArenaScene extends Phaser.Scene {
     const gen = ++this.subGen;
     const live = () => gen === this.subGen && Session.room === room;
 
-    room.state.onChange(() => {
+    this.keep(room.state.onChange(() => {
       if (!live()) return;
       if (room.state.phase === 'lobby' && !this.backToLobby) {
         this.backToLobby = true;
@@ -1213,7 +1271,7 @@ export class ArenaScene extends Phaser.Scene {
       if (room.state.phase === 'countdown') this.showCountdown(Math.ceil(room.state.countdown));
       if (room.state.phase === 'playing' && this.lastCd !== -99) this.showFight();
       this.drawScore();
-    });
+    }));
     // entering arena mid-state (e.g. reloaded scene) — show banner if already ended
     if (room.state.phase === 'ended') this.showEnd(room.state.winnerName);
     this.drawScore();
@@ -1301,11 +1359,11 @@ export class ArenaScene extends Phaser.Scene {
       if (c.kind === 'brick') this.dust.explode(4, c.x, c.y);
     });
 
-    room.state.bricks.onAdd((b: any, id: string) => {
+    this.keep(room.state.bricks.onAdd((b: any, id: string) => {
       if (!live()) return;
       this.syncBrick(id, b.hp);
-      b.onChange(() => { if (live()) this.syncBrick(id, b.hp); });
-    });
+      this.keep(b.onChange(() => { if (live()) this.syncBrick(id, b.hp); }));
+    }));
     room.onMessage('collect', (c: { name: string; kind: string; x: number; y: number }) => {
       if (!live()) return;
       sfx.pickup();
@@ -1323,14 +1381,14 @@ export class ArenaScene extends Phaser.Scene {
       });
     });
 
-    room.state.pickups.onAdd((pk: any, id: string) => {
+    this.keep(room.state.pickups.onAdd((pk: any, id: string) => {
       if (!live()) return;
       this.pkDots.set(id, { x: pk.x, y: pk.y, kind: pk.kind, active: pk.active });
       const marker = this.buildPickup(pk.kind);
       marker.setPosition(pk.x, pk.y);
       marker.setVisible(pk.active);
       this.pickups.set(id, marker);
-      pk.onChange(() => {
+      this.keep(pk.onChange(() => {
         if (!live()) return;
         this.pkDots.set(id, { x: pk.x, y: pk.y, kind: pk.kind, active: pk.active });
         const was = marker.visible;
@@ -1345,16 +1403,16 @@ export class ArenaScene extends Phaser.Scene {
             },
           });
         }
-      });
-      pk.onRemove(() => {
+      }));
+      this.keep(pk.onRemove(() => {
         if (!live()) return;
         this.pkDots.delete(id);
         marker.destroy(true);
         this.pickups.delete(id);
-      });
-    });
+      }));
+    }));
 
-    room.state.players.onAdd((p: any, id: string) => {
+    this.keep(room.state.players.onAdd((p: any, id: string) => {
       if (!live()) return;
       // mid-match arrivals/departures get a toast (skip the initial roster)
       if (Date.now() - this.arenaBorn > 4000 && id !== this.meId) {
@@ -1388,7 +1446,7 @@ export class ArenaScene extends Phaser.Scene {
         hist: [], col, gring, smoked: !!p.smoked,
       });
       if (!p.alive) body.setTint(0x666677);
-      p.onChange(() => {
+      this.keep(p.onChange(() => {
         if (!live()) return;
         const o = this.players.get(id);
         if (!o) return;
@@ -1468,21 +1526,27 @@ export class ArenaScene extends Phaser.Scene {
           if (old) this.tweens.add({ targets: old, alpha: 0, duration: 900, onComplete: () => old.destroy() });
         }
         o.hp = p.hp; o.alive = p.alive;
-      });
-      p.onRemove(() => {
+      }));
+      this.keep(p.onRemove(() => {
         if (!live()) return;
         const o = this.players.get(id);
         o?.gfx.destroy(true);
+        // the shock aura runs two repeat:-1 tweens and Phaser never reclaims a
+        // tween whose target was destroyed -- zapAura is entered once per
+        // player, so its killTweensOf never got a chance to run. Two tweens per
+        // shocked player who left, stepped every frame for the rest of the match
+        if (o?.zap) this.tweens.killTweensOf(o.zap);
+        if (o?.zap2) this.tweens.killTweensOf(o.zap2);
         this.players.delete(id);
         this.foeArcs.get(id)?.g.destroy(); // their arc must not outlive them
         this.foeArcs.delete(id);
         if (Date.now() - this.arenaBorn > 4000 && id !== this.meId && o) {
           toast(this, `${o.label.text.split(' ')[0]} left the fight`, '#94a3b8', 344);
         }
-      });
-    });
+      }));
+    }));
 
-    room.state.bullets.onAdd((b: any, id: string) => {
+    this.keep(room.state.bullets.onAdd((b: any, id: string) => {
       if (!live()) return;
       const foe = b.ownerId !== this.meId;
       const bw = typeof b.weapon === 'string' ? b.weapon : 'pistol';
@@ -1536,7 +1600,7 @@ export class ArenaScene extends Phaser.Scene {
           sfx.shoot(typeof b.weapon === 'string' ? b.weapon : 'pistol', 1.1 - d / 850);
         }
       }
-      b.onChange(() => {
+      this.keep(b.onChange(() => {
         if (!live()) return;
         const o = this.bullets.get(id);
         if (!o) return;
@@ -1544,11 +1608,11 @@ export class ArenaScene extends Phaser.Scene {
         o.img.setPosition(b.x, b.y);
         o.vx = b.vx; o.vy = b.vy;
         if (!o.arc) o.img.setRotation(Math.atan2(b.vy, b.vx)); // the arc tip is a round glow: no spin
-      });
-      b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); });
-    });
+      }));
+      this.keep(b.onRemove(() => { if (!live()) return; img.destroy(); this.bullets.delete(id); }));
+    }));
 
-    room.state.throws.onAdd((th: any, id: string) => {
+    this.keep(room.state.throws.onAdd((th: any, id: string) => {
       if (!live()) return;
       const cols: Record<string, number> = { grenade: 0x9ca3af, smoke: 0xd1d5db, molly: 0xfb923c };
       const img = this.add.image(th.x, th.y, 'dot')
@@ -1558,23 +1622,23 @@ export class ArenaScene extends Phaser.Scene {
       if (th.kind === 'grenade') {
         this.tweens.add({ targets: img, alpha: 0.35, duration: 180, yoyo: true, repeat: -1 });
       }
-      th.onChange(() => {
+      this.keep(th.onChange(() => {
         if (!live()) return;
         const o = this.throws.get(id);
         if (!o) return;
         o.img.setPosition(th.x, th.y);
         o.vx = th.vx; o.vy = th.vy;
-      });
-      th.onRemove(() => {
+      }));
+      this.keep(th.onRemove(() => {
         if (!live()) return;
         const o = this.throws.get(id);
         if (o) this.tweens.killTweensOf(o.img);
         o?.img.destroy();
         this.throws.delete(id);
-      });
-    });
+      }));
+    }));
 
-    room.state.clouds.onAdd((cl: any, id: string) => {
+    this.keep(room.state.clouds.onAdd((cl: any, id: string) => {
       if (!live()) return;
       const c = this.add.container(cl.x, cl.y).setDepth(4);
       const parts = [];
@@ -1691,12 +1755,12 @@ export class ArenaScene extends Phaser.Scene {
       }
       this.clouds.set(id, { c, parts, timers });
       sfx.ignite();
-      cl.onChange(() => {
+      this.keep(cl.onChange(() => {
         if (!live()) return;
         const o = this.clouds.get(id);
         if (o) o.c.setAlpha(cl.t < 1.5 ? Math.max(0, cl.t / 1.5) : 1);
-      });
-      cl.onRemove(() => {
+      }));
+      this.keep(cl.onRemove(() => {
         if (!live()) return;
         const o = this.clouds.get(id);
         if (o) {
@@ -1706,8 +1770,8 @@ export class ArenaScene extends Phaser.Scene {
           o.c.destroy(true);
         }
         this.clouds.delete(id);
-      });
-    });
+      }));
+    }));
 
     room.onMessage('boom', (m: { x?: number; y?: number; r?: number }) => {
       if (!live()) return;
@@ -1949,17 +2013,24 @@ export class ArenaScene extends Phaser.Scene {
     this.dispHp = hp;
     this.setT('hp', this.hpLabel, `HP ${hp} · ${kills} K`);
     // main bar snaps fast, ghost trails behind (classic damage feel)
-    this.tweens.killTweensOf(this.hpFill);
-    const proxy = { v: from };
+    // Main bar snaps fast, ghost trails behind (classic damage feel).
+    // The proxies are held on the instance so killTweensOf can actually match
+    // them: the tweens target these objects, NOT hpFill/hpGhost, so killing
+    // those was a no-op. That left ~20 live tweens (60 allocations/second at
+    // 30Hz) all writing the ghost bar with different captured values, so it
+    // jittered and stalled instead of trailing, and a stale onComplete could
+    // yank it backwards.
+    this.tweens.killTweensOf(this.hpProxy);
+    this.hpProxy.v = from;
     this.tweens.add({
-      targets: proxy, v: hp, duration: 180, ease: 'Quad.easeOut',
-      onUpdate: () => this.paintHp(proxy.v, this.ghostHp),
+      targets: this.hpProxy, v: hp, duration: 180, ease: 'Quad.easeOut',
+      onUpdate: () => this.paintHp(this.hpProxy.v, this.ghostHp),
     });
-    this.tweens.killTweensOf(this.hpGhost);
-    const gproxy = { v: this.ghostHp };
+    this.tweens.killTweensOf(this.hpGhostProxy);
+    this.hpGhostProxy.v = this.ghostHp;
     this.tweens.add({
-      targets: gproxy, v: hp, duration: 650, delay: hp < this.ghostHp ? 180 : 0, ease: 'Quad.easeOut',
-      onUpdate: () => { this.ghostHp = gproxy.v; this.paintHp(this.dispHp, gproxy.v); },
+      targets: this.hpGhostProxy, v: hp, duration: 650, delay: hp < this.ghostHp ? 180 : 0, ease: 'Quad.easeOut',
+      onUpdate: () => { this.ghostHp = this.hpGhostProxy.v; this.paintHp(this.dispHp, this.hpGhostProxy.v); },
       onComplete: () => { this.ghostHp = hp; },
     });
     // damage feedback: red edge flash when hp drops
@@ -2174,7 +2245,14 @@ export class ArenaScene extends Phaser.Scene {
       this.tweens.add({ targets: this.wantedText, scaleX: 1, scaleY: 1, duration: 300, ease: 'Back.easeOut' });
     }
     this.prevStreak = myStreak;
-    if (this.boardVisible) this.drawBoard();
+    // Throttled: drawBoard() destroys and re-mints the whole board, and this
+    // runs on every 30Hz patch. Holding TAB open rebuilt ~30 canvas-backed Text
+    // objects per tick (text measure + raster + texture upload) and collapsed
+    // the framerate. 4Hz is plenty for a standings list.
+    if (this.boardVisible && this.time.now - this.boardAt > 250) {
+      this.boardAt = this.time.now;
+      this.drawBoard();
+    }
   }
 
   private showCountdown(n: number) {
@@ -2282,6 +2360,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private board: Phaser.GameObjects.Container | null = null;
   private boardVisible = false;
+  private boardAt = -1e9;
 
   toggleBoard() {
     this.boardVisible = !this.boardVisible;

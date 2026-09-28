@@ -48,8 +48,9 @@ export const BRICKS: Rect[] = [
   { x: 1100, y: 860, w: 200, h: 40 },
   { x: 600, y: 110, w: 140, h: 50 }, // top nook
   { x: 860, y: 1040, w: 140, h: 50 }, // bottom nook
-  { x: 280, y: 540, w: 60, h: 120 }, // mid pillars
-  { x: 1260, y: 540, w: 60, h: 120 },
+  { x: 280, y: 470, w: 60, h: 80 }, // mid pillars: clear of the walk lane above
+  // and the river below, so neither is sealed and neither lane is blocked
+  { x: 1260, y: 470, w: 60, h: 80 },
   { x: 600, y: 740, w: 160, h: 30 }, // maze north wall (gap x760-840)
   { x: 840, y: 740, w: 160, h: 30 },
   { x: 600, y: 925, w: 160, h: 30 }, // maze south wall (gap x760-840)
@@ -111,28 +112,126 @@ export function inRect(x: number, y: number, rects: Rect[]) {
 }
 
 // Push a circle out of every overlapping rect. No sliding — server authoritative.
-export function collideCircle(px: number, py: number, r: number, rects: Rect[]) {
-  let x = px, y = py;
+// How far a circle is buried in a rect set (0 = free).
+function penDepth(x: number, y: number, r: number, rects: Rect[]) {
+  let worst = 0;
+  for (const rc of rects) {
+    const cx = clamp(x, rc.x, rc.x + rc.w);
+    const cy = clamp(y, rc.y, rc.y + rc.h);
+    const d = Math.hypot(x - cx, y - cy);
+    if (d < r && r - d > worst) worst = r - d;
+  }
+  return worst;
+}
+
+// The single position that would clear one rect.
+function escape(x: number, y: number, r: number, rc: Rect): [number, number] {
+  const cx = clamp(x, rc.x, rc.x + rc.w);
+  const cy = clamp(y, rc.y, rc.y + rc.h);
+  const dx = x - cx, dy = y - cy;
+  const d2 = dx * dx + dy * dy;
+  if (d2 === 0) {
+    const l = x - rc.x, rr = rc.x + rc.w - x, t = y - rc.y, bb = rc.y + rc.h - y;
+    const m = Math.min(l, rr, t, bb);
+    if (m === l) return [rc.x - r, y];
+    if (m === rr) return [rc.x + rc.w + r, y];
+    if (m === t) return [x, rc.y - r];
+    return [x, rc.y + rc.h + r];
+  }
+  const d = Math.sqrt(d2);
+  return [cx + (dx / d) * r, cy + (dy / d) * r];
+}
+
+// Settle a body that is already buried. Search the space the walls are arguing
+// over - each wall's demand, every midpoint between two demands (for two walls
+// squeezing from opposite sides that midpoint IS the least-buried spot
+// available), and the centroid - and keep whichever is shallowest. Ties take the
+// earlier candidate so the result stays deterministic.
+//
+// This is a pure function of (x, y, rects): a body already at the settled spot
+// regenerates that same candidate and stays exactly there. That matters. When
+// the push-out passes ran first, a wedged body was dragged off the settled spot
+// on every call and crept several pixels per frame while the player stood
+// perfectly still.
+function settle(x: number, y: number, r: number, rects: Rect[]) {
+  const cand: Array<[number, number]> = [[x, y]];
   for (const rc of rects) {
     const cx = clamp(x, rc.x, rc.x + rc.w);
     const cy = clamp(y, rc.y, rc.y + rc.h);
     const dx = x - cx, dy = y - cy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= r * r) continue;
-    if (d2 === 0) {
-      const l = x - rc.x, rr = rc.x + rc.w - x, t = y - rc.y, bb = rc.y + rc.h - y;
-      const m = Math.min(l, rr, t, bb);
-      if (m === l) x = rc.x - r;
-      else if (m === rr) x = rc.x + rc.w + r;
-      else if (m === t) y = rc.y - r;
-      else y = rc.y + rc.h + r;
-    } else {
-      const d = Math.sqrt(d2);
-      x = cx + (dx / d) * r;
-      y = cy + (dy / d) * r;
+    if (dx * dx + dy * dy >= r * r) continue;
+    // the nearest face, plus the four axis-aligned escapes: the nearest face of
+    // one wall is often the interior of another (the river's bottom edge is the
+    // pillar standing on its south bank), and only a sideways option escapes
+    cand.push(escape(x, y, r, rc));
+    cand.push([rc.x - r, y], [rc.x + rc.w + r, y], [x, rc.y - r], [x, rc.y + rc.h + r]);
+  }
+  // NB: iterate a snapshot length -- cand grows as midpoints are pushed, so
+  // looping on cand.length directly would never terminate.
+  const base = cand.length;
+  for (let i = 0; i < base; i++) {
+    for (let j = i + 1; j < base; j++) {
+      cand.push([(cand[i][0] + cand[j][0]) / 2, (cand[i][1] + cand[j][1]) / 2]);
     }
   }
-  return { x, y };
+  if (cand.length > 1) {
+    let sx = 0, sy = 0;
+    for (const c of cand) { sx += c[0]; sy += c[1]; }
+    cand.push([sx / cand.length, sy / cand.length]);
+  }
+  // Least buried wins; ties go to the NEAREST spot. Every exit of a body inside
+  // a river is equally clear, and without the distance tie-break the first one
+  // generated won -- which could be 300px along the river instead of 80px up.
+  // Candidates are clamped into the world: escaping a rect whose edge IS the
+  // world boundary would otherwise put the body outside the map.
+  let bi = -1, bestD = Infinity, bestDist = Infinity;
+  for (let i = 0; i < cand.length; i++) {
+    const cx2 = clamp(cand[i][0], 20, W - 20);
+    const cy2 = clamp(cand[i][1], 20, H - 20);
+    const d = penDepth(cx2, cy2, r, rects);
+    const dist = Math.hypot(cx2 - x, cy2 - y);
+    if (d < bestD - 1e-9 || (Math.abs(d - bestD) <= 1e-9 && dist < bestDist)) {
+      bestD = d; bestDist = dist; bi = i;
+      cand[i] = [cx2, cy2];
+    }
+  }
+  return bi < 0 ? { x, y } : { x: cand[bi][0], y: cand[bi][1] };
+}
+
+export function collideCircle(px: number, py: number, r: number, rects: Rect[]) {
+  if (penDepth(px, py, r, rects) > 0) {
+    const cur = penDepth(px, py, r, rects);
+    const s = settle(px, py, r, rects);
+    // already sitting at the best spot in the neighbourhood: stay exactly put,
+    // or the body creeps a little on every call while the player stands still
+    if (Math.hypot(s.x - px, s.y - py) < 0.01) return { x: px, y: py };
+    // a strictly better local spot exists (the two-walls-squeezing case)
+    if (penDepth(s.x, s.y, r, rects) < cur - 1e-9) return s;
+    // Nothing nearby is better, so the body is ENCLOSED rather than wedged --
+    // e.g. brick7 sits inside the east river and blocks it completely, so every
+    // local escape lands in the other obstacle. Fall through: the passes walk
+    // the body along the surface and out the far side, which is the only thing
+    // that can free it.
+  }
+  let x = px, y = py;
+  // repeated passes: pushing out of one rect can push the circle into another,
+  // and a single in-order sweep leaves it overlapping a rect it already walked
+  // past. The maze's sub-diameter slots are why this is not optional.
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    for (const rc of rects) {
+      const cx = clamp(x, rc.x, rc.x + rc.w);
+      const cy = clamp(y, rc.y, rc.y + rc.h);
+      const dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy >= r * r) continue;
+      const e = escape(x, y, r, rc);
+      if (e[0] !== x || e[1] !== y) moved = true;
+      x = e[0]; y = e[1];
+    }
+    if (!moved) return { x, y }; // clear of everything
+  }
+  // the passes kept shoving us between two walls: take the best available spot
+  return settle(x, y, r, rects);
 }
 
 export function pointInWall(x: number, y: number, rects: Rect[] = STEEL) {
@@ -163,15 +262,36 @@ export function randomSpot(
 
 // One movement integrator shared by server + client prediction.
 // Ice: velocity eases toward input (drift). mult: speed buffs. Everywhere else: instant.
+// One movement integrator shared by server + client prediction.
+// Ice: velocity eases toward input (drift). mult: speed buffs. Everywhere else: instant.
+//
+// Collision is resolved only at the destination, so a single long step can land
+// clear on the FAR side of a rect and never see it. The thinnest steel here is
+// 30px and a 16px body needs 62px of travel to clear it, so anything longer than
+// one 30Hz tick is sliced into safe sub-steps. At a normal tick this is a single
+// step and the behaviour is unchanged; only a stall (GC pause, blocked event
+// loop, tab wake) gets sliced -- which is what stops a lag spike walking you
+// through indestructible steel.
+const MOVE_STEP = 1 / 30;
+const MOVE_SUBSTEPS_MAX = 8;
 export function stepMove(
   px: number, py: number, vx: number, vy: number,
   dx: number, dy: number, dt: number, solids: Rect[], onIce: boolean, mult = 1,
 ) {
-  const k = onIce ? Math.min(1, dt * 5) : 1;
-  const nvx = vx + (dx * SPEED * mult - vx) * k;
-  const nvy = vy + (dy * SPEED * mult - vy) * k;
-  const nx = clamp(px + nvx * dt, 20, W - 20);
-  const ny = clamp(py + nvy * dt, 20, H - 20);
-  const f = collideCircle(nx, ny, RADIUS, solids);
-  return { x: f.x, y: f.y, vx: nvx, vy: nvy };
+  const n = Math.max(1, Math.min(MOVE_SUBSTEPS_MAX, Math.ceil(dt / MOVE_STEP)));
+  // sub is capped as well as n, so a pathological stall can never resolve into
+  // one huge step again: the player then covers less ground that tick, which is
+  // invisible, instead of being teleported through a wall.
+  const sub = Math.min(dt / n, MOVE_STEP);
+  let x = px, y = py, cx = vx, cy = vy;
+  for (let i = 0; i < n; i++) {
+    const k = onIce ? Math.min(1, sub * 5) : 1;
+    const nvx = cx + (dx * SPEED * mult - cx) * k;
+    const nvy = cy + (dy * SPEED * mult - cy) * k;
+    const nx = clamp(x + nvx * sub, 20, W - 20);
+    const ny = clamp(y + nvy * sub, 20, H - 20);
+    const f = collideCircle(nx, ny, RADIUS, solids);
+    x = f.x; y = f.y; cx = nvx; cy = nvy;
+  }
+  return { x, y, vx: cx, vy: cy };
 }

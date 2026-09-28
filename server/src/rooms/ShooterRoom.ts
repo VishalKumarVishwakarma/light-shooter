@@ -119,15 +119,23 @@ export class ShooterRoom extends Room<ShooterState> {
       const p = this.state.players.get(c.sessionId);
       if (!p || !p.alive || p.guard) return; // lower the shield to throw
       const kind = String(m?.kind || '');
-      const T = THROWABLE[kind];
+      // hasOwnProperty, not a bare lookup: THROWABLE is an object literal, so
+      // kind='toString' would otherwise resolve to an inherited function, pass
+      // every guard below (T.count is undefined, so p[undefined] <= 0 is false),
+      // and spawn a Throw with NaN velocity whose fuse never reaches 0 -- an
+      // entity replicated to every client forever, spamming the schema encoder's
+      // "trying to encode NaN" log 60x/second.
+      const T = Object.prototype.hasOwnProperty.call(THROWABLE, kind) ? THROWABLE[kind] : undefined;
       if (!T || p[T.count] <= 0) return;
       p[T.count]--;
       const a = this.cleanNum(m?.angle);
+      const vx = Math.cos(a) * T.speed, vy = Math.sin(a) * T.speed;
+      if (!Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(T.fuse)) return;
       const th = new Throw();
       th.id = `th_${Date.now()}_${throwSeq++}`;
       th.kind = kind;
       th.x = p.x + Math.cos(a) * 30; th.y = p.y + Math.sin(a) * 30;
-      th.vx = Math.cos(a) * T.speed; th.vy = Math.sin(a) * T.speed;
+      th.vx = vx; th.vy = vy;
       th.t = T.fuse; th.ownerId = c.sessionId;
       this.state.throws.set(th.id, th);
     });
@@ -153,9 +161,15 @@ export class ShooterRoom extends Room<ShooterState> {
       this.lastMelee.set(c.sessionId, now);
       // close-range arc in facing direction: 70px reach, 50 dmg
       this.state.players.forEach((q, qid) => {
+        // the kill target may have been reached on an earlier swing
+        if (this.state.phase !== 'playing') return;
         if (qid === c.sessionId || !q.alive) return;
         const dx = q.x - p.x, dy = q.y - p.y;
         if (dx * dx + dy * dy > 70 * 70) return;
+        // Line of sight. Bullets, movement and the electric bolt all respect
+        // geometry; melee did not, so you could knife through every 30px wall in
+        // the arena -- including the indestructible centre fortress.
+        if (this.blocked(p.x, p.y, q.x, q.y)) return;
         let da = Math.atan2(dy, dx) - p.angle;
         while (da > Math.PI) da -= Math.PI * 2;
         while (da < -Math.PI) da += Math.PI * 2;
@@ -200,6 +214,18 @@ export class ShooterRoom extends Room<ShooterState> {
     // server-side sanitize: strip markup, trim, cap (mirrors client cleanName)
     const raw = String(opts?.name || '').replace(/[<>&"']/g, '').trim().slice(0, 12);
     p.name = raw || 'Soldier' + i;
+    // A client that drops and reconnects mid-match gets a new sessionId and
+    // therefore a brand-new Player: full HP, a loaded pistol -- and, without
+    // this, NO spawn shield, so the only person in the arena without protection
+    // is the one who just reconnected. (The scoreboard still starts at zero:
+    // matching an old player across sessionIds would need a persistent client
+    // id, which is a bigger change than this deserves.)
+    if (this.state.phase === 'playing') {
+      p.weapon = 'pistol';
+      p.pammo = WEAPONS.pistol.clip;
+      p.shield = this.shieldSeconds;
+      p.guard = true;
+    }
     this.state.players.set(c.sessionId, p);
     this.inputs.set(c.sessionId, { dx: 0, dy: 0, angle: 0 });
     this.vel.set(c.sessionId, { x: 0, y: 0 });
@@ -273,6 +299,24 @@ export class ShooterRoom extends Room<ShooterState> {
       if ((this.state.bricks.get(`br_${i}`)?.hp ?? BRICK_HP) > 0) out.push(rc);
     });
     return out;
+  }
+
+  // Is the straight line between two points broken by steel or a standing brick?
+  // Same materials the bullet sweep tests, sampled at 12px. Used by melee, which
+  // otherwise reached through cover: two players on opposite faces of a 30px
+  // maze wall are ~32px apart, well inside the 70px knife reach.
+  private blocked(x0: number, y0: number, x1: number, y1: number) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.max(1, Math.ceil(dist / 12));
+    const walls = [...STEEL];
+    BRICKS.forEach((rc, i) => {
+      if ((this.state.bricks.get(`br_${i}`)?.hp ?? BRICK_HP) > 0) walls.push(rc);
+    });
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps;
+      if (inRect(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, walls)) return true;
+    }
+    return false;
   }
 
   private ammoOf(p: Player, w: string) {
@@ -503,6 +547,8 @@ export class ShooterRoom extends Room<ShooterState> {
   ) {
     const R = THROWABLE.grenade.r;
     this.state.players.forEach((q, qid) => {
+      // matchWin() may have fired on an earlier victim in this same blast
+      if (this.state.phase !== 'playing') return;
       if (!q.alive) return;
       const d = Math.hypot(q.x - x, q.y - y);
       if (d >= R) return;
@@ -514,12 +560,17 @@ export class ShooterRoom extends Room<ShooterState> {
       const before = Math.max(0, q.hp);
       q.hp -= dmg;
       hits.push({ x: q.x, y: q.y, by: ownerId, dmg, ox: x, oy: y, to: qid });
+      // your own blast still hurts you (a grenade has no safety), but it must
+      // never count as a kill: crediting qid with a kill on themselves let a
+      // player farm kills, cash and even the win by lobbing a grenade at their
+      // own feet.
+      const self = qid === ownerId;
       const owner = this.state.players.get(ownerId);
-      if (owner) { owner.damage += Math.min(dmg, before); owner.hitsMade++; }
+      if (owner && !self) { owner.damage += Math.min(dmg, before); owner.hitsMade++; }
       if (q.hp <= 0) {
         q.hp = 0; q.alive = false; (q as any)._deadT = 0;
         q.streak = 0; q.deaths++;
-        const killer = this.state.players.get(ownerId);
+        const killer = self ? null : this.state.players.get(ownerId);
         if (killer) {
           killer.kills++; killer.streak++; killer.cash += 120;
           feed.push({ killer: killer.name, victim: q.name, w: 'grenade' });
@@ -759,6 +810,8 @@ export class ShooterRoom extends Room<ShooterState> {
         if (cl.tick > 0) return;
         cl.tick = FIRE_TICK;
         this.state.players.forEach((q, qid) => {
+          // the kill target may have been reached on an earlier tick of this fire
+          if (this.state.phase !== 'playing') return;
           if (!q.alive || Math.hypot(q.x - cl.x, q.y - cl.y) >= cl.r) return;
           const before = Math.max(0, q.hp);
           if (q.shield > 0) { // spawn fairness outranks even fire
@@ -767,12 +820,14 @@ export class ShooterRoom extends Room<ShooterState> {
           }
           q.hp -= FIRE_DMG;
           hits.push({ x: q.x, y: q.y, by: cl.ownerId, dmg: FIRE_DMG, ox: cl.x, oy: cl.y, to: qid });
+          // standing in your own molly burns you, but never scores a kill on you
+          const self = qid === cl.ownerId;
           const owner = this.state.players.get(cl.ownerId);
-          if (owner) { owner.damage += Math.min(FIRE_DMG, before); owner.hitsMade++; }
+          if (owner && !self) { owner.damage += Math.min(FIRE_DMG, before); owner.hitsMade++; }
           if (q.hp <= 0) {
             q.hp = 0; q.alive = false; (q as any)._deadT = 0;
             q.streak = 0; q.deaths++;
-            const killer = this.state.players.get(cl.ownerId);
+            const killer = self ? null : this.state.players.get(cl.ownerId);
             if (killer) {
               killer.kills++; killer.streak++; killer.cash += 120;
               feed.push({ killer: killer.name, victim: q.name, w: 'molly' });

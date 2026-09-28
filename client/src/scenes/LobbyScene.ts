@@ -9,6 +9,25 @@ import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
 import { SERVER_HTTP } from '../net/serverUrl';
 
+// Clipboard write that cannot throw. `navigator.clipboard?.writeText(x).catch()`
+// only guards the PROPERTY access: where the API is absent the expression
+// evaluates to undefined and the next link (.catch/.then) dereferences it. That
+// is not a permission denial -- navigator.clipboard is simply undefined on every
+// non-secure origin, i.e. http://192.168.x.x, which is exactly how a shared
+// invite link is opened. Clicking the code pill threw a TypeError straight into
+// main.ts's unhandled-rejection handler and painted the red "refresh the page"
+// banner over a perfectly working lobby.
+function copyText(text: string, ok?: () => void, fail?: () => void) {
+  const cb = (navigator as any)?.clipboard;
+  if (!cb || typeof cb.writeText !== 'function') { fail?.(); return; }
+  try {
+    const p = cb.writeText(text);
+    if (p && typeof p.then === 'function') {
+      p.then(() => ok?.(), () => fail?.()).catch(() => fail?.());
+    } else ok?.();
+  } catch { fail?.(); }
+}
+
 export function roomLink(code: string) {
   const base = `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}`;
   // keep the page pointed at a non-local server when shared
@@ -112,7 +131,7 @@ export class LobbyScene extends Phaser.Scene {
       .setStrokeStyle(1, 0x22d3ee, 0.5);
     pillHit.setInteractive({ useHandCursor: true });
     pillHit.on('pointerdown', () => {
-      navigator.clipboard?.writeText(Session.code).catch(() => {});
+      copyText(Session.code);
       this.refreshCode(true);
     });
     const invite = this.add.text(706, 74, '＋ INVITE', {
@@ -224,10 +243,8 @@ export class LobbyScene extends Phaser.Scene {
     copy.setShadow(0, 0, '#22d3ee', 8, false, true);
     copy.setInteractive({ useHandCursor: true });
     copy.on('pointerdown', () => {
-      navigator.clipboard?.writeText(link).then(
-        () => toast(this, 'link copied — send it to your squad'),
-        () => toast(this, 'copy blocked — long-press the link', '#f87171'),
-      ).catch(() => toast(this, 'copy blocked — long-press the link', '#f87171'));
+      copyText(link, () => toast(this, 'link copied — send it to your squad'),
+        () => toast(this, 'copy blocked — long-press the link', '#f87171'));
     });
     m.body.add(copy);
     const share = this.add.text(90, 130, '⤴ SHARE', {
@@ -241,7 +258,7 @@ export class LobbyScene extends Phaser.Scene {
       if (nav.share) {
         nav.share({ title: 'Join my shooter lobby', text: `Code ${code}`, url: link }).catch(() => {});
       } else {
-        navigator.clipboard?.writeText(link).catch(() => {});
+        copyText(link);
         toast(this, 'link copied — no share sheet on this device');
       }
     });
@@ -268,6 +285,12 @@ export class LobbyScene extends Phaser.Scene {
         }
         known.set(id, p.name);
       });
+      // kill the roster's looping tweens before dropping the objects. Phaser
+      // never removes a tween because its target was destroyed, and draw() is
+      // driven by state.onChange -- which fires on every countdown tick (30Hz),
+      // so each rebuild minted a fresh `repeat: -1` per ready player that then
+      // ran forever on a dead dot.
+      this.rowsBox.getAll().forEach((o: any) => this.tweens.killTweensOf(o));
       this.rowsBox.removeAll(true);
       const ps = room.state.players;
       const hostId = room.state.hostId;
@@ -407,8 +430,13 @@ export class LobbyScene extends Phaser.Scene {
     if (phase === 'playing' && !this.gone) {
       this.gone = true;
       // the arena ships as its own chunk; make sure it is registered before the
-      // switch (preloaded during the countdown, so this resolves immediately)
+      // switch (preloaded during the countdown, so this resolves immediately).
+      // Re-check liveness after the await: `gone` was only tested BEFORE it, so
+      // leaving the lobby while the chunk was still in flight dragged the player
+      // out of the menu into the arena unasked, and dropped the "could not load"
+      // toast on a dead scene.
       void ensureArena(this.game).then((ok) => {
+        if (!this.scene.isActive()) return; // left the lobby while loading
         if (ok) this.scene.start('arena');
         else toast(this, 'could not load the arena - refresh', '#ef4444', 348);
       });

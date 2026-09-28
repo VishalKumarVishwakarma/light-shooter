@@ -180,6 +180,13 @@ export class ArenaScene extends Phaser.Scene {
     this.cameras.main.fadeIn(250, 0, 0, 0);
     this.events.once('shutdown', () => {
       try { this.input.setDefaultCursor('default'); } catch { /* dying */ }
+      // the sustained discharge bed must stop HERE, on the real teardown event.
+      // It used to live in a `shutdown()` METHOD, which Phaser never calls
+      // (Systems.shutdown() only emits the event), so leaving mid-burst -- by
+      // clicking leave, or when the whistle ends the match -- left the saw +
+      // noise bed droning over the whole lobby and menu, unsilenceable except
+      // through Settings.
+      sfx.arcOff();
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // ground: grid + film-grain noise + vignette
@@ -976,11 +983,8 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  // scene teardown: silence the discharge bed, or it drones over the lobby
-  shutdown() {
-    sfx.arcOff();
-  }
-
+  // Stop the discharge bed without leaving the scene (reload, respawn, guard).
+  // Scene teardown handles itself via the 'shutdown' listener in create().
   private arcOffNow() {
     this.arcG?.clear();
     this.arcG?.setVisible(false);

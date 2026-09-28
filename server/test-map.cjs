@@ -26,9 +26,11 @@ ok(!pointInWall(c.x, c.y, STEEL) && Math.abs(c.x - 684) < 0.01, `fortress pushes
 const o = collideCircle(200, 200, 16, STEEL);
 ok(o.x === 200 && o.y === 200, 'open field untouched');
 
-// 3. Brick rect behaves like a wall while standing
-const e = collideCircle(290, 600, 16, [BRICKS[6]]);
-ok(Math.abs(e.x - 264) < 0.01, `brick face resolves to r (${e.x})`);
+// 3. Brick rect behaves like a wall while standing. Derive the probe from the
+// rect so moving level geometry cannot silently invalidate the assertion.
+const b6 = BRICKS[6];
+const e = collideCircle(b6.x + 10, b6.y + b6.h / 2, 16, [b6]);
+ok(Math.abs(e.x - (b6.x - 16)) < 0.01, `brick face resolves to r (${e.x}, want ${b6.x - 16})`);
 
 // 4. pointInWall sanity
 ok(pointInWall(750, 550, STEEL) === true, 'inside steel detected');
@@ -67,6 +69,54 @@ for (const [kind, x, y] of PICKUP_POINTS) {
   if (inRect(x, y, SOLIDS)) { pkClear = false; console.log(`  pickup ${kind} inside solid`, x, y); }
 }
 ok(pkClear, `${PICKUP_POINTS.length} pickup points on open ground`);
+// 7b. ...and every pad is actually WALKABLE to. "not inside a wall" is much
+// weaker than "you can reach it": a brick dropped onto the approach to the
+// grenade pad left the pad on open ground and walled it off completely, and only
+// the integration suite (which walks there) noticed. Flood-fill the walkable
+// space from the spawns with the real body radius and require every pad inside.
+const CELL = 8;
+const cols = Math.ceil(M.WORLD.w / CELL), rows = Math.ceil(M.WORLD.h / CELL);
+const walkable = (cx, cy) => !M.collideCircle(cx * CELL + CELL / 2, cy * CELL + CELL / 2, M.RADIUS, SOLIDS)
+  || (() => {
+    // a cell is usable if the body can stand at its centre
+    const r = M.collideCircle(cx * CELL + CELL / 2, cy * CELL + CELL / 2, M.RADIUS, SOLIDS);
+    return Math.hypot(r.x - (cx * CELL + CELL / 2), r.y - (cy * CELL + CELL / 2)) < 0.01;
+  })();
+const reach = new Uint8Array(cols * rows);
+const q = [];
+for (const [sx, sy] of M.SPAWNS) {
+  const cx = Math.floor(sx / CELL), cy = Math.floor(sy / CELL);
+  if (!walkable(cx, cy)) continue;
+  if (!reach[cy * cols + cx]) { reach[cy * cols + cx] = 1; q.push([cx, cy]); }
+}
+while (q.length) {
+  const [cx, cy] = q.pop();
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx2 = cx + dx, ny2 = cy + dy;
+    if (nx2 < 0 || ny2 < 0 || nx2 >= cols || ny2 >= rows) continue;
+    if (reach[ny2 * cols + nx2] || !walkable(nx2, ny2)) continue;
+    reach[ny2 * cols + nx2] = 1;
+    q.push([nx2, ny2]);
+  }
+}
+const reachable = (x, y) => {
+  // a pad is reachable if any cell within a body radius of it was flood-filled
+  const r = Math.ceil(M.RADIUS / CELL) + 1;
+  const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const ax = cx + dx, ay = cy + dy;
+      if (ax < 0 || ay < 0 || ax >= cols || ay >= rows) continue;
+      if (reach[ay * cols + ax]) return true;
+    }
+  }
+  return false;
+};
+const unreachable = PICKUP_POINTS.filter(([, x, y]) => !reachable(x, y)).map(([k, x, y]) => `${k}@${x},${y}`);
+ok(unreachable.length === 0,
+  `every pickup pad is walkable from a spawn (${unreachable.length} walled off${unreachable.length ? ': ' + unreachable.join(', ') : ''})`);
+const spawnsSeen = M.SPAWNS.filter(([x, y]) => reach[Math.floor(y / CELL) * cols + Math.floor(x / CELL)]).length;
+ok(spawnsSeen === M.SPAWNS.length, `all ${M.SPAWNS.length} spawns are on walkable ground (${spawnsSeen})`);
 ok(PICKUP_POINTS.length === 16, '16 pickup points (guns + stance + throwables)');
 ok(PICKUP_POINTS.filter(([k]) => k === 'sniper').length === 2, 'sniper spawns east + west');
 ok(PICKUP_POINTS.some(([k]) => k === 'electric'), 'electric pad on the map');

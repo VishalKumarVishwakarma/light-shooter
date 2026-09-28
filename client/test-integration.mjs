@@ -705,17 +705,29 @@ async function main() {
   await sleep(400);
   const spd = f2r.state.players.get(f2r.sessionId).speedT;
   ok(spd > 0 && spd <= 8, `speed pad grants haste (${spd.toFixed(1)}s)`);
-  // guest sprints west 2s boosted: must outrun the 520px unboosted ceiling
-  const g0 = f2r.state.players.get(f2r.sessionId).toJSON();
-  for (let i = 0; i < 10; i++) {
-    f2r.send('move', { dx: -1, dy: 0, angle: Math.PI });
-    await sleep(200);
+  // Guest sprints and must outrun the unboosted ceiling. The speed pad respawns
+  // at a RANDOM open spot, so a fixed 2s dash in one direction is a coin flip on
+  // whether a wall happens to be 100px west -- which is how this assertion came
+  // to depend on level geometry it was never meant to test. Probe all four
+  // cardinals over 12 ticks and take the best: unboosted covers 260*0.4 = 104px,
+  // boosted 364*0.4 = 146px, so 120px separates them with room for a graze.
+  let bestSprint = 0;
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    const s0 = f2r.state.players.get(f2r.sessionId).toJSON();
+    for (let i = 0; i < 12; i++) {
+      f2r.send('move', { dx, dy, angle: Math.atan2(dy, dx) });
+      await sleep(34);
+    }
+    f2r.send('move', { dx: 0, dy: 0, angle: 0 });
+    await sleep(60);
+    const s1 = f2r.state.players.get(f2r.sessionId).toJSON();
+    bestSprint = Math.max(bestSprint, Math.hypot(s1.x - s0.x, s1.y - s0.y));
   }
-  f2r.send('move', { dx: 0, dy: 0, angle: Math.PI });
-  await sleep(300);
-  const g1 = f2r.state.players.get(f2r.sessionId).toJSON();
-  ok(g0.x - g1.x > 600, `haste outruns base speed (${(g0.x - g1.x).toFixed(0)}px)`);
-  // formation for the absorb shot: host east lane, guest holds west
+  ok(bestSprint > 120, `haste outruns base speed (${bestSprint.toFixed(0)}px boosted vs 104px ceiling)`);
+  // formation for the absorb shot: host at (540,210), guest parked due west at
+  // (300,210) so the lane between them is clear. Both are placed explicitly --
+  // the sprint probe above leaves the guest somewhere arbitrary, and a wall
+  // between them silently absorbs the shot.
   for (let i = 0; i < 20; i++) {
     const a = f1r.state.players.get(f1r.sessionId).toJSON();
     if (a.x > 540 && a.y < 250) break;
@@ -723,9 +735,21 @@ async function main() {
     await sleep(200);
   }
   f1r.send('move', { dx: 0, dy: 0, angle: 0 });
+  for (let i = 0; i < 24; i++) {
+    const b = f2r.state.players.get(f2r.sessionId).toJSON();
+    if (Math.abs(b.x - 300) < 30 && Math.abs(b.y - 210) < 30) break;
+    f2r.send('move', { dx: b.x < 300 ? 1 : b.x > 300 ? -1 : 0, dy: b.y < 210 ? 1 : b.y > 210 ? -1 : 0, angle: 0 });
+    await sleep(200);
+  }
+  f2r.send('move', { dx: 0, dy: 0, angle: 0 });
   await sleep(400);
   const fa = f1r.state.players.get(f1r.sessionId).toJSON();
   const fb = f2r.state.players.get(f2r.sessionId).toJSON();
+  // Informational: report the geometry so a failed absorb assertion says WHY.
+  // Only the direction is required -- the guest walks in from wherever the speed
+  // pad left it, and pinning an exact y here made this flaky for no benefit.
+  console.log(`  formation: host ${fa.x | 0},${fa.y | 0} / guest ${fb.x | 0},${fb.y | 0} (dy ${Math.abs(fa.y - fb.y) | 0}px)`);
+  ok(fa.x > fb.x, 'host is east of the guest for the absorb shot');
   f2r.send('shoot', { angle: Math.atan2(fa.y - fb.y, fa.x - fb.x) });
   await sleep(600);
   const after = f1r.state.players.get(f1r.sessionId).toJSON();

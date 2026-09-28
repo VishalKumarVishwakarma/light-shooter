@@ -47,7 +47,10 @@ export class BootScene extends Phaser.Scene {
       }],
       ['painting arena', async () => { ensureTextures(this); }],
       ['pinging server', async () => {
-        const res = await fetch(`${SERVER_HTTP}/`);
+        // deadline-bounded: a connection that is accepted but never answered
+        // left this promise pending forever, so the loop stalled at 67% and
+        // scene.start('menu') below never ran -- the player never saw a menu.
+        const res = await fetch(`${SERVER_HTTP}/`, { signal: AbortSignal.timeout(6000) });
         if (!res.ok) throw new Error('unreachable');
       }],
     ];

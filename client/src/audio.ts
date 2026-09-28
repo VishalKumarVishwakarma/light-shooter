@@ -19,7 +19,15 @@ class SFX {
       if (!AC) return null;
       this.ctx = new AC();
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    // Any non-running state is retried, not just 'suspended' (Safari parks a
+    // context as 'interrupted' after a call or notification, and 'closed' is
+    // terminal). And the rejection is caught: `void promise` is an unhandled
+    // rejection whenever the autoplay policy refuses, and main.ts escalates
+    // every unhandled rejection into a permanent red "refresh the page" banner
+    // over a game that is otherwise fine and merely silent.
+    if (this.ctx.state !== 'running') {
+      void this.ctx.resume().catch(() => { /* blocked until a gesture; retried */ });
+    }
     return this.ctx;
   }
 

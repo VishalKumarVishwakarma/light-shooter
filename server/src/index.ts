@@ -21,6 +21,11 @@ app.use((_req: any, res: any, next: any) => {
 });
 app.get('/', (_req: any, res: any) => res.send('shooter-server ok'));
 
+// Ceiling on concurrently live shooter rooms. Generous for real play (a full
+// 8-player match is 1 room) but low enough that the 4-digit code space cannot
+// be exhausted by a script looping POST /code.
+const MAX_LIVE_ROOMS = 500;
+
 // ---- 4-digit join codes -------------------------------------------------
 // The public handle is a 4-digit code; codes.ts binds it to the real room id
 // (Colyseus assigns its own roomId and ignores ours) and owns uniqueness.
@@ -31,10 +36,21 @@ async function liveRoomIds(): Promise<Set<string>> {
 
 // open a lobby under a fresh code
 app.post('/code', async (_req: any, res: any) => {
+  // Cap live rooms. The endpoint is unauthenticated and CORS is open, so
+  // without a ceiling a loop of POSTs parks thousands of 30Hz simulations and
+  // burns the whole 4-digit code space, after which no one can create a lobby.
+  const live = await liveRoomIds().catch(() => new Set<string>());
+  if (live.size >= MAX_LIVE_ROOMS) {
+    return res.status(503).json({ error: 'server is full, try again shortly' });
+  }
   let lastErr = 'no free code';
   for (let attempt = 0; attempt < 4; attempt++) {
-    const live = await liveRoomIds().catch(() => new Set<string>());
-    const code = reserveCode((c) => live.has(c));
+    // Uniqueness is owned by codes.ts (its pending + bound sets). This predicate
+    // is only a belt-and-braces check against handing out a code that is already
+    // bound to a live room, so it must compare CODES -- it used to compare a code
+    // against a set of room ids, which can never match and so did nothing.
+    const liveCodes = new Set([...live].map((rid) => codeForRoom(rid)).filter(Boolean) as string[]);
+    const code = reserveCode((c) => liveCodes.has(c));
     if (!code) { lastErr = 'every code is in use'; continue; }
     try {
       const room = await matchMaker.createRoom('shooter', {});
@@ -55,9 +71,14 @@ app.get('/code/:code', async (req: any, res: any) => {
   if (!CODE_RE.test(code)) return res.status(400).json({ error: 'codes are 4 digits' });
   const roomId = roomForCode(code);
   if (!roomId) return res.status(404).json({ error: 'no lobby with that code' });
-  // a code whose room died between allocation and lookup must not resolve
-  const live = await liveRoomIds().catch(() => new Set<string>());
-  if (!live.has(roomId)) {
+  // A code whose room really died must not resolve. The driver index LAGS
+  // createRoom(), and the client resolves the code immediately after asking for
+  // one, so treating "not in the index" as "dead" used to permanently unbind a
+  // live lobby: the host got "no lobby with that code" and their room could
+  // never be joined again. A failed query means UNKNOWN, not dead -- and only a
+  // confirmed absence releases the binding.
+  const live = await liveRoomIds().catch(() => null);
+  if (live && !live.has(roomId)) {
     releaseRoom(roomId);
     return res.status(404).json({ error: 'no lobby with that code' });
   }

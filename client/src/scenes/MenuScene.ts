@@ -371,7 +371,10 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private clearList() {
-    this.listObjs.forEach((o) => o.destroy());
+    // kill the tweens first. Phaser never removes a tween because its target
+    // was destroyed, and the LIVE chips run `repeat: -1`, so every rebuild left
+    // a looping tween stepping a dead object for the rest of the session.
+    this.listObjs.forEach((o) => { this.tweens.killTweensOf(o); o.destroy(); });
     this.listObjs = [];
   }
 
@@ -386,6 +389,10 @@ export class MenuScene extends Phaser.Scene {
       this.errText.setText('list failed, enter code manually. ' + (e?.message || e));
       this.listing = false;
       return this.askCode();
+    } finally {
+      // one-way latch: anything thrown while rendering the rows used to leave
+      // `listing` true, and every later click on JOIN LOBBY was a silent no-op
+      this.listing = false;
     }
     this.clearList();
     this.errText.setText(lobbies.length ? '' : 'no open lobbies — create one!');
@@ -455,10 +462,10 @@ export class MenuScene extends Phaser.Scene {
     manual.setInteractive({ useHandCursor: true });
     manual.on('pointerdown', () => this.askCode());
     this.listObjs.push(manual);
-    this.listing = false;
   }
 
   private askCode() {
+    let joining = false;
     const m = modal(this, 'ENTER LOBBY CODE', 480, 250);
     const input = document.createElement('input');
     input.maxLength = 4;
@@ -494,11 +501,21 @@ export class MenuScene extends Phaser.Scene {
         hint.setText('a code is 4 digits, 1000-9999').setColor('#ef4444');
         return;
       }
+      // One join in flight. doJoin is bound to BOTH the GO button and the
+      // input's Enter key, and the modal auto-focuses the input -- so hammering
+      // Enter fired it twice. m.close() is idempotent and did not stop the
+      // second call; both then saw Session.room === null (the first had not
+      // assigned yet), both joinById'd the same room, and the server seated the
+      // player twice: two identical rows in the lobby and one person on both
+      // teams in a 2-player match.
+      if (joining) return;
+      joining = true;
       m.close();
       this.errText.setText('joining…');
       Session.joinLobby(code).then(
         () => this.scene.start('lobby'),
         (e: any) => {
+          joining = false;
           this.errText.setText('');
           this.showError('JOIN FAILED', String(e?.message || e));
         },

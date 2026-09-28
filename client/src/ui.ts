@@ -99,22 +99,32 @@ export function setQuality(q: 'high' | 'low') {
 // a canvas `depth` can never put one behind a modal: the input just floats over
 // the glass and reads as an overlay breaking the window. Scenes register their
 // scene-level inputs here and modal() hides them for as long as it is open.
-const underlay: Array<{ el: Phaser.GameObjects.DOMElement; hide: () => void; show: () => void }> = [];
+type Underlay = { el: Phaser.GameObjects.DOMElement; hide: () => void; show: () => void };
+const underlay: Underlay[] = [];
 let modalCount = 0;
 
 // apply to every registered input, dropping any whose scene has been torn down
-// (a destroyed DOMElement throws on setVisible, which is our prune signal)
-function eachUnderlay(fn: (r: { el: Phaser.GameObjects.DOMElement; hide: () => void; show: () => void }) => void) {
+function eachUnderlay(fn: (r: Underlay) => void) {
   for (let i = underlay.length - 1; i >= 0; i--) {
-    try { fn(underlay[i]); } catch { underlay.splice(i, 1); }
+    fn(underlay[i]);
   }
 }
 
 export function registerUnderlay(el: Phaser.GameObjects.DOMElement) {
-  underlay.push({
+  const rec: Underlay = {
     el,
     hide: () => el.setVisible(false),
     show: () => el.setVisible(true),
+  };
+  underlay.push(rec);
+  // Unregister on the element's own destruction. This used to rely on
+  // setVisible() throwing for a destroyed DOMElement as a prune signal, but
+  // setVisible only flips a boolean (Visible mixin) and never throws -- so the
+  // catch was unreachable and the registry grew one dead entry per menu visit,
+  // with every modal open/close walking the whole dead list.
+  el.once(Phaser.GameObjects.Events.DESTROY, () => {
+    const i = underlay.indexOf(rec);
+    if (i >= 0) underlay.splice(i, 1);
   });
   if (modalCount > 0) eachUnderlay((r) => r.hide());
   return el;
@@ -174,6 +184,8 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   });
   let closed = false;
   const restore = () => {
+    if (closed) return; // one decrement per modal, ever
+    closed = true;
     if (--modalCount <= 0) {
       modalCount = 0;
       underlayShow(); // a DOM node is only un-hidden by setVisible(true)
@@ -181,12 +193,21 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   };
   const close = () => {
     if (closed) return;
-    closed = true;
     scene.tweens.add({
       targets: root, alpha: 0, scaleX: 0.96, scaleY: 0.96, y: 306, duration: 150, ease: 'Quad.easeIn',
-      onComplete: () => { root.destroy(true); restore(); },
+      onComplete: () => root.destroy(true),
     });
+    // Release the underlay NOW, not in the tween's onComplete. Phaser's
+    // TweenManager.shutdown() kills in-flight tweens WITHOUT firing onComplete,
+    // so a scene that changes during the 150ms close (which is every join on
+    // localhost, where the handshake beats the animation) used to leak the
+    // count. modalCount is a module global: once stuck above zero, every later
+    // registerUnderlay() hid its input and the menu's callsign field stayed
+    // invisible for the rest of the session.
+    restore();
   };
+  // ...and a scene torn down with the modal still open must release it too.
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, restore);
   xbg.on('pointerdown', close);
   dim.on('pointerdown', close);
   return { root, body, close };
@@ -199,7 +220,13 @@ const toastY = { next: 0 };
 export function toast(scene: Phaser.Scene, msg: string, color = '#e2e8f0', y0 = 64) {
   const i = toastY.next++ % 3;
   const y = y0 + i * 32;
-  const c = scene.add.container(480, y - 18).setDepth(60).setAlpha(0);
+  // scrollFactor 0 is essential: this is a SCREEN-space position (the viewport
+  // centre), and the arena camera follows the player across a 1600x1200 world.
+  // Without it a toast at world (480,344) rendered at screen (480-scrollX,
+  // 344-scrollY) -- off-screen entirely for anyone standing in the east or
+  // south of the map, so "SHIELD UP", the control hint, the join notice and
+  // "AUTO LOW GRAPHICS" were simply never seen.
+  const c = scene.add.container(480, y - 18).setScrollFactor(0).setDepth(60).setAlpha(0);
   const t = scene.add.text(12, 0, msg, {
     fontFamily: BTN_FONT, fontSize: '15px', fontStyle: '700', color,
   }).setOrigin(0, 0.5);

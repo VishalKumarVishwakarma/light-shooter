@@ -135,5 +135,33 @@ ok(/private keep\(d: unknown\)/.test(src) && /typeof d === 'function'/.test(src)
 ok(/for \(const d of this\.colyOff\) \{ try \{ d\(\); \} catch/.test(src), 'the flush runs every disposer');
 ok(/this\.colyOff = \[\];/.test(src), '...and clears the list so a second shutdown cannot double-dispose');
 
+// ---------------------------------------------------------------------------
+// 8. The trigger must never stay down.
+//    Phaser reports a release under 'pointerupoutside' whenever the target is
+//    not the canvas (verified in the installed 3.90 InputPlugin.processUpEvents)
+//    -- the scene listened only for 'pointerup'. Blur mid-burst delivers no
+//    mouseup at all, and 'gameout' needs real pointer movement, so both left
+//    `firing` true and the automatic weapons (rifle, laser, electric) fired on
+//    their own: 0.14s bolts, a live arc and a sustained audio bed, with no
+//    trigger held, until the next click.
+const trig = body('const release = (pt: Phaser.Input.Pointer)', 'this.input.addPointer(3)');
+ok(trig.length > 0, 'the trigger release handler was located');
+ok(/this\.input\.on\('pointerupoutside', release\)/.test(src),
+  "the release is handled for 'pointerupoutside', not just 'pointerup'");
+ok(/this\.input\.on\('pointerup', release\)/.test(trig), '...and the normal release still goes through the same handler');
+ok(/if \(\(pt as any\)\.wasTouch\) \{ this\.releaseStick\(pt\.id\); return; \}/.test(trig),
+  'touch keeps its per-stick release (lifting the move stick must not cancel a held fire)');
+ok(/this\.game\.events\.on\(Phaser\.Core\.Events\.BLUR, this\.blurHandler\)/.test(trig),
+  'a window blur clears the trigger, since it delivers no mouseup at all');
+ok(/this\.blurHandler = \(\) => \{ this\.firing = false; this\.clearSticks\(\); \}/.test(trig),
+  '...clearing the trigger and the sticks, not just the sticks');
+ok(/this\.input\.on\('gameout'/.test(trig), 'the gameout path is still handled');
+// the blur handler lives on the GAME emitter, which outlives the scene
+ok(/private blurHandler: \(\(\) => void\) \| null = null;/.test(src), 'the blur handler is held on the instance');
+const shut = body("this.events.once('shutdown'", 'this.cameras.main.setBounds');
+ok(/this\.game\.events\.off\(Phaser\.Core\.Events\.BLUR, this\.blurHandler\)/.test(shut),
+  '...and detached on shutdown, or it piles up one listener per arena visit');
+ok(/this\.firing = false;/.test(shut), 'the trigger is released on teardown too');
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

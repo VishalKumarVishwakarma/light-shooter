@@ -77,6 +77,10 @@ export class ArenaScene extends Phaser.Scene {
   clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[]; timers: Phaser.Time.TimerEvent[] }>();
   activeSlot = 'pistol'; // the switchable item in hand (gun, ord, or shield)
   private fireWas = false; // rising edge of the trigger, for one-shot items
+  // The game's event emitter outlives the scene, so a BLUR handler added per
+  // create() would pile up one dead listener per arena visit. Held on the
+  // instance and removed on shutdown.
+  private blurHandler: (() => void) | null = null;
   private pendingSlot = ''; // gun asked for, not yet acknowledged by the server
   private pendingAt = 0;
   private pendingFire = false; // fire the moment that switch is confirmed
@@ -223,6 +227,11 @@ export class ArenaScene extends Phaser.Scene {
       // per entity on the room state
       for (const d of this.colyOff) { try { d(); } catch { /* state already gone */ } }
       this.colyOff = [];
+      if (this.blurHandler) {
+        this.game.events.off(Phaser.Core.Events.BLUR, this.blurHandler);
+        this.blurHandler = null;
+      }
+      this.firing = false;
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // ground: grid + film-grain noise + vignette
@@ -584,11 +593,26 @@ export class ArenaScene extends Phaser.Scene {
         this.firing = true;
       }
     });
-    this.input.on('pointerup', (pt: Phaser.Input.Pointer) => {
-      if ((pt as any).wasTouch) this.releaseStick(pt.id);
-      else this.firing = false;
-    });
+    // Releasing the trigger. 'pointerupoutside' is NOT a rare edge case to
+    // ignore: Phaser reports the release under that name whenever the target is
+    // not the canvas, and this used to listen only for 'pointerup'. Letting go
+    // of the button just off the window edge therefore left `firing` stuck true
+    // and every automatic weapon (rifle, laser, electric) kept firing, with its
+    // live arc and sustained audio bed, until the next click. Touch keeps its
+    // own per-stick release: lifting the MOVE stick must not cancel a fire that
+    // the aim stick is still holding.
+    const release = (pt: Phaser.Input.Pointer) => {
+      if ((pt as any).wasTouch) { this.releaseStick(pt.id); return; }
+      this.firing = false;
+    };
+    this.input.on('pointerup', release);
+    this.input.on('pointerupoutside', release);
     this.input.on('gameout', () => { this.firing = false; this.clearSticks(); });
+    // Blur produces no mouseup at all -- the browser never delivers one -- and
+    // 'gameout' needs actual pointer movement, so alt-tabbing mid-burst would
+    // otherwise leave the trigger down for the rest of the match.
+    this.blurHandler = () => { this.firing = false; this.clearSticks(); };
+    this.game.events.on(Phaser.Core.Events.BLUR, this.blurHandler);
     this.input.addPointer(3); // multitouch: move + aim + button taps at once
     this.input.on('pointermove', (pt: Phaser.Input.Pointer) => this.dragStick(pt));
     this.stickG = this.add.graphics().setScrollFactor(0).setDepth(30);

@@ -11,6 +11,20 @@ const RADIUS = 16;
 // every 0.14s and a bolt lives 0.8s, so one shooter can have ~6 up; beyond the
 // cap the newest tips still show (they are sprites) and the frame stays bounded.
 const ARC_TETHER_MAX = 8;
+// Rifle sprite geometry. The image is pinned to the CHARACTER CENTRE and its
+// texture pivot is derived from MUZZLE, so the barrel tip lands exactly MUZZLE
+// from the centre at EVERY aim angle.
+//
+// It used to sit at (8, 0) with a hand-picked origin, so it rotated about a
+// point 8px to the right of the character: the tip swung on a circle of radius
+// 37.6 centred at (8,0) while the tracer, flash, beam and arc all spawned on a
+// circle of radius MUZZLE=46 centred on the character. Those agreed only at
+// aim-right (0.4px) and diverged by up to 16.4px at aim-left -- over half the
+// player's width -- so shots visibly left from thin air, not the barrel.
+const GUN_TEX_W = 52;   // the 'gun' canvas width
+const GUN_SCALE = 0.85;
+const GUN_ORIGIN_X = 1 - MUZZLE / (GUN_TEX_W * GUN_SCALE);
+const GUN_REST_X = 0;   // where the recoil tween returns the barrel to
 // Mouse-wheel selector. One physical notch is ~100px of wheel deltaY (Chrome
 // reports 100, Firefox 3 lines x 33, pages x 400), so dividing by that turns
 // both a wheel and a trackpad into a count of NOTCHES instead of a count of
@@ -1273,8 +1287,10 @@ export class ArenaScene extends Phaser.Scene {
 
   private recoil(gun: Phaser.GameObjects.Image) {
     this.tweens.killTweensOf(gun);
-    gun.x = 8 - 4;
-    this.tweens.add({ targets: gun, x: 8, duration: 110, ease: 'Quad.easeOut' });
+    // back into the barrel, then settle at the rest position -- derived, so it
+    // cannot drift away from where the gun is actually mounted
+    gun.x = GUN_REST_X - 4;
+    this.tweens.add({ targets: gun, x: GUN_REST_X, duration: 110, ease: 'Quad.easeOut' });
   }
 
   async connect() {
@@ -1457,8 +1473,14 @@ export class ArenaScene extends Phaser.Scene {
       const bootR = this.add.image(7, 8, 'boot');
       const legs = this.add.container(0, 0, [bootL, bootR]);
       const body = this.add.image(0, 0, avatarTex(this, mine ? 'me' : 'foe', idx));
-      const gun = this.add.image(8, 0, 'gun').setScale(0.85); // barrel tip lands on MUZZLE
-      gun.setOrigin(0.15, 0.5);
+      // pinned to the centre, pivot derived from MUZZLE: the tip is MUZZLE from
+      // the character at every angle, not just when aiming right
+      // pinned to the centre, pivot derived from MUZZLE: the tip is MUZZLE from
+      // the character at every angle, not just when aiming right
+      // pinned to the centre, pivot derived from MUZZLE: the tip is MUZZLE from
+      // the character at every angle, not just when aiming right
+      const gun = this.add.image(GUN_REST_X, 0, 'gun').setScale(GUN_SCALE);
+      gun.setOrigin(GUN_ORIGIN_X, 0.5);
       const label = this.add.text(-20, -36, p.name, { fontSize: '13px', fontStyle: '700', color: '#fff', fontFamily: COND });
       label.setStroke('#020617', 4);
       label.setShadow(0, 0, glowCss, 6, false, true);

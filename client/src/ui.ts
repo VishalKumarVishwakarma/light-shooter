@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COND, DISPLAY, track } from './fonts';
+import { drawFrame, drawPanel, panelSweep } from './panel';
 import { sfx } from './audio';
 
 const BTN_FONT = COND;
@@ -141,22 +142,14 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   const dim = scene.add.rectangle(0, 0, 960, 600, 0x000000, 0.62).setInteractive();
   const glow = scene.add.image(0, 0, 'halo').setTint(0x22d3ee)
     .setBlendMode(Phaser.BlendModes.ADD).setScale(w / 60, h / 60).setAlpha(0.22);
+  // Chamfered glass instead of a rounded plate with a heavy 2.5px outline. The
+  // brackets carry the accent, so the silhouette stays legible without a ring
+  // around every surface, and the sweep gives the panel a material.
+  const PCUT = 18;
   const panel = scene.add.graphics();
-  panel.fillStyle(0x020617, 0.55); // outer drop plate
-  panel.fillRoundedRect(-w / 2 - 3, -h / 2 - 1, w + 6, h + 6, 20);
-  panel.fillStyle(0x0b1220, 0.97); // glass body
-  panel.fillRoundedRect(-w / 2, -h / 2, w, h, 16);
-  panel.fillStyle(0xffffff, 0.05); // top glass light
-  panel.fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h * 0.34, 14);
-  panel.fillStyle(0x22d3ee, 0.9); // neon crown line
-  panel.fillRoundedRect(-w / 2 + 18, -h / 2, w - 36, 3, 2);
-  panel.lineStyle(2.5, 0x22d3ee, 0.75);
-  panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
-  panel.lineStyle(1, 0xffffff, 0.10); // inner top rim
-  panel.beginPath();
-  panel.moveTo(-w / 2 + 14, -h / 2 + 8);
-  panel.lineTo(w / 2 - 14, -h / 2 + 8);
-  panel.strokePath();
+  drawPanel(panel, { x: -w / 2, y: -h / 2, w, h, cut: PCUT, alpha: 0.97, shadow: true });
+  drawFrame(panel, { x: -w / 2, y: -h / 2, w, h, cut: PCUT, arm: 18, alpha: 0.75 });
+  const sweep = panelSweep(scene, null, { x: 0, y: 0, w, h, cut: PCUT, period: 5600, alpha: 0.1 });
   const head = scene.add.text(0, -h / 2 + 34, track(title.toUpperCase()), {
     fontFamily: DISPLAY, fontSize: '24px', color: '#fff',
   }).setOrigin(0.5);
@@ -176,7 +169,7 @@ export function modal(scene: Phaser.Scene, title: string, w = 560, h = 380) {
   xbg.on('pointerover', () => { x.setColor('#fff'); xbg.setStrokeStyle(1.5, 0x22d3ee, 1); });
   xbg.on('pointerout', () => { x.setColor('#94a3b8'); xbg.setStrokeStyle(1.5, 0x64748b, 0.9); });
   const body = scene.add.container(0, 22);
-  root.add([dim, glow, panel, head, rule, xbg, x, body]);
+  root.add([dim, glow, panel, sweep, head, rule, xbg, x, body]);
   root.setAlpha(0).setScale(0.92).setY(308);
   scene.tweens.add({
     targets: root, alpha: 1, scaleX: 1, scaleY: 1, y: 300,
@@ -232,14 +225,14 @@ export function toast(scene: Phaser.Scene, msg: string, color = '#e2e8f0', y0 = 
   }).setOrigin(0, 0.5);
   t.setStroke('#020617', 3);
   const pw = Math.max(120, t.width + 52);
-  const bg = scene.add.graphics();
-  bg.fillStyle(0x020617, 0.82);
-  bg.fillRoundedRect(-pw / 2, -14, pw, 28, 14);
-  bg.fillStyle(0xffffff, 0.06);
-  bg.fillRoundedRect(-pw / 2 + 1.5, -14 + 1.5, pw - 3, 12, 11);
-  bg.lineStyle(1.5, 0x22d3ee, 0.4);
-  bg.strokeRoundedRect(-pw / 2, -14, pw, 28, 14);
   const dotC = color.startsWith('#') ? Phaser.Display.Color.HexStringToColor(color).color : 0xe2e8f0;
+  const bg = scene.add.graphics();
+  // The rim carries the message's own colour, so severity is readable from the
+  // shape alone and not only from the dot.
+  drawPanel(bg, {
+    x: -pw / 2, y: -14, w: pw, h: 28, cut: 9, accent: dotC,
+    alpha: 0.9, scan: false, shadow: true, rim: 0.5, inner: 4,
+  });
   const dot = scene.add.circle(-pw / 2 + 16, 0, 5, dotC);
   dot.setStrokeStyle(2, 0x020617, 1);
   t.setX(-pw / 2 + 28);

@@ -789,38 +789,6 @@ function btn(w: number, h: number) {
 }
 
 // dark glass pill for the lobby code
-function pill() {
-  const w = 440, h = 44;
-  const { c, ctx } = cv(w + 16, h + 16);
-  const ox = 8, oy = 8, r = 20;
-  const path = () => {
-    ctx.beginPath();
-    ctx.moveTo(ox + r, oy);
-    ctx.arcTo(ox + w, oy, ox + w, oy + r, r);
-    ctx.arcTo(ox + w, oy + h, ox + w - r, oy + h, r);
-    ctx.arcTo(ox, oy + h, ox, oy + h - r, r);
-    ctx.arcTo(ox, oy, ox + r, oy, r);
-    ctx.closePath();
-  };
-  ctx.save();
-  ctx.shadowColor = 'rgba(34,211,238,0.8)';
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = '#0f172a';
-  path(); ctx.fill();
-  ctx.restore();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(34,211,238,0.65)';
-  path(); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.07)';
-  ctx.beginPath();
-  ctx.moveTo(ox + r, oy + 1.5);
-  ctx.arcTo(ox + w, oy + 1.5, ox + w, oy + 12, r);
-  ctx.lineTo(ox + w, oy + 12); ctx.lineTo(ox, oy + 12); ctx.lineTo(ox, oy + 1.5);
-  ctx.arcTo(ox, oy + 1.5, ox + r, oy + 1.5, r);
-  ctx.closePath(); ctx.fill();
-  return c;
-}
-
 export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'soldier_me', soldier('#22d3ee', '#0e7490', '#a5f3fc', '#083344', null));
   put(scene, 'soldier_foe', soldier('#ef4444', '#991b1b', '#fecaca', '#450a0a', null));
@@ -853,7 +821,6 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'menubg', menubg());
   put(scene, 'btn320', btn(320, 56));
   put(scene, 'btn220', btn(220, 52));
-  put(scene, 'pill', pill());
 }
 
 // Numbered squad avatar, generated lazily per team/index (join order 1-8).

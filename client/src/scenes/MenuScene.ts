@@ -4,6 +4,7 @@ import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality, registerUnderlay } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker, prose } from '../fonts';
+import { drawFrame, drawPanel, panelSweep } from '../panel';
 
 export class MenuScene extends Phaser.Scene {
   private errText!: Phaser.GameObjects.Text;
@@ -84,16 +85,13 @@ export class MenuScene extends Phaser.Scene {
     ul.fillRoundedRect(380, 132, 200, 5, 2);
     ul.fillStyle(0xffffff, 0.7);
     ul.fillRoundedRect(380, 132, 200, 1.5, 1);
-    // glass CTA card behind the buttons
+    // Hero CTA card: chamfered gradient glass, TAC brackets, and a slow sweep.
+    // This is the panel the eye lands on first, so it carries the motion; the
+    // footer links and the callsign field stay static on purpose.
     const card = this.add.graphics().setDepth(1);
-    card.fillStyle(0x020617, 0.55);
-    card.fillRoundedRect(292, 232, 376, 164, 18);
-    card.lineStyle(1.5, 0x22d3ee, 0.28);
-    card.strokeRoundedRect(292, 232, 376, 164, 18);
-    card.lineStyle(1, 0xffffff, 0.08);
-    card.beginPath();
-    card.moveTo(306, 240); card.lineTo(654, 240);
-    card.strokePath();
+    drawPanel(card, { x: 292, y: 232, w: 376, h: 164, cut: 18, shadow: true, rim: 0.38 });
+    drawFrame(card, { x: 292, y: 232, w: 376, h: 164, cut: 18, arm: 20, alpha: 0.7 });
+    panelSweep(this, null, { x: 480, y: 314, w: 376, h: 164, cut: 18, period: 5200, alpha: 0.1, depth: 1 });
 
     // callsign entry (F1: player name + random generator, persisted).
     // Wrapped defensively: menu must render even if DOM overlay is unavailable.
@@ -101,10 +99,10 @@ export class MenuScene extends Phaser.Scene {
       // its own slim plate, so it reads as a field in the menu and can never be
       // mistaken for (or collide with) a modal window
       const plate = this.add.graphics().setDepth(1);
-      plate.fillStyle(0x020617, 0.55);
-      plate.fillRoundedRect(272, 186, 424, 36, 10);
-      plate.lineStyle(1.5, 0x22d3ee, 0.28);
-      plate.strokeRoundedRect(272, 186, 424, 36, 10);
+      drawPanel(plate, {
+        x: 272, y: 186, w: 424, h: 36, cut: 11, shadow: true, scan: false,
+        rim: 0.32, inner: 5,
+      });
       const cs = this.add.text(320, 204, 'CALLSIGN', {
         fontFamily: COND, fontSize: '14px', fontStyle: '700', color: SUB,
       }).setOrigin(0, 0.5).setDepth(2);
@@ -115,8 +113,11 @@ export class MenuScene extends Phaser.Scene {
       input.maxLength = 12;
       input.placeholder = 'Your name';
       input.autocomplete = 'off';
-      input.style.cssText = 'width:230px;height:30px;background:#0f172a;color:#fff;border:1px solid rgba(34,211,238,.45);'
-        + 'border-radius:8px;padding:0 10px;font:600 16px Rajdhani,sans-serif;letter-spacing:1px;outline:none;';
+      input.style.cssText = 'width:230px;height:30px;background:#0b1220;color:#fff;border:1px solid rgba(34,211,238,.45);'
+        + 'border-radius:8px;padding:0 10px;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'
+        + 'font:600 16px Rajdhani,sans-serif;letter-spacing:1px;outline:none;'
+        + 'transition:border-color .15s ease,box-shadow .15s ease;'
+        + 'box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'; 
       input.addEventListener('change', () => {
         Session.setName(input.value);
         input.value = Session.name;
@@ -401,10 +402,20 @@ export class MenuScene extends Phaser.Scene {
     rows.forEach((l, i) => {
       const live = l.phase === 'playing' || l.phase === 'countdown';
       const y = top + i * 32;
-      // drop plate + glass row + neon rim
-      this.listObjs.push(this.add.rectangle(480, y + 2, 444, 30, 0x020617, 0.6).setDepth(1));
-      const bg = this.add.rectangle(480, y, 440, 28, live ? 0x7c2d12 : 0x0f172a, 0.94)
-        .setStrokeStyle(2, live ? 0xfb923c : 0x22d3ee, 0.8).setDepth(2);
+      // chamfered glass row; the hit target is a separate transparent rect
+      const accent = live ? 0xfb923c : 0x22d3ee;
+      const rowG = this.add.graphics().setDepth(2);
+      const paint = (hover: boolean) => {
+        rowG.clear();
+        drawPanel(rowG, {
+          x: 260, y: y - 14, w: 440, h: 28, cut: 8, accent,
+          fill: live ? (hover ? 0x4a1e0c : 0x30140a) : (hover ? 0x182742 : 0x0b1220),
+          fillBot: live ? 0x1d0c05 : 0x070d18,
+          alpha: 0.97, scan: false, shadow: true, rim: hover ? 0.8 : 0.44, inner: 5,
+        });
+      };
+      paint(false);
+      const bg = this.add.rectangle(480, y, 440, 28, 0x000000, 0).setDepth(2);
       const code = this.add.text(288, y, l.code, {
         fontFamily: MONO, fontSize: '15px', fontStyle: '700', color: live ? '#fdba74' : '#7dd3fc',
       }).setOrigin(0, 0.5).setDepth(3);
@@ -430,10 +441,10 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(3);
       chip.setStroke('#020617', 2);
       if (live) this.tweens.add({ targets: chip, alpha: 0.4, duration: 700, yoyo: true, repeat: -1 });
-      const tx = [bg, code, pips, chipBg, chip];
+      const tx = [rowG, bg, code, pips, chipBg, chip];
       bg.setInteractive({ useHandCursor: true });
-      bg.on('pointerover', () => bg.setFillStyle(live ? 0x9a3412 : 0x1e293b, 0.95));
-      bg.on('pointerout', () => bg.setFillStyle(live ? 0x7c2d12 : 0x0f172a, 0.94));
+      bg.on('pointerover', () => paint(true));
+      bg.on('pointerout', () => paint(false));
       bg.on('pointerdown', async () => {
         this.errText.setText('joining ' + l.code + '…');
         try {
@@ -472,8 +483,8 @@ export class MenuScene extends Phaser.Scene {
     input.inputMode = 'numeric';
     input.placeholder = '0000';
     input.autocomplete = 'off';
-    input.style.cssText = 'width:280px;height:40px;background:#0f172a;color:#22d3ee;text-align:center;'
-      + 'border:1px solid rgba(34,211,238,.5);border-radius:8px;padding:0 10px;'
+    input.style.cssText = 'width:280px;height:40px;background:#0b1220;color:#22d3ee;text-align:center;'
+      + 'border:1px solid rgba(34,211,238,.5);border-radius:8px;padding:0 10px;clip-path:polygon(10px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'
       + 'font:600 20px "Share Tech Mono",monospace;letter-spacing:2px;outline:none;';
     const holder = this.add.dom(0, -30, input);
     m.body.add(holder);

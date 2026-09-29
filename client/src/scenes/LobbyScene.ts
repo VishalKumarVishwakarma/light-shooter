@@ -4,6 +4,7 @@ import { ensureTextures } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, displayText, kicker } from '../fonts';
+import { drawFrame, drawPanel, panelSweep } from '../panel';
 import { ensureArena, preloadArena } from './loadArena';
 import { STEEL, BRICKS, WATER, BUSH, SPAWNS } from '../map';
 
@@ -119,16 +120,21 @@ export class LobbyScene extends Phaser.Scene {
     displayText(this, 480, 32, 'LOBBY', 30);
     kicker(this, 480, 10, 'S Q U A D   M U S T E R');
 
-    // code pill (click to copy)
-    this.add.image(480, 74, 'pill');
+    // code pill (click to copy). The 'pill' texture was a 20px-radius rounded
+    // canvas, which fought the chamfered language everywhere else; the panel
+    // primitive replaces it and keeps the same 440x44 footprint.
+    const pillG = this.add.graphics();
+    drawPanel(pillG, {
+      x: 260, y: 52, w: 440, h: 44, cut: 14, shadow: true, rim: 0.4, inner: 6,
+    });
+    drawFrame(pillG, { x: 260, y: 52, w: 440, h: 44, cut: 14, arm: 14, alpha: 0.6 });
     this.codeText = this.add.text(480, 74, '', {
       fontFamily: MONO, fontSize: '16px', fontStyle: '700', color: '#22d3ee',
     }).setOrigin(0.5);
     this.codeText.setStroke('#020617', 3);
     this.codeText.setShadow(0, 0, '#22d3ee', 8, false, true);
     this.refreshCode(false);
-    const pillHit = this.add.rectangle(480, 74, 440, 44, 0x000000, 0)
-      .setStrokeStyle(1, 0x22d3ee, 0.5);
+    const pillHit = this.add.rectangle(480, 74, 440, 44, 0x000000, 0);
     pillHit.setInteractive({ useHandCursor: true });
     pillHit.on('pointerdown', () => {
       copyText(Session.code);
@@ -142,14 +148,17 @@ export class LobbyScene extends Phaser.Scene {
     invite.setInteractive({ useHandCursor: true });
     invite.on('pointerdown', () => { sfx.click(); this.openInvite(); });
 
-    // player panel
+    // player panel: chamfered gradient glass, TAC brackets, and one slow sweep.
+    // The footprint is unchanged (230,108 500x288) so every row inside it still
+    // lands exactly where it did before.
     const panel = this.add.graphics();
-    panel.fillStyle(0x020617, 0.6);
-    panel.fillRoundedRect(227, 105, 506, 294, 17);
-    panel.fillStyle(0x0b1220, 0.88);
-    panel.fillRoundedRect(230, 108, 500, 288, 14);
-    panel.lineStyle(2.5, 0x22d3ee, 0.55);
-    panel.strokeRoundedRect(230, 108, 500, 288, 14);
+    drawPanel(panel, {
+      x: 230, y: 108, w: 500, h: 288, cut: 20, alpha: 0.93, shadow: true, rim: 0.4,
+    });
+    drawFrame(panel, { x: 230, y: 108, w: 500, h: 288, cut: 20, arm: 22, alpha: 0.72 });
+    panelSweep(this, null, {
+      x: 480, y: 252, w: 500, h: 288, cut: 20, period: 6000, alpha: 0.085, depth: 1,
+    });
     this.rowsBox = this.add.container(0, 0).setDepth(2);
     // arena recon preview (scaled terrain + spawns)
     this.drawMapPreview(842, 250);
@@ -213,6 +222,14 @@ export class LobbyScene extends Phaser.Scene {
     for (const [x, y] of SPAWNS) g.fillCircle(cx - w / 2 + x * s, cy - h / 2 + y * s, 1.8);
     g.lineStyle(1, 0x22d3ee, 0.5);
     g.strokeRect(cx - w / 2, cy - h / 2, w, h);
+    // A map is legitimately a rectangle -- what was missing was the sense that
+    // it is a screen inset into the panel, so it gets a cast plate behind it and
+    // the same corner brackets as every other surface.
+    this.add.graphics().setDepth(1)
+      .fillStyle(0x000000, 0.42)
+      .fillRect(cx - w / 2 - 4, cy - h / 2 - 2, w + 8, h + 8);
+    const fr = this.add.graphics().setDepth(2);
+    drawFrame(fr, { x: cx - w / 2, y: cy - h / 2, w, h, cut: 8, arm: 12, alpha: 0.6, stops: false });
     const cap = this.add.text(cx, cy + h / 2 + 12, 'BATTLE CITY ARENA', {
       fontFamily: COND, fontSize: '13px', fontStyle: '700', color: SUB,
     }).setOrigin(0.5, 0);
@@ -320,10 +337,17 @@ export class LobbyScene extends Phaser.Scene {
       ps.forEach((p: any, id: string) => {
         const y = 168 + i * 28;
         const isReady = !!p.ready;
-        // state strip: ready = green glass + green spine, waiting = dark + red spine
-        const strip = this.add.rectangle(250, y, 462, 26,
-          isReady ? 0x16a34a : 0x020617, isReady ? 0.28 : 0.6).setOrigin(0, 0.5);
-        strip.setStrokeStyle(1, isReady ? 0x4ade80 : 0xef4444, isReady ? 0.8 : 0.45);
+        // state strip: ready = green glass + green spine, waiting = dark + red
+        // spine. The same colours as before, now on a chamfered panel so a full
+        // 8-player roster still reads as one system instead of eight rects.
+        const strip = this.add.graphics();
+        drawPanel(strip, {
+          x: 250, y: y - 13, w: 462, h: 26, cut: 7,
+          accent: isReady ? 0x4ade80 : 0xef4444,
+          fill: isReady ? 0x0d2c1a : 0x070c17,
+          fillBot: isReady ? 0x061a0f : 0x03060d,
+          alpha: 0.97, scan: false, rim: isReady ? 0.7 : 0.34, inner: 4,
+        });
         const spine = this.add.rectangle(250, y, 5, 26,
           isReady ? 0x4ade80 : 0xef4444).setOrigin(0, 0.5);
         let spineGlow: Phaser.GameObjects.Image | null = null;

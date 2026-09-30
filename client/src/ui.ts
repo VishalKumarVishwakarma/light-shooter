@@ -111,6 +111,42 @@ function eachUnderlay(fn: (r: Underlay) => void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Lock a DOM overlay to the canvas scale.
+//
+// Phaser scales the canvas with CSS (Scale.FIT), but add.dom() positions elements
+// from the camera matrix and the object's own x/y/scale -- the ScaleManager's
+// display scale is NOT part of it. So a DOM element lands in the container's CSS
+// pixels, unscaled, while the canvas around it is up to 1.5x bigger. The field is
+// then the wrong size AND in the wrong place relative to the plate drawn around
+// it.
+//
+// This was invisible while the canvas sat at 1:1 and became obvious once the
+// layout started fitting the window (7984592). `gx`/`gy` are the element's
+// position in GAME coordinates: they are multiplied by the display scale and the
+// element is scaled to match, re-applied on every resize.
+//
+// Text under a CSS transform scale is re-rasterised at the composited scale, so
+// this stays crisp rather than being a bitmap upscale.
+// ---------------------------------------------------------------------------
+export function scaleDom(
+  scene: Phaser.Scene, el: Phaser.GameObjects.DOMElement, gx: number, gy: number,
+) {
+  const apply = () => {
+    const s = scene.scale.displayScale;
+    el.setPosition(gx * s.x, gy * s.y);
+    el.setScale(s.x, s.y);
+  };
+  apply();
+  scene.scale.on(Phaser.Scale.Events.RESIZE, apply);
+  // detach on shutdown: a rematch recreates the scene, and leaving the listener
+  // behind would keep re-touching a destroyed element
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    scene.scale.off(Phaser.Scale.Events.RESIZE, apply);
+  });
+  return el;
+}
+
 export function registerUnderlay(el: Phaser.GameObjects.DOMElement) {
   const rec: Underlay = {
     el,

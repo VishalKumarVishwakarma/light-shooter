@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Session, fetchLobbies, randomName, CODE_RE } from '../net/Session';
 import { ensureTextures } from '../textures';
-import { makeButton, modal, toast, VERSION, quality, setQuality, registerUnderlay } from '../ui';
+import { makeButton, modal, toast, VERSION, quality, setQuality, registerUnderlay, scaleDom } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker, prose } from '../fonts';
 import { drawFrame, drawPanel, panelSweep } from '../panel';
@@ -157,7 +157,11 @@ export class MenuScene extends Phaser.Scene {
       });
       // DOM elements sit in their own layer above the canvas, so depth alone
       // cannot tuck this behind a modal - register it to be hidden instead
-      registerUnderlay(this.add.dom(x + INPUT_W / 2, ROW_Y, input).setDepth(2));
+      // scaleDom(): the canvas is CSS-scaled by FIT and add.dom() does not carry
+      // that scale, so without this the field renders 230x30 unscaled inside a
+      // plate that is up to 345x45 on screen -- the reported "misplaced" box.
+      registerUnderlay(scaleDom(this,
+        this.add.dom(x + INPUT_W / 2, ROW_Y, input).setDepth(2), x + INPUT_W / 2, ROW_Y));
       x += INPUT_W + GAP;
 
       dice.setPosition(x, ROW_Y);
@@ -520,7 +524,9 @@ export class MenuScene extends Phaser.Scene {
     input.style.cssText = 'width:280px;height:40px;background:#0b1220;color:#22d3ee;text-align:center;'
       + 'border:1px solid rgba(34,211,238,.5);border-radius:8px;padding:0 10px;clip-path:polygon(10px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'
       + 'font:600 20px "Share Tech Mono",monospace;letter-spacing:2px;outline:none;';
-    const holder = this.add.dom(0, -30, input);
+    // same display-scale lock as the callsign field; this one lives inside the
+    // modal container, so it needs it just as much
+    const holder = scaleDom(this, this.add.dom(0, -30, input), 0, -30);
     m.body.add(holder);
     const hint = this.add.text(0, -2, 'four digits, e.g. 4271', {
       fontFamily: BODY, fontSize: '13px', color: DIM,

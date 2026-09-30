@@ -5,7 +5,7 @@ import { ensureTextures, avatarTex, foeColor } from '../textures';
 import { makeButton, quality, setQuality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
-import { drawGround, drawIce, drawSteel } from '../terrain';
+import { groundCanvas, iceCanvas, steelCanvas } from '../terrain';
 
 const RADIUS = 16;
 // how many in-flight electric bolts get a drawn tether at once. The gun fires
@@ -253,7 +253,12 @@ export class ArenaScene extends Phaser.Scene {
     // map, which was the single biggest reason the arena read as square. It is
     // now overlapping mottles in near-identical tones plus fine grit: enough
     // variation to kill the grid, not so much that it becomes its own pattern.
-    drawGround(this.add.graphics(), W, H);
+    //
+    // Baked to a texture, NOT drawn into a Graphics: the same art is ~8,560
+    // triangles, and Graphics is retained-mode, so it would be re-tessellated and
+    // re-uploaded every frame. One image is one draw call. See terrain.ts.
+    this.textures.addCanvas('groundTex', groundCanvas(W, H));
+    this.add.image(0, 0, 'groundTex').setOrigin(0);
     const lowQ = quality() === 'low';
     this.add.tileSprite(W / 2, H / 2, W, H, 'noise').setAlpha(lowQ ? 0.15 : 0.5);
     // HD ground detail: deterministic scuffs/cracks (seeded = identical everywhere)
@@ -275,14 +280,18 @@ export class ArenaScene extends Phaser.Scene {
     // Steel and ice are drawn per block, seeded from their own coordinates, so
     // every block is stable across visits but no two look alike. Both used to be
     // one small tileSprite repeated, which is exactly what the eye locks onto.
+    //
+    // Each block bakes to its own texture keyed by its coordinates, so a
+    // rematch reuses the canvas instead of repainting it (ensureTextures-style
+    // caching), and rendering is one textured quad per block.
     for (const st of STEEL) {
       this.add.rectangle(st.x + 4, st.y + 6, st.w, st.h, 0x000000, 0.35).setOrigin(0);
-      drawSteel(this.add.graphics(), st, (st.x * 73856093) ^ (st.y * 19349663));
+      this.add.image(st.x, st.y, this.steelTex(this, st, (st.x * 73856093) ^ (st.y * 19349663)))
+        .setOrigin(0);
     }
     for (const ic of ICE) {
-      const g = this.add.graphics();
-      drawIce(g, ic, (ic.x * 2654435761) ^ (ic.y * 40503));
-      g.setAlpha(0.95);
+      this.add.image(ic.x, ic.y, this.iceTex(this, ic, (ic.x * 2654435761) ^ (ic.y * 40503)))
+        .setOrigin(0).setAlpha(0.95);
     }
     for (const wt of WATER) {
       this.waterTiles.push(this.add.tileSprite(wt.x + wt.w / 2, wt.y + wt.h / 2, wt.w, wt.h, 'waterTile'));
@@ -940,6 +949,20 @@ export class ArenaScene extends Phaser.Scene {
     this.recoil(me.gun);
     // heavier guns kick the camera harder
     this.cameras.main.shake(60, gw === 'shotgun' ? 0.004 : gw === 'sniper' ? 0.003 : 0.0015);
+  }
+
+  // Bake a steel/ice block to a texture, reusing it if this block was already
+  // drawn (a rematch recreates the scene but not the texture manager's entries).
+  // Keyed by x/y so two blocks never collide on one texture name.
+  private steelTex(scene: Phaser.Scene, rc: { x: number; y: number; w: number; h: number }, seed: number) {
+    const key = `steelTex_${rc.x}_${rc.y}`;
+    if (!scene.textures.exists(key)) scene.textures.addCanvas(key, steelCanvas(rc, seed));
+    return key;
+  }
+  private iceTex(scene: Phaser.Scene, rc: { x: number; y: number; w: number; h: number }, seed: number) {
+    const key = `iceTex_${rc.x}_${rc.y}`;
+    if (!scene.textures.exists(key)) scene.textures.addCanvas(key, iceCanvas(rc, seed));
+    return key;
   }
 
   // steel + standing bricks + water (mirrors server solids())

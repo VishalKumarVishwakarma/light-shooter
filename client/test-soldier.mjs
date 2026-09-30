@@ -399,15 +399,55 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
 // cut corners, so the silhouette is never a hard square.
 {
   const terrRaw = fs.readFileSync('src/terrain.ts', 'utf8').replace(/\r\n/g, '\n');
-  ok(!/export function drawSteel/.test(terrRaw) === false, 'terrain.ts exports drawSteel');
-  ok(/export function drawIce/.test(terrRaw), 'terrain.ts exports drawIce');
-  ok(/export function drawGround/.test(terrRaw), 'terrain.ts exports drawGround');
+  ok(/export function steelCanvas/.test(terrRaw), 'terrain.ts exports steelCanvas');
+  ok(/export function iceCanvas/.test(terrRaw), 'terrain.ts exports iceCanvas');
+  ok(/export function groundCanvas/.test(terrRaw), 'terrain.ts exports groundCanvas');
+  // the Graphics-based API is gone entirely, not just unused
+  ok(!/export function drawSteel/.test(terrRaw) && !/export function drawIce/.test(terrRaw)
+    && !/export function drawGround/.test(terrRaw),
+    'the old Graphics-based draw* API is deleted, not merely unreferenced');
 
   // the grid is gone from the arena, and the tiles are gone from ensureTextures
   ok(!/this\.add\.grid\(0, 0, W, H, 40, 40/.test(arena),
     'the 40px ground grid is gone from ArenaScene');
-  ok(!/drawGround\(this\.add\.graphics\(\), W, H\);/.test(arena) === false,
-    'the ground is drawn procedurally instead');
+  // ---------------------------------------------------------------------
+  // THE PERFORMANCE FIX. Phaser Graphics is RETAINED MODE: every draw call
+  // pushes a command into a commandBuffer that GraphicsWebGLRenderer re-walks
+  // and re-tessellates on EVERY FRAME. The floor was ~416 commands / ~8,560
+  // triangles, rebuilt 60x/sec per client. With 8 tabs on one machine that
+  // saturated the GPU. Terrain must be baked to canvas textures, once.
+  // ---------------------------------------------------------------------
+  ok(!/drawGround\(this\.add\.graphics\(\)/.test(arena),
+    'the ground is NOT drawn into a retained-mode Graphics (the lag bug)');
+  ok(!/drawSteel\(this\.add\.graphics\(\)/.test(arena),
+    'steel is not drawn into a retained-mode Graphics either');
+  ok(!/drawIce\(/.test(arena), 'ice is not drawn into a retained-mode Graphics either');
+  ok(/this\.textures\.addCanvas\('groundTex', groundCanvas\(W, H\)\)/.test(arena),
+    'the ground bakes to a canvas texture instead');
+  ok(/this\.add\.image\(0, 0, 'groundTex'\)/.test(arena),
+    'and is drawn as ONE image, i.e. one draw call per frame');
+  ok(/this\.add\.image\(st\.x, st\.y, this\.steelTex\(this, st,/.test(arena),
+    'each steel block is one image, not a Graphics full of panels');
+  ok(/this\.add\.image\(ic\.x, ic\.y, this\.iceTex\(this, ic,/.test(arena),
+    'each ice patch is one image too');
+  // the cache: a rematch must reuse the canvas, not repaint it
+  ok(/textures\.exists\(key\)\) scene\.textures\.addCanvas\(key, steelCanvas/.test(arena),
+    'steel textures are cached by key, so a rematch does not repaint them');
+  ok(/textures\.exists\(key\)\) scene\.textures\.addCanvas\(key, iceCanvas/.test(arena),
+    'ice likewise');
+  // and terrain.ts must actually return canvases, not touch Graphics at all
+  // strip comments first: terrain.ts's header explains the Graphics pitfall in
+  // detail, so a raw text scan always matches the prose and never the code.
+  const terrCode = terrRaw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  ok(!/Phaser\.GameObjects\.Graphics/.test(terrCode),
+    'terrain.ts does not import or reference Graphics in any executable line');
+  ok(!/add\.graphics/.test(terrCode), 'terrain.ts creates no Graphics objects');
+  ok(!/Graphics/.test(terrCode),
+    'and the token does not appear outside comments at all');
+  ok(/export function groundCanvas[\s\S]*return c;/.test(terrRaw),
+    'groundCanvas returns a canvas');
   ok(!/'steelTile'/.test(arena), 'no steelTile tileSprite left in the arena');
   ok(!/'iceTile'/.test(arena), 'no iceTile tileSprite left in the arena');
   ok(!/function steelTile\(/.test(raw), 'the steelTile generator is deleted, not just unused');
@@ -416,9 +456,9 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
     'and neither is generated on every scene start any more');
 
   // per-block seeding: stable across visits, different per block
-  ok(/drawSteel\(this\.add\.graphics\(\), st, \(st\.x \* 73856093\) \^ \(st\.y \* 19349663\)\)/.test(arena),
+  ok(/steelTex\(this, st, \(st\.x \* 73856093\) \^ \(st\.y \* 19349663\)\)/.test(arena),
     'steel is seeded from its own coordinates, so it is stable per visit');
-  ok(/drawIce\(g, ic, \(ic\.x \* 2654435761\) \^ \(ic\.y \* 40503\)\)/.test(arena),
+  ok(/iceTex\(this, ic, \(ic\.x \* 2654435761\) \^ \(ic\.y \* 40503\)\)/.test(arena),
     'ice likewise');
 
   // collision must not have moved: map.ts is still axis-aligned rects
@@ -430,21 +470,22 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
   const t = terrRaw;
   ok(/const TONES = \[0x101a27/.test(t) && /for \(let i = 0; i < 170; i\+\+\)/.test(t),
     'the floor is 170 overlapping mottles in near-identical tones, not a grid');
-  ok(/g\.fillPoints\(ellipsePts\(x, y, rx, ry, r\(\) \* Math\.PI\), true\)/.test(t),
-    'the mottles are soft polygons, not hard rects');
-  ok(/function ellipsePts\(/.test(t) && !/g\.ellipse\(/.test(t),
-    'Phaser has no Graphics.ellipse(), so the helper exists and nothing calls a missing method');
+  ok(/ctx\.ellipse\(x, y, rx, ry, r\(\) \* Math\.PI, 0, Math\.PI \* 2\)/.test(t),
+    'the mottles are soft ellipses, not hard rects');
+  ok(/ctx\.beginPath\(\);\s*ctx\.ellipse\(x, y, s \* 1\.7, s,/.test(t),
+    'the grit specks are ellipses too');
   // steel: varied panel sizes via a seeded recursive split
-  ok(/const split = \(x: number, y: number, w: number, h: number, depth: number\)/.test(t),
+  ok(/const split = \(px: number, py: number, pw: number, ph: number, depth: number\)/.test(t),
     'steel panels come from a recursive split, so the sizes vary');
-  ok(/depth >= 3 \|\| \(w < 48 && h < 48\)/.test(t),
+  ok(/depth >= 3 \|\| \(pw < 48 && ph < 48\)/.test(t),
     'the split stops on depth and on size, so panels are not infinite');
   ok(/const t = 0\.36 \+ r\(\) \* 0\.28/.test(t), 'the split point is randomised per block');
   // cut corners
-  ok(/const c = \[3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4\]/.test(t),
+  ok(/const cut = \[3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4\]/.test(t),
     'every steel block has its four corners cut, so the silhouette is never a hard square');
   ok(/const pad = 7/.test(t), 'and the panels are inset to stay inside the cuts');
-  ok(/g\.strokePoints\(pts, true, true\)/.test(t), 'the outline is stroked as an octagon');
+  ok(/new Path2D\(\)/.test(t) && /ctx\.stroke\(path\)/.test(t),
+    'the octagon outline is one Path2D, stroked as a closed shape');
   // ice: irregular edge and seeded cracks
   ok(/for \(let i = 0; i < 5; i\+\+\)/.test(t) && /const side = \(r\(\) \* 4\) \| 0/.test(t),
     'ice has soft notches bitten out of all four edges');

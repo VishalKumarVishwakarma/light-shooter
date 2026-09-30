@@ -148,7 +148,15 @@ ok(/const row = this\.add\.text\(292, y,/.test(lobby), 'roster names still start
 ok(/this\.add\.image\(268, y,/.test(lobby) && /this\.add\.circle\(596, y, 6/.test(lobby),
   'the avatar and status light keep their columns');
 ok(/x: 292, y: 232, w: 376, h: 164/.test(menu), 'the CTA card keeps its 376x164 footprint');
-ok(/x: 272, y: 186, w: 424, h: 36/.test(menu), 'the callsign plate keeps its 424x36 footprint');
+  // The callsign plate is no longer a fixed 424x36. It was 36px tall while the
+  // avatar it contains is 39.2px (56px texture at 0.7), so the avatar poked out
+  // of the top and bottom of its own field; and 424 wide put its centre on 484
+  // while the rest of the menu is centred on 480. It is now measured from the
+  // row and sized to fit, so assert the property rather than the old numbers.
+  // test-menu-callsign.mjs covers this row in detail.
+  ok(/const PLATE_H = 46/.test(menu) && /x: Math\.round\(480 - total \/ 2 - PAD\)/.test(menu)
+    && /w: Math\.round\(total \+ PAD \* 2\)/.test(menu),
+    'the callsign plate is measured, centred on 480, and tall enough to hold the avatar');
 ok(/x: 260, y: y - 14, w: 440, h: 28/.test(menu), 'menu list rows keep their 440x28 band');
 
 // ---------------------------------------------------------------------------

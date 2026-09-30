@@ -98,35 +98,69 @@ export class MenuScene extends Phaser.Scene {
     try {
       // its own slim plate, so it reads as a field in the menu and can never be
       // mistaken for (or collide with) a modal window
-      const plate = this.add.graphics().setDepth(1);
-      drawPanel(plate, {
-        x: 272, y: 186, w: 424, h: 36, cut: 11, shadow: true, scan: false,
-        rim: 0.32, inner: 5,
-      });
-      const cs = this.add.text(320, 204, 'CALLSIGN', {
+      //
+      // The row is MEASURED, then laid out from the menu's centre line. It used to
+      // be four hardcoded x positions, and that is what put the plate 4px right of
+      // centre (272..696 against a menu centred on 480), overhanging the hero CTA
+      // card 20px on the left and 28px on the right. Two of those four widths come
+      // from a webfont, so any hardcoded guess is wrong by whatever the real font
+      // metrics are -- measuring is the only way to stay on the centre line.
+      const AVATAR = 39.2;          // soldier_me is 56x56 at scale 0.7
+      const INPUT_W = 230;
+      const GAP = 9;
+      const PAD = 10;                // plate air either side of the content
+      const ROW_Y = 204;
+      const PLATE_H = 46;            // was 36, which the 39.2px avatar overflowed
+
+      const cs = this.add.text(0, ROW_Y, 'CALLSIGN', {
         fontFamily: COND, fontSize: '14px', fontStyle: '700', color: SUB,
       }).setOrigin(0, 0.5).setDepth(2);
       cs.setStroke('#020617', 3);
       cs.setShadow(0, 0, '#22d3ee', 6, false, true);
+      const dice = this.add.text(0, ROW_Y, '🎲', { fontSize: '22px' })
+        .setOrigin(0, 0.5).setDepth(2);
+
+      // measured, not assumed
+      const total = AVATAR + GAP + cs.width + GAP + INPUT_W + GAP + dice.width;
+      let x = 480 - total / 2;
+
+      // plate sized to the measured row and centred on 480, so its edges cannot
+      // drift out of line with the CTA card below it
+      const plate = this.add.graphics().setDepth(1);
+      drawPanel(plate, {
+        x: Math.round(480 - total / 2 - PAD), y: Math.round(ROW_Y - PLATE_H / 2),
+        w: Math.round(total + PAD * 2), h: PLATE_H,
+        cut: 11, shadow: true, scan: false, rim: 0.32, inner: 5,
+      });
+
+      this.add.image(x + AVATAR / 2, ROW_Y, 'soldier_me').setScale(0.7).setDepth(2);
+      x += AVATAR + GAP;
+      cs.setPosition(x, ROW_Y);
+      x += cs.width + GAP;
+
       const input = document.createElement('input');
       input.value = Session.name;
       input.maxLength = 12;
       input.placeholder = 'Your name';
       input.autocomplete = 'off';
-      input.style.cssText = 'width:230px;height:30px;background:#0b1220;color:#fff;border:1px solid rgba(34,211,238,.45);'
+      // box-sizing:border-box is load-bearing -- without it the declared 230px is
+      // content-box and padding+border are added on top, so the field rendered
+      // wider than INPUT_W and the measured row was wrong by that much.
+      input.style.cssText = 'box-sizing:border-box;width:230px;height:30px;background:#0b1220;color:#fff;border:1px solid rgba(34,211,238,.45);'
         + 'border-radius:8px;padding:0 10px;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'
         + 'font:600 16px Rajdhani,sans-serif;letter-spacing:1px;outline:none;'
         + 'transition:border-color .15s ease,box-shadow .15s ease;'
-        + 'box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);'; 
+        + 'box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -1px 0 rgba(0,0,0,.45);';
       input.addEventListener('change', () => {
         Session.setName(input.value);
         input.value = Session.name;
       });
       // DOM elements sit in their own layer above the canvas, so depth alone
       // cannot tuck this behind a modal - register it to be hidden instead
-      registerUnderlay(this.add.dom(516, 204, input).setDepth(2));
-      this.add.image(292, 204, 'soldier_me').setScale(0.7).setDepth(2);
-      const dice = this.add.text(662, 204, '🎲', { fontSize: '22px' }).setOrigin(0, 0.5).setDepth(2);
+      registerUnderlay(this.add.dom(x + INPUT_W / 2, ROW_Y, input).setDepth(2));
+      x += INPUT_W + GAP;
+
+      dice.setPosition(x, ROW_Y);
       dice.setInteractive({ useHandCursor: true });
       dice.on('pointerdown', () => {
         Session.setName(randomName());

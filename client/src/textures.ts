@@ -485,52 +485,111 @@ function scorch() {
 // = perpendicular to aim). Soldier shows through the glass.
 function guardTex() {
   const { c, ctx } = cv(24, 56);
-  // steel frame: top/bottom rails + side stiles with brushed gradient
-  const steel = ctx.createLinearGradient(0, 0, 24, 0);
-  steel.addColorStop(0, '#3f4753');
-  steel.addColorStop(0.5, '#9aa3b2');
-  steel.addColorStop(1, '#333a45');
-  ctx.fillStyle = steel;
-  ctx.fillRect(0, 0, 24, 6); // top rail
-  ctx.fillRect(0, 50, 24, 6); // bottom rail
-  ctx.fillRect(0, 0, 4, 56); // left stile
-  ctx.fillRect(20, 0, 4, 56); // right stile
-  ctx.fillStyle = 'rgba(255,255,255,0.4)'; // rail highlight
-  ctx.fillRect(0, 0, 24, 1.5);
-  ctx.fillRect(0, 0, 1.5, 56);
-  // armored glass: barely-there tint so the soldier reads through
-  const glass = ctx.createLinearGradient(4, 0, 20, 0);
-  glass.addColorStop(0, 'rgba(140,190,220,0.28)');
-  glass.addColorStop(0.5, 'rgba(200,235,250,0.14)');
-  glass.addColorStop(1, 'rgba(140,190,220,0.28)');
+  const OUT = 'rgba(0,0,0,0.6)';
+  // The whole shield is one rounded silhouette. Radius 9 on a 24-wide panel is
+  // the proportion of a real shield's corners, and it is what stops the sprite
+  // reading as a rectangle with the corners painted in.
+  const R = 9;
+  const body = () => {
+    ctx.beginPath();
+    ctx.roundRect(1.5, 1.5, 21, 53, R);
+  };
+
+  // ---- cast edge, so the shield sits in front of the carrier ---------------
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  ctx.beginPath();
+  ctx.roundRect(2.5, 3, 21, 53, R);
+  ctx.fill();
+
+  // ---- clear polycarbonate: a barely-there tint, lighter through the middle
+  const glass = ctx.createLinearGradient(1.5, 0, 22.5, 0);
+  glass.addColorStop(0, 'rgba(150,195,225,0.34)');
+  glass.addColorStop(0.45, 'rgba(214,240,252,0.10)');
+  glass.addColorStop(1, 'rgba(150,195,225,0.34)');
   ctx.fillStyle = glass;
-  ctx.fillRect(4, 6, 16, 44);
-  // diagonal reflection sweep
-  ctx.fillStyle = 'rgba(255,255,255,0.30)';
+  body();
+  ctx.fill();
+
+  // ---- slim frame: a 2.5px metal edge, bright on top, dark underneath ------
+  const frame = ctx.createLinearGradient(0, 1.5, 0, 54.5);
+  frame.addColorStop(0, '#c3ccd9');
+  frame.addColorStop(0.35, '#7d8797');
+  frame.addColorStop(0.8, '#454d5a');
+  frame.addColorStop(1, '#2b323c');
+  ctx.strokeStyle = frame;
+  ctx.lineWidth = 2.5;
+  body();
+  ctx.stroke();
+  ctx.strokeStyle = OUT;
+  ctx.lineWidth = 0.9;
+  body();
+  ctx.stroke();
+
+  // ---- viewport: the signature feature, high on the panel -------------------
+  const vx = 4.5, vy = 8.5, vw = 15, vh = 6.5;
+  ctx.fillStyle = 'rgba(8,20,34,0.42)'; // the slot reads darker than the glass
   ctx.beginPath();
-  ctx.moveTo(4, 50); ctx.lineTo(12, 6); ctx.lineTo(17, 6); ctx.lineTo(9, 50);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.roundRect(vx, vy, vw, vh, 3);
+  ctx.fill();
+  ctx.strokeStyle = '#aeb8c6'; // machined surround
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(11, 50); ctx.lineTo(19, 6); ctx.lineTo(20, 6); ctx.lineTo(20, 14); ctx.lineTo(14, 50);
-  ctx.closePath(); ctx.fill();
-  // center spine + rivets
-  ctx.fillStyle = '#2b313b';
-  ctx.fillRect(11, 6, 2, 44);
-  ctx.fillStyle = '#d7dde6';
-  for (const [x, y] of [[6, 9], [18, 9], [6, 47], [18, 47], [12, 28]] as Array<[number, number]>) {
-    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.roundRect(vx - 0.6, vy - 0.6, vw + 1.2, vh + 1.2, 3.4);
+  ctx.stroke();
+  // a highlight along the top lip, so it reads as a cut edge
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(vx + 1.4, vy + 0.7);
+  ctx.lineTo(vx + vw - 1.4, vy + 0.7);
+  ctx.stroke();
+
+  // ---- grip: a handle bar with a forearm cuff, at the bottom --------------
+  ctx.fillStyle = '#39414d';
+  ctx.beginPath();
+  ctx.roundRect(6, 42, 12, 3.4, 1.4);
+  ctx.fill();
+  ctx.strokeStyle = OUT; ctx.lineWidth = 0.8; ctx.stroke();
+  ctx.fillStyle = '#8d97a5'; // knuckles
+  ctx.beginPath();
+  ctx.roundRect(6, 42, 12, 1.1, 0.5);
+  ctx.fill();
+  // the cuff: two straps running down to the bottom rail
+  ctx.strokeStyle = '#4c5561';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(8.4, 45.4); ctx.lineTo(8, 50.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(15.6, 45.4); ctx.lineTo(16, 50.5); ctx.stroke();
+  ctx.fillStyle = '#39414d';
+  ctx.beginPath();
+  ctx.roundRect(7.2, 49.4, 9.6, 2.2, 1);
+  ctx.fill();
+  ctx.strokeStyle = OUT; ctx.lineWidth = 0.7; ctx.stroke();
+
+  // ---- one soft reflection band, kept weak so the carrier reads through ---
+  ctx.save();
+  body();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(3, 54); ctx.lineTo(12, 2); ctx.lineTo(16.5, 2); ctx.lineTo(7.5, 54);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.09)';
+  ctx.beginPath();
+  ctx.moveTo(11, 54); ctx.lineTo(20, 2); ctx.lineTo(22, 2); ctx.lineTo(13, 54);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // ---- two small frame bolts, and nothing else: no spine, no rivet grid ----
+  ctx.fillStyle = '#cbd3de';
+  for (const [x, y] of [[12, 4.6], [12, 51.4]] as Array<[number, number]>) {
+    ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.6; ctx.stroke();
   }
-  // scratches + edge wear
-  ctx.strokeStyle = 'rgba(230,240,248,0.5)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(6, 18); ctx.lineTo(14, 30); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(16, 36); ctx.lineTo(10, 44); ctx.stroke();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
-  ctx.strokeRect(0.75, 0.75, 22.5, 54.5); // dark outer rim
   return c;
 }
 
-// tracer bolt: hot capsule with a white core (tint colors the whole bolt)
 function bolt() {
   const { c, ctx } = cv(40, 14);
   const g = ctx.createLinearGradient(0, 0, 40, 0);

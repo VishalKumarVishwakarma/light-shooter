@@ -18,6 +18,9 @@ const src = (await esbuild.transform(raw, { loader: 'ts', format: 'cjs' })).code
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`PASS: ${m}`); } else { fail++; console.log(`FAIL: ${m}`); } };
 
+// esbuild splits `ctx.beginPath(); ctx.moveTo(...);` onto separate lines, so the
+// structural regexes below must run against whitespace-flattened text.
+const flat = (s) => s.replace(/\s+/g, ' ');
 const fn = (name) => {
   const i = src.indexOf(`function ${name}(`);
   if (i < 0) throw new Error(`${name} not found`);
@@ -72,14 +75,20 @@ const KNOWN = new Set(['save', 'restore', 'beginPath', 'closePath', 'fill', 'str
   'setTransform', 'createLinearGradient', 'createRadialGradient', 'measureText', 'fillText',
   'strokeText', 'clip', 'setLineDash']);
 
-const cv = () => ({ c: { width: 56, height: 56 }, ctx: makeCtx() });
+// the canvas dimensions each generator asks for, so the stub can report them
+const cvSizes = [];
+const cv = (w = 56, h = 56) => {
+  cvSizes.push([w, h]);
+  return { c: { width: w, height: h }, ctx: makeCtx() };
+};
 
 // ---- run every variant ------------------------------------------------------
 const soldier = fn('soldier');
 const star = fn('star');
+const guard = fn('guardTex');
 // eslint-disable-next-line no-new-func
-const factory = new Function('cv', `${star}\n${soldier}\nreturn soldier;`);
-const draw = factory(cv);
+const factory = new Function('cv', `${star}\n${soldier}\n${guard}\nreturn { soldier, guardTex };`);
+const { soldier: draw, guardTex: drawGuard } = factory(cv);
 
 const ME = ['#22d3ee', '#0e7490', '#a5f3fc', '#083344', null];
 const FOE = [
@@ -260,6 +269,47 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
   ok(/gun\.x = GUN_REST_X - 4;/.test(arena), 'recoil kicks back 4px from the rest position');
   ok(/targets: gun, x: GUN_REST_X,/.test(arena), '...and returns to the rest position');
   ok(!/gun\.x = 8 - 4;/.test(arena), 'the hardcoded 8 is gone (it would snap the barrel off the pivot)');
+}
+
+// ---------------------------------------------------------------------------
+// The SHIELD must read as a modern police riot shield: slim, rounded, with a
+// viewport and a grip. The previous art was a square-cornered slab with a heavy
+// 4px stile, 6px rails, a centre spine and five rivets -- a fantasy buckler.
+{
+  const guardFlat = flat(guard);
+  // execute it: a NaN here would make the canvas refuse to draw, so a raised
+  // shield would simply be invisible
+  calls.length = 0; bad = [];
+  let gThrew = null;
+  try { drawGuard(); } catch (e) { gThrew = e.message; }
+  ok(!gThrew, 'guardTex() runs without throwing' + (gThrew ? ` -- ${gThrew}` : ''));
+  ok(bad.length === 0, `every shield coordinate is finite${bad.length ? ` -- ${bad[0]}` : ''}`);
+  ok(calls.includes('roundRect'), 'the shield silhouette is built from rounded rects');
+  ok((calls.filter((m) => m === 'roundRect').length) >= 6,
+    `the silhouette, viewport, grip and cuff are all rounded (${calls.filter((m) => m === 'roundRect').length} roundRects)`);
+  ok(calls.includes('clip'), 'the reflection is clipped to the silhouette, not painted over the frame');
+
+  // the specific tells
+  ok(/const R = 9/.test(guardFlat) && /roundRect\(1\.5, 1\.5, 21, 53, R\)/.test(guardFlat),
+    'one rounded silhouette defines the whole panel (R=9, generous corners)');
+  ok(/lineWidth = 2\.5/.test(guardFlat), 'the frame is slim (2.5px, not a heavy stile)');
+  ok(!/ctx\.fillRect\(0, 0, 24, 6\)/.test(guardFlat) && !/ctx\.fillRect\(0, 0, 4, 56\)/.test(guardFlat),
+    'the old heavy top/bottom rails and side stiles are gone');
+  ok(/const vx = 4\.5, vy = 8\.5, vw = 15, vh = 6\.5/.test(guardFlat),
+    'there is a VIEWPORT, high on the panel -- the signature riot-shield feature');
+  ok(/roundRect\(vx - 0\.6, vy - 0\.6, vw \+ 1\.2, vh \+ 1\.2, 3\.4\)/.test(guardFlat),
+    '...with a machined surround, so it reads as a cut edge');
+  ok(/roundRect\(6, 42, 12, 3\.4, 1\.4\)/.test(guardFlat), 'there is a grip bar at the bottom');
+  ok(/ctx\.moveTo\(8\.4, 45\.4\); ctx\.lineTo\(8, 50\.5\)/.test(guardFlat), '...with a forearm cuff');
+  ok(!/center spine/.test(guardFlat) && !/ctx\.fillRect\(11, 6, 2, 44\)/.test(guardFlat),
+    'the centre spine is gone -- a real shield has none');
+  ok(!/rivets/.test(guardFlat), 'the five-rivet grid is gone');
+  ok((guardFlat.match(/\[12, 4\.6\], \[12, 51\.4\]/) || []).length === 1,
+    'just two small frame bolts remain');
+  // the carrier must read through it, so the glass stays light
+  ok(/rgba\(214,240,252,0\.10\)/.test(guardFlat), 'the glass is nearly clear through the middle');
+  // the canvas size must not change: the arena mounts it at (30, 0)
+  ok(/cv\(24, 56\)/.test(guardFlat), 'the canvas is still 24x56, so the mount point is untouched');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

@@ -440,16 +440,17 @@ export class ArenaScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
     this.hpLabel.setStroke('#000000', 3);
     this.hpLabel.setShadow(0, 0, '#22c55e', 8, false, true);
-    // Ping readout, bottom-left corner. It used to sit at (256, 452) in the
-    // gutter between the left and centre columns, which read as a stray fragment
-    // rather than a status readout.
+    // Ping readout, left column. It started in the gutter between the left and
+    // centre columns at (256, 452), which read as a stray fragment, and a first
+    // move to the bottom-left corner at (14, 470) was too low -- it shared a row
+    // with the kill feed and the FPS meter, so all three read as one crowded
+    // band.
     //
-    // The bottom-left is empty and stays empty: the loadout strip is centred at
-    // x=480 and spans 282..678 (10 slots, 40px pitch, 36px wide), so x<282 at
-    // y>489 is clear. Anchored to the left edge with a small gutter, bottom-
-    // aligned to match the loadout's baseline, and set slightly ABOVE the strip
-    // so the two never read as one row.
-    this.pingText = this.add.text(14, 470, 'PING …', {
+    // It belongs with the other status readouts instead: the HP bar is at y=16
+    // and the effect-chip row at y=44, both anchored to the left edge at x=10.
+    // y=64 continues that column. The left column is empty from there down to the
+    // kill feed plate at y=494, so nothing is displaced.
+    this.pingText = this.add.text(10, 64, 'PING …', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: DIM,
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     this.pingText.setStroke('#020617', 3);
@@ -565,11 +566,12 @@ export class ArenaScene extends Phaser.Scene {
     this.layoutClock(false); // now that the texts exist, size the pill to them
     try {
       if (new URLSearchParams(location.search).get('fps')) {
-        // Shares the bottom-left row with the ping readout, to its right. It used
-        // to sit at (256, 468) in the centre gutter, and y=484 was tried next --
-        // but the kill feed plate starts at y=494, so anything down there
-        // collides. Same row as the ping keeps both diagnostics in one place.
-        this.fpsText = this.add.text(80, 470, '60', {
+        // Shares the ping's row in the left status column, to its right. It was
+        // at (256, 468) in the centre gutter, which the ping vacated, and it
+        // followed the ping to (80, 470) when the ping went to the bottom-left
+        // corner. Two diagnostics stacked in the crowded bottom band was the
+        // wrong call; the left column is where the other readouts live.
+        this.fpsText = this.add.text(76, 64, '60', {
           fontFamily: MONO, fontSize: '11px', color: '#4ade80',
         }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
       }

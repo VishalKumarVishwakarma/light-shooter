@@ -1,0 +1,43 @@
+# Koyeb service definition for the game server.
+#
+# Deploy with either:
+#   1. the dashboard: New Service -> pick this repo -> "Dockerfile" ->
+#      Dockerfile path `server/Dockerfile`
+#   2. the CLI:            koyeb app deploy myapp --dockerfile server/Dockerfile
+#
+# This file only takes effect if you set the Dockerfile path to
+# `server/koyeb.yaml` in the dashboard, or use --config. The Dockerfile is the
+# thing that actually builds; this records the sizing and the healthcheck.
+
+# Koyeb's free instance. 0.25 vCPU is enough: the sim is a 30Hz tick over at most
+# 8 players of axis-aligned movement and a bullet sweep, not a physics engine.
+# If you ever raise maxClients well past 8, revisit this.
+instance_type: free:small
+region: was
+dockerfile: ../Dockerfile
+
+# Koyeb restarts the container if /health stops answering, so a crashed sim
+# self-heals instead of leaving a dead lobby code pointing at nothing.
+healthcheck:
+  path: /health
+  port: 2567
+  initial_delay_seconds: 20
+  period_seconds: 30
+  timeout_seconds: 5
+  failure_threshold: 3
+
+# Colyseus holds room state in memory and matches players by a 4-digit code, so
+# the container must NOT be replicated or load-balanced across instances: two
+# players entering the same code on different instances would land in two
+# separate rooms and never see each other. Exactly one instance.
+instance_count: 1
+
+# 8 players, 5-minute matches. Give a little headroom over the 5h free budget so
+# a demo day does not run the instance dry mid-match.
+autoscaling:
+  min: 1
+  max: 1
+
+env:
+  - name: NODE_ENV
+    value: production

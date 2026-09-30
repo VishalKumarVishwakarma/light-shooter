@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import * as esbuild from 'esbuild';
 
 const raw = fs.readFileSync('src/textures.ts', 'utf8').replace(/\r\n/g, '\n');
+const map = fs.readFileSync('src/map.ts', 'utf8').replace(/\r\n/g, '\n');
+const arena = fs.readFileSync('src/scenes/ArenaScene.ts', 'utf8').replace(/\r\n/g, '\n');
 const src = (await esbuild.transform(raw, { loader: 'ts', format: 'cjs' })).code;
 
 let pass = 0, fail = 0;
@@ -187,8 +189,6 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
 // two agreed only at aim-right and diverged by up to 16.4px at aim-left -- over
 // half the player's width -- so shots visibly left from thin air.
 {
-  const arena = fs.readFileSync('src/scenes/ArenaScene.ts', 'utf8').replace(/\r\n/g, '\n');
-  const map = fs.readFileSync('src/map.ts', 'utf8').replace(/\r\n/g, '\n');
   const MUZZLE = +/export const MUZZLE = (\d+)/.exec(map)?.[1];
   const num = (n) => {
     const m = new RegExp(`const ${n} = ([-\\d.]+)`).exec(arena);
@@ -385,6 +385,75 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
   ok(!/const blobs: Array/.test(bushFlat), 'the flat blob list is gone');
   ok(!/sun flecks/.test(bushFlat), 'the four pale sun-fleck dots are gone');
   ok(!/rgba\(190,242,150,0\.5\)/.test(bushFlat), '...and so is their colour');
+}
+
+// ---------------------------------------------------------------------------
+// TERRAIN. The arena read as square because of three specific things, and each
+// is asserted gone:
+//
+//   1. the floor was a hard 40px grid of opaque lines across the whole map
+//   2. every steel block was one 40px tileSprite -- the same panel grid repeated
+//   3. every ice patch was one 60px tileSprite -- the same two cracks repeated
+//
+// Steel and ice are now drawn per block, seeded from their own coordinates, with
+// cut corners, so the silhouette is never a hard square.
+{
+  const terrRaw = fs.readFileSync('src/terrain.ts', 'utf8').replace(/\r\n/g, '\n');
+  ok(!/export function drawSteel/.test(terrRaw) === false, 'terrain.ts exports drawSteel');
+  ok(/export function drawIce/.test(terrRaw), 'terrain.ts exports drawIce');
+  ok(/export function drawGround/.test(terrRaw), 'terrain.ts exports drawGround');
+
+  // the grid is gone from the arena, and the tiles are gone from ensureTextures
+  ok(!/this\.add\.grid\(0, 0, W, H, 40, 40/.test(arena),
+    'the 40px ground grid is gone from ArenaScene');
+  ok(!/drawGround\(this\.add\.graphics\(\), W, H\);/.test(arena) === false,
+    'the ground is drawn procedurally instead');
+  ok(!/'steelTile'/.test(arena), 'no steelTile tileSprite left in the arena');
+  ok(!/'iceTile'/.test(arena), 'no iceTile tileSprite left in the arena');
+  ok(!/function steelTile\(/.test(raw), 'the steelTile generator is deleted, not just unused');
+  ok(!/function iceTile\(/.test(raw), 'the iceTile generator is deleted too');
+  ok(!/put\(scene, 'steelTile'/.test(raw) && !/put\(scene, 'iceTile'/.test(raw),
+    'and neither is generated on every scene start any more');
+
+  // per-block seeding: stable across visits, different per block
+  ok(/drawSteel\(this\.add\.graphics\(\), st, \(st\.x \* 73856093\) \^ \(st\.y \* 19349663\)\)/.test(arena),
+    'steel is seeded from its own coordinates, so it is stable per visit');
+  ok(/drawIce\(g, ic, \(ic\.x \* 2654435761\) \^ \(ic\.y \* 40503\)\)/.test(arena),
+    'ice likewise');
+
+  // collision must not have moved: map.ts is still axis-aligned rects
+  ok(/export const STEEL: Rect\[\]/.test(map), 'STEEL is still a list of rects in map.ts');
+  ok(/export const ICE: Rect\[\]/.test(map), 'ICE is still a list of rects in map.ts');
+  ok(!/terrain/.test(map), 'map.ts is untouched by the visual work');
+
+  // the organic parts, read off the source
+  const t = terrRaw;
+  ok(/const TONES = \[0x101a27/.test(t) && /for \(let i = 0; i < 170; i\+\+\)/.test(t),
+    'the floor is 170 overlapping mottles in near-identical tones, not a grid');
+  ok(/g\.fillPoints\(ellipsePts\(x, y, rx, ry, r\(\) \* Math\.PI\), true\)/.test(t),
+    'the mottles are soft polygons, not hard rects');
+  ok(/function ellipsePts\(/.test(t) && !/g\.ellipse\(/.test(t),
+    'Phaser has no Graphics.ellipse(), so the helper exists and nothing calls a missing method');
+  // steel: varied panel sizes via a seeded recursive split
+  ok(/const split = \(x: number, y: number, w: number, h: number, depth: number\)/.test(t),
+    'steel panels come from a recursive split, so the sizes vary');
+  ok(/depth >= 3 \|\| \(w < 48 && h < 48\)/.test(t),
+    'the split stops on depth and on size, so panels are not infinite');
+  ok(/const t = 0\.36 \+ r\(\) \* 0\.28/.test(t), 'the split point is randomised per block');
+  // cut corners
+  ok(/const c = \[3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4, 3 \+ r\(\) \* 4\]/.test(t),
+    'every steel block has its four corners cut, so the silhouette is never a hard square');
+  ok(/const pad = 7/.test(t), 'and the panels are inset to stay inside the cuts');
+  ok(/g\.strokePoints\(pts, true, true\)/.test(t), 'the outline is stroked as an octagon');
+  // ice: irregular edge and seeded cracks
+  ok(/for \(let i = 0; i < 5; i\+\+\)/.test(t) && /const side = \(r\(\) \* 4\) \| 0/.test(t),
+    'ice has soft notches bitten out of all four edges');
+  ok(/const FACETS = \[0xe8f6ff/.test(t), 'ice has crystal facets, so the surface has planes in it');
+  ok(/a \+= \(r\(\) - 0\.5\) \* 1\.5/.test(t),
+    'ice cracks are branching seeded polylines, not two straight repeats');
+  // determinism
+  ok(/export function rng\(seed: number\)/.test(t) && /Math\.random\(/.test(t) === false,
+    'terrain is seeded: no Math.random anywhere in it');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

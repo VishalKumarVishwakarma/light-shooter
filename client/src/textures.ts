@@ -695,30 +695,6 @@ function brickTile(variant: number) {
   return c;
 }
 
-function steelTile() {
-  const { c, ctx } = cv(40, 40);
-  ctx.fillStyle = '#8b95a5';
-  ctx.fillRect(0, 0, 40, 40);
-  ctx.fillStyle = '#c9d1dc'; // brushed top half
-  ctx.fillRect(0, 0, 40, 18);
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; // brushed lines
-  for (const y of [4, 8, 12, 16, 24, 28, 32, 36]) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(40, y); ctx.stroke();
-  }
-  ctx.strokeStyle = '#525b68'; ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, 38, 38);
-  ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(40, 20); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(20, 40); ctx.stroke();
-  ctx.fillStyle = '#eef2f7'; // rivets with glint
-  for (const [x, y] of [[5, 5], [35, 5], [5, 35], [35, 35], [20, 20]] as Array<[number, number]>) {
-    ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(x - 0.7, y - 0.7, 0.9, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#eef2f7';
-  }
-  return c;
-}
-
 function bushTile() {
   const { c, ctx } = cv(60, 60);
   const S = 60;
@@ -850,29 +826,6 @@ function waterTile() {
   ctx.fillStyle = 'rgba(255,255,255,0.5)'; // sparkle dots
   for (const [x, y] of [[10, 8], [34, 22], [50, 40], [18, 52]] as Array<[number, number]>) {
     ctx.beginPath(); ctx.arc(x, y, 1.4, 0, Math.PI * 2); ctx.fill();
-  }
-  return c;
-}
-
-function iceTile() {
-  const { c, ctx } = cv(60, 60);
-  const sheen = ctx.createLinearGradient(0, 0, 60, 60);
-  sheen.addColorStop(0, '#c4e2f2');
-  sheen.addColorStop(0.5, '#a9d3e8');
-  sheen.addColorStop(1, '#8fc3dd');
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, 60, 60);
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(6, 44); ctx.lineTo(30, 20); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(28, 54); ctx.lineTo(54, 28); ctx.stroke();
-  ctx.strokeStyle = 'rgba(70,130,170,0.55)'; ctx.lineWidth = 1.5; // cracks
-  ctx.beginPath(); ctx.moveTo(4, 10); ctx.lineTo(22, 26); ctx.lineTo(16, 44); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(40, 6); ctx.lineTo(48, 24); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 8;
-  ctx.beginPath(); ctx.moveTo(0, 58); ctx.lineTo(20, 38); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.85)'; // glints
-  for (const [x, y] of [[14, 32], [44, 44], [52, 12]] as Array<[number, number]>) {
-    ctx.beginPath(); ctx.arc(x, y, 1.3, 0, Math.PI * 2); ctx.fill();
   }
   return c;
 }
@@ -1050,10 +1003,8 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'brickTileA', brickTile(0));
   put(scene, 'brickTileB', brickTile(1));
   put(scene, 'scan', scan());
-  put(scene, 'steelTile', steelTile());
   put(scene, 'bushTile', bushTile());
   put(scene, 'waterTile', waterTile());
-  put(scene, 'iceTile', iceTile());
   put(scene, 'rubble', rubble());
   put(scene, 'menubg', menubg());
   put(scene, 'btn320', btn(320, 56));

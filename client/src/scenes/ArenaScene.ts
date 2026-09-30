@@ -5,6 +5,7 @@ import { ensureTextures, avatarTex, foeColor } from '../textures';
 import { makeButton, quality, setQuality, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker } from '../fonts';
+import { drawGround, drawIce, drawSteel } from '../terrain';
 
 const RADIUS = 16;
 // how many in-flight electric bolts get a drawn tether at once. The gun fires
@@ -248,8 +249,11 @@ export class ArenaScene extends Phaser.Scene {
       this.firing = false;
     });
     this.cameras.main.setBounds(0, 0, W, H);
-    // ground: grid + film-grain noise + vignette
-    this.add.grid(0, 0, W, H, 40, 40, 0x111826).setOrigin(0);
+    // Ground. This used to be a hard 40px grid of opaque lines across the whole
+    // map, which was the single biggest reason the arena read as square. It is
+    // now overlapping mottles in near-identical tones plus fine grit: enough
+    // variation to kill the grid, not so much that it becomes its own pattern.
+    drawGround(this.add.graphics(), W, H);
     const lowQ = quality() === 'low';
     this.add.tileSprite(W / 2, H / 2, W, H, 'noise').setAlpha(lowQ ? 0.15 : 0.5);
     // HD ground detail: deterministic scuffs/cracks (seeded = identical everywhere)
@@ -268,13 +272,17 @@ export class ArenaScene extends Phaser.Scene {
     this.add.rectangle(0, 0, W, 8, 0x22d3ee).setOrigin(0);
     this.add.rectangle(0, H - 8, W, 8, 0x22d3ee).setOrigin(0);
     // Battle City terrain: steel blocks, brick cover, rivers, ice, stealth bushes
+    // Steel and ice are drawn per block, seeded from their own coordinates, so
+    // every block is stable across visits but no two look alike. Both used to be
+    // one small tileSprite repeated, which is exactly what the eye locks onto.
     for (const st of STEEL) {
       this.add.rectangle(st.x + 4, st.y + 6, st.w, st.h, 0x000000, 0.35).setOrigin(0);
-      this.add.tileSprite(st.x + st.w / 2, st.y + st.h / 2, st.w, st.h, 'steelTile');
-      this.add.rectangle(st.x, st.y + 3, st.w, 6, 0xffffff, 0.22).setOrigin(0, 0.5); // sunlit top edge
+      drawSteel(this.add.graphics(), st, (st.x * 73856093) ^ (st.y * 19349663));
     }
     for (const ic of ICE) {
-      this.add.tileSprite(ic.x + ic.w / 2, ic.y + ic.h / 2, ic.w, ic.h, 'iceTile').setAlpha(0.95);
+      const g = this.add.graphics();
+      drawIce(g, ic, (ic.x * 2654435761) ^ (ic.y * 40503));
+      g.setAlpha(0.95);
     }
     for (const wt of WATER) {
       this.waterTiles.push(this.add.tileSprite(wt.x + wt.w / 2, wt.y + wt.h / 2, wt.w, wt.h, 'waterTile'));

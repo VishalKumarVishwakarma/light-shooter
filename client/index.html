@@ -15,16 +15,33 @@
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Chakra+Petch:wght@600;700&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
+    /* WHY THIS LAYOUT IS SHAPED THIS WAY
+       Phaser is in Scale.FIT + CENTER_BOTH, which measures the PARENT element's
+       bounding box and scales the canvas to fit inside it while preserving the
+       960x600 aspect ratio. That only works if the parent has a real size.
+
+       #game had no CSS at all, so its bounding box was whatever the canvas made
+       it -- the canvas was 960x600, so the parent measured 960x600, and FIT
+       scaled 960x600 into 960x600. Scale stayed pinned at 1.0 forever and the
+       page overflowed, which is why the game did not fit a Windows window and
+       had to be scrolled.
+
+       So the page is now a fixed-height flex column: the chrome (header, key
+       hints, footer) is flex:0 0 auto, and #frame is flex:1 1 auto with
+       min-height:0 so it absorbs whatever vertical space is left. #game then
+       fills #frame, which gives Phaser a genuine size to fit into. The whole
+       page is exactly one viewport tall and never scrolls. */
     html, body {
-      margin: 0; min-height: 100%;
+      margin: 0; height: 100%; overflow: hidden;
       background: radial-gradient(1200px 800px at 50% -10%, #16213a 0%, #0b0e14 55%, #06080d 100%);
       color: #e2e8f0;
       font-family: 'Rajdhani', system-ui, sans-serif;
       display: flex; flex-direction: column; align-items: center;
     }
     header {
+      flex: 0 0 auto;
       display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
-      gap: 8px 12px; padding: 18px 0 6px; user-select: none; max-width: 96vw;
+      gap: 8px 12px; padding: 12px 0 4px; user-select: none; max-width: 96vw;
     }
     .logo {
       width: 34px; height: 34px; border-radius: 9px;
@@ -54,24 +71,48 @@
       margin: 2px 0 0; user-select: none;
     }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+    /* flex:1 + min-height:0 is the load-bearing part. Without min-height:0 a
+       flex item refuses to shrink below its content, so #frame would stay at
+       the canvas's 600px and overflow the viewport again. */
+    /* flex:1 + min-height:0 is the load-bearing part. Without min-height:0 a
+       flex item refuses to shrink below its content, so #frame would stay at
+       the canvas's 600px and overflow the viewport again. */
     #frame {
-      margin-top: 10px; padding: 10px; border-radius: 16px;
+      flex: 1 1 auto; min-height: 0;
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; padding: 10px; margin: 0; border-radius: 16px;
       background: rgba(15, 23, 42, 0.7);
       border: 1px solid rgba(34, 211, 238, 0.25);
       box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 45px rgba(34, 211, 238, 0.12), 0 25px 60px rgba(0,0,0,0.5);
       animation: rise 0.5s ease-out, framepulse 4s ease-in-out 0.6s infinite;
     }
+    /* The element Phaser measures. It MUST have a size of its own: this is the
+       box FIT scales the canvas into. */
+
     @keyframes framepulse {
       0%, 100% { box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 45px rgba(34, 211, 238, 0.12), 0 25px 60px rgba(0,0,0,0.5); }
       50% { box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 70px rgba(34, 211, 238, 0.22), 0 25px 60px rgba(0,0,0,0.5); }
     }
     @keyframes rise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+    /* The element Phaser measures. It MUST have a size of its own: this is the
+       box FIT scales the canvas into. */
+    #game {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      /* Phaser sets the canvas CSS width/height to the fitted size and centres
+         it with auto margins. overflow:hidden stops a 1px rounding overshoot
+         from producing a scrollbar. */
+      overflow: hidden;
+    }
     #game canvas {
       display: block; border-radius: 10px; cursor: crosshair;
       margin: 0 auto; touch-action: none;
+      /* never let the canvas force the page taller than the viewport */
+      max-width: 100%; max-height: 100%;
     }
     #hud {
-      margin-top: 10px; font-size: 14px; letter-spacing: 1.5px; color: #a9b7cb;
+      flex: 0 0 auto;
+      margin: 8px 0 0; font-size: 14px; letter-spacing: 1.5px; color: #a9b7cb;
       display: flex; gap: 18px; user-select: none; font-weight: 600;
     }
     #hud b { color: #e2e8f0; }
@@ -80,7 +121,23 @@
       padding: 0 7px; margin-right: 4px; color: #fff; background: #1e293b;
       font-family: 'Chakra Petch', 'Share Tech Mono', monospace; font-size: 11px; font-weight: 700;
     }
-    footer { margin: 14px 0 26px; font-size: 12px; letter-spacing: 2px; color: #7d8ea6; font-weight: 600; }
+    footer {
+      flex: 0 0 auto;
+      margin: 8px 0 10px; font-size: 12px; letter-spacing: 2px; color: #7d8ea6; font-weight: 600;
+    }
+    /* Short windows: a 1366x768 laptop in a browser leaves roughly 600px of
+       viewport, and the chrome above would eat most of it. Shed the decorative
+       rows rather than shrink the game, so the playfield keeps its pixels. */
+    @media (max-height: 700px) {
+      header { padding: 6px 0 2px; }
+      .tag { display: none; }
+      footer { display: none; }
+      #hud { font-size: 12px; margin-top: 4px; }
+    }
+    @media (max-height: 560px) {
+      header h1 { font-size: 18px; }
+      #hud { display: none; }
+    }
   </style>
 </head>
 <body>

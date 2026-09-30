@@ -54,8 +54,11 @@ const E = [
   txt('gun status line', [944, 45], [1, 0.5], 'NONE LEFT - RESTOCK AT PADS', 10, 'COND'),
 
   // --- bottom left: diagnostics + kill feed
-  txt('ping', [256, 452], [0, 0.5], 'PING 123', 11, 'COND'),
-  txt('fps', [256, 468], [0, 0.5], '60 FPS', 11, 'MONO'),
+  // Ping moved here from (256, 452). Origin (0, 0.5) at x=14 anchors it to the
+  // left edge; the fps meter came with it, off the centre gutter at (256, 468),
+  // because that was the ping's new row and leaving it would overlap.
+  txt('ping', [14, 470], [0, 0.5], 'PING 123', 11, 'COND', { src: 'this.add.text(14, 470,' }),
+  txt('fps', [80, 470], [0, 0.5], '60 FPS', 11, 'MONO', { src: 'this.add.text(80, 470,' }),
   box('kill feed row 1', 6, 485.5, 270, 17, 'const rowY = (i: number) => 494 + i * 19;'),
   box('kill feed row 2', 6, 504.5, 270, 17, 'const rowY = (i: number) => 494 + i * 19;'),
 
@@ -115,6 +118,7 @@ console.log('\nREGRESSION GUARDS');
 // the right column: the cash used to sit on the leaders ticker
 const mm = E.find((e) => e.label === 'minimap'), cash = E.find((e) => e.label === 'cash');
 const tick = E.find((e) => e.label === 'leaders ticker');
+const load = E.find((e) => e.label === 'loadout strip');
 ok(cash.y - (mm.y + mm.h) >= 3, `cash clears the minimap by ${(cash.y - (mm.y + mm.h)).toFixed(1)}px`);
 ok(tick.y - (cash.y + cash.h) >= 3, `ticker clears the cash by ${(tick.y - (cash.y + cash.h)).toFixed(1)}px`);
 ok(H - (tick.y + tick.h) >= 4, `ticker keeps ${(H - (tick.y + tick.h)).toFixed(1)}px off the bottom edge`);
@@ -124,9 +128,36 @@ ok(/const bg = this\.add\.rectangle\(6, rowY\(0\),\s*\n?\s*Math\.max\(244, Math\
 // the loadout strip and the kill feed must keep clear of each other. Worst case
 // (two 12-char callsigns + [ELECTRIC]) the plate runs to x=276 against a loadout
 // that starts at 282 -- 6px. Typical 6-8 char names leave ~38px.
-const load = E.find((e) => e.label === 'loadout strip'), feed = E.find((e) => e.label === 'kill feed row 1');
+const feed = E.find((e) => e.label === 'kill feed row 1');
 const gap = load.x - (feed.x + feed.w);
 ok(gap >= 4, `widest kill feed clears the loadout by ${gap.toFixed(1)}px`);
+
+// The ping's move into the bottom-left had exactly two things it could collide
+// with, and neither was empty space by accident.
+const ping = E.find((e) => e.label === 'ping');
+const fps = E.find((e) => e.label === 'fps');
+ok(ping.x <= 20, `ping is anchored to the left edge (x=${ping.x.toFixed(0)})`);
+ok(ping.y > 440, `ping is in the bottom band (y=${ping.y.toFixed(0)})`);
+// 470 is below the old 452: the ping moved DOWN into the bottom-left corner, not
+// up. Asserting the direction explicitly, so a future move cannot drift back
+// into the centre gutter without this failing.
+ok(ping.y > 452, `the ping moved DOWN out of the centre gutter (y=${ping.y.toFixed(0)} > 452)`);
+ok(ping.x < 100, 'and it is in the left column, not the middle of the screen');
+// the kill feed owns the bottom-left below y=485; the ping must stay above it
+const feedTop = Math.min(E.find((e) => e.label === 'kill feed row 1').y,
+  E.find((e) => e.label === 'kill feed row 2').y);
+ok(feedTop - (ping.y + ping.h) >= 4,
+  `ping clears the kill feed by ${(feedTop - (ping.y + ping.h)).toFixed(1)}px`);
+ok(load.x - (fps.x + fps.w) >= 4,
+  `fps clears the loadout by ${(load.x - (fps.x + fps.w)).toFixed(1)}px`);
+ok(feedTop - (fps.y + fps.h) >= 4,
+  `fps clears the kill feed by ${(feedTop - (fps.y + fps.h)).toFixed(1)}px`);
+// the two diagnostics share a row and must not print over each other
+ok(fps.x - (ping.x + ping.w) >= 4,
+  `fps clears the ping by ${(fps.x - (ping.x + ping.w)).toFixed(1)}px`);
+// neither may be left behind in the old centre gutter
+ok(!arena.includes('this.add.text(256, 452,'), 'the ping no longer sits in the centre gutter');
+ok(!arena.includes('this.add.text(256, 468,'), 'the fps meter no longer sits in the centre gutter');
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

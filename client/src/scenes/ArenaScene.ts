@@ -440,8 +440,16 @@ export class ArenaScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
     this.hpLabel.setStroke('#000000', 3);
     this.hpLabel.setShadow(0, 0, '#22c55e', 8, false, true);
-    // diagnostics sit in the gutter between the left and center columns
-    this.pingText = this.add.text(256, 452, 'PING …', {
+    // Ping readout, bottom-left corner. It used to sit at (256, 452) in the
+    // gutter between the left and centre columns, which read as a stray fragment
+    // rather than a status readout.
+    //
+    // The bottom-left is empty and stays empty: the loadout strip is centred at
+    // x=480 and spans 282..678 (10 slots, 40px pitch, 36px wide), so x<282 at
+    // y>489 is clear. Anchored to the left edge with a small gutter, bottom-
+    // aligned to match the loadout's baseline, and set slightly ABOVE the strip
+    // so the two never read as one row.
+    this.pingText = this.add.text(14, 470, 'PING …', {
       fontFamily: COND, fontSize: '11px', fontStyle: '700', color: DIM,
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
     this.pingText.setStroke('#020617', 3);
@@ -557,7 +565,11 @@ export class ArenaScene extends Phaser.Scene {
     this.layoutClock(false); // now that the texts exist, size the pill to them
     try {
       if (new URLSearchParams(location.search).get('fps')) {
-        this.fpsText = this.add.text(256, 468, '60', {
+        // Shares the bottom-left row with the ping readout, to its right. It used
+        // to sit at (256, 468) in the centre gutter, and y=484 was tried next --
+        // but the kill feed plate starts at y=494, so anything down there
+        // collides. Same row as the ping keeps both diagnostics in one place.
+        this.fpsText = this.add.text(80, 470, '60', {
           fontFamily: MONO, fontSize: '11px', color: '#4ade80',
         }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
       }

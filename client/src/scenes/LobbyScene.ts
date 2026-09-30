@@ -249,7 +249,7 @@ export class LobbyScene extends Phaser.Scene {
       qrSlot.setTexture(qrKey(this, link)).setDisplaySize(150, 150).setVisible(true);
     }).catch(() => { /* link + code still work without the picture */ });
     const linkT = this.add.text(0, 20, link, {
-      fontFamily: MONO, fontSize: '12px', color: '#7dd3fc', align: 'center', wordWrap: { width: 440 },
+      fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: '#7dd3fc', align: 'center', wordWrap: { width: 440 },
     }).setOrigin(0.5, 0);
     linkT.setStroke('#020617', 3);
     m.body.add(linkT);

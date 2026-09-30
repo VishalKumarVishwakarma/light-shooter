@@ -4,11 +4,26 @@ import Phaser from 'phaser';
 //   DISPLAY — Anton: condensed marquee titles (headers, banners, results).
 //   COND    — Chakra Petch: techy workhorse for buttons, kickers, HUD numbers.
 //   BODY    — Rajdhani: paragraphs, hints, roster prose.
-//   MONO    — Share Tech Mono: codes, hashes, data readouts.
+//   MONO    — JetBrains Mono 700: codes, hashes, data readouts.
+//
+// MONO is JetBrains Mono at weight 700, NOT Share Tech Mono, and that is load
+// bearing. Share Tech Mono is a 400-ONLY font -- Google Fonts answers HTTP 400
+// for `wght@700`, and `wght@400;700` serves only 400. So every `fontStyle:
+// '700'` written against it produced SYNTHESISED bold: the browser smeared the
+// 400 outlines instead of loading a bolder cut, which fuzzes counters and goes
+// soft at the 11-12px sizes the HUD actually uses. Text with no fontStyle at all
+// rendered at a genuine 400, i.e. thin.
+//
+// Every MONO readout is now real 700. Share Tech Mono stays in the stack purely
+// as a fallback if the webfont fails.
+//
+// Safe for layout: monospace cuts are metric-compatible, so 400 and 700 advance
+// the same 0.6em per glyph. Bolding changes stroke weight, never text width, so
+// the measured kill-feed plate in ArenaScene is unaffected.
 export const DISPLAY = '"Anton", "Rajdhani", sans-serif';
 export const COND = '"Chakra Petch", "Rajdhani", sans-serif';
 export const BODY = '"Rajdhani", system-ui, sans-serif';
-export const MONO = '"Share Tech Mono", monospace';
+export const MONO = '"JetBrains Mono", "Share Tech Mono", monospace';
 
 // Wide tracking for eyebrow labels (Phaser has no letter-spacing, so we
 // letterspace with hair spaces — matches the existing kicker look).

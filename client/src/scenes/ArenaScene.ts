@@ -572,7 +572,7 @@ export class ArenaScene extends Phaser.Scene {
         // corner. Two diagnostics stacked in the crowded bottom band was the
         // wrong call; the left column is where the other readouts live.
         this.fpsText = this.add.text(76, 64, '60', {
-          fontFamily: MONO, fontSize: '11px', color: '#4ade80',
+          fontFamily: MONO, fontSize: '11px', fontStyle: '700', color: '#4ade80',
         }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(11);
       }
     } catch { /* noop */ }
@@ -587,7 +587,7 @@ export class ArenaScene extends Phaser.Scene {
     this.cashText.setStroke('#020617', 4);
     this.cashText.setShadow(0, 0, '#4ade80', 10, false, true);
     this.scoreText = this.add.text(948, 574, '', {
-      fontFamily: MONO, fontSize: '11px', color: SUB, align: 'right', lineSpacing: 1,
+      fontFamily: MONO, fontSize: '11px', fontStyle: '700', color: SUB, align: 'right', lineSpacing: 1,
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(10);
     this.scoreText.setStroke('#000000', 3);
     // minimap frame (right column): one plate, one rim
@@ -1374,15 +1374,15 @@ export class ArenaScene extends Phaser.Scene {
         r.v.setX(r.m.x + r.m.width + 4); r.v.setY(y);
       });
       const kk = this.add.text(12, rowY(0), k.killer, {
-        fontFamily: MONO, fontSize: '12px', color: k.killer === myName ? '#22d3ee' : '#fdba74',
+        fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: k.killer === myName ? '#22d3ee' : '#fdba74',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       kk.setStroke('#000000', 3);
       const mm = this.add.text(kk.x + kk.width + 4, rowY(0), `[${w}]`, {
-        fontFamily: MONO, fontSize: '12px', color: '#94a3b8',
+        fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: '#94a3b8',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       mm.setStroke('#000000', 3);
       const vv = this.add.text(mm.x + mm.width + 4, rowY(0), k.victim, {
-        fontFamily: MONO, fontSize: '12px', color: k.victim === myName ? '#ef4444' : '#e2e8f0',
+        fontFamily: MONO, fontSize: '12px', fontStyle: '700', color: k.victim === myName ? '#ef4444' : '#e2e8f0',
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
       vv.setStroke('#000000', 3);
       // Measure, then draw the plate: two 12-char names plus [ELECTRIC] run to
@@ -1457,7 +1457,7 @@ export class ArenaScene extends Phaser.Scene {
         : c.kind === 'shield' ? '#38bdf8' : c.kind === 'speed' ? '#fde047'
         : c.kind === 'electric' ? '#c4b5fd' : '#facc15';
       const f = this.add.text(c.x, c.y - 24, `${c.name} ${txt}`, {
-        fontFamily: MONO, fontSize: '14px', color: col,
+        fontFamily: MONO, fontSize: '14px', fontStyle: '700', color: col,
       }).setOrigin(0.5).setDepth(8);
       f.setStroke('#000000', 3);
       this.tweens.add({

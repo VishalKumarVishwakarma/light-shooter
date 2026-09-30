@@ -21,6 +21,15 @@ const ok = (c, m) => { if (c) { pass++; console.log(`PASS: ${m}`); } else { fail
 // esbuild splits `ctx.beginPath(); ctx.moveTo(...);` onto separate lines, so the
 // structural regexes below must run against whitespace-flattened text.
 const flat = (s) => s.replace(/\s+/g, ' ');
+// esbuild strips comments and constant-folds (0x2f6b2d1 -> 49722065), so the
+// STRUCTURAL assertions must read the original source. The transpiled bundle is
+// only for EXECUTION.
+const rawFn = (name) => {
+  const i = raw.indexOf(`function ${name}(`);
+  if (i < 0) throw new Error(`${name} not found in textures.ts`);
+  const j = raw.indexOf('\nfunction ', i + 10);
+  return raw.slice(i, j < 0 ? raw.length : j);
+};
 const fn = (name) => {
   const i = src.indexOf(`function ${name}(`);
   if (i < 0) throw new Error(`${name} not found`);
@@ -86,9 +95,11 @@ const cv = (w = 56, h = 56) => {
 const soldier = fn('soldier');
 const star = fn('star');
 const guard = fn('guardTex');
+const bush = fn('bushTile');
 // eslint-disable-next-line no-new-func
-const factory = new Function('cv', `${star}\n${soldier}\n${guard}\nreturn { soldier, guardTex };`);
-const { soldier: draw, guardTex: drawGuard } = factory(cv);
+const factory = new Function('cv',
+  `${star}\n${soldier}\n${guard}\n${bush}\nreturn { soldier, guardTex, bushTile };`);
+const { soldier: draw, guardTex: drawGuard, bushTile: drawBush } = factory(cv);
 
 const ME = ['#22d3ee', '#0e7490', '#a5f3fc', '#083344', null];
 const FOE = [
@@ -310,6 +321,70 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
   ok(/rgba\(214,240,252,0\.10\)/.test(guardFlat), 'the glass is nearly clear through the middle');
   // the canvas size must not change: the arena mounts it at (30, 0)
   ok(/cv\(24, 56\)/.test(guardFlat), 'the canvas is still 24x56, so the mount point is untouched');
+}
+
+// ---------------------------------------------------------------------------
+// The FOREST must read as a canopy, not as 12 flat circles.
+//
+// The old art was flat-filled circles in three greens over a flat bed, which
+// reads as broccoli: a smooth circular outline is the tell, every clump was one
+// flat colour so there was no light direction, and nothing overlapped anything
+// so there was no depth.
+{
+  const bushFlat = flat(rawFn('bushTile'));
+  calls.length = 0; bad = [];
+  cvSizes.length = 0;
+  let bThrew = null;
+  try { drawBush(); } catch (e) { bThrew = e.message; }
+  ok(!bThrew, 'bushTile() runs without throwing' + (bThrew ? ` -- ${bThrew}` : ''));
+  ok(bad.length === 0, `every canopy coordinate is finite${bad.length ? ` -- ${bad[0]}` : ''}`);
+  ok(cvSizes.length === 1 && cvSizes[0][0] === 60 && cvSizes[0][1] === 60,
+    `the tile is still 60x60, as the map rects assume - got ${cvSizes[0]}`);
+
+  // depth: clumps must be shaded and drawn with occlusion, not flat-filled
+  const radials = calls.filter((m) => m === 'createRadialGradient').length;
+  const ellipses = calls.filter((m) => m === 'ellipse').length;
+  const arcs = calls.filter((m) => m === 'arc').length;
+  const fills = calls.filter((m) => m === 'fill').length;
+  ok(radials >= 8, `every clump is shaded, not flat-filled (${radials} radial gradients)`);
+  ok(ellipses >= 20, `the canopy is built from leaves, not circles (${ellipses} ellipses)`);
+  ok(arcs >= 8, `clump bodies still use arcs, with leaves on top (${arcs} arcs)`);
+  ok(fills >= 100, `enough overlapping shapes to give the canopy real density (${fills} fills)`);
+  ok(/px - r \* 0\.38, py - r \* 0\.42/.test(bushFlat),
+    'each clump is lit from the upper left, matching the rest of the art');
+  ok(/rgba\(4,16,8,0\.30\)/.test(bushFlat),
+    'each clump carries an occlusion crescent where it meets the one behind');
+
+  // the things that make it read as FOLIAGE rather than as broccoli
+  ok(/const ls = 1\.5 \+ rnd\(\) \* 1\.7/.test(bushFlat) && /ellipse\(px, py, ls \* 1\.5, ls, a,/.test(bushFlat),
+    'leaves are scattered around each rim -- the ragged silhouette is the point');
+  ok((bushFlat.match(/wrap\(lx, ly/g) || []).length === 1, '...and the leaves go through wrap() too');
+  ok(/rgba\(196,236,150,0\.55\)/.test(bushFlat), 'there are specular dabs on the lit leaves');
+  ok(/rgba\(74,52,28,0\.5\)/.test(bushFlat) && /rgba\(20,42,22,0\.6\)/.test(bushFlat),
+    'the forest floor has litter, so a gap is not a flat void');
+  ok(/rgba\(6,20,10,0\.72\)/.test(bushFlat) && /\[37, 52, 3\.4\]/.test(bushFlat),
+    'the canopy has holes, so it is not a solid mass');
+
+  // determinism: textures are generated once and cached, so Math.random here
+  // would churn the atlas on every scene start
+  ok(/let seed = 0x[0-9a-f]+/.test(bushFlat) && /const rnd = \(\) =>/.test(bushFlat),
+    'the canopy is deterministic (a seeded LCG, not Math.random)');
+  ok(!/Math\.random\(/.test(bushFlat), 'no Math.random anywhere in the tile');
+
+  // tiling. The forest rects are 260x120 -- 4.3 x 2 repeats of a 60px tile --
+  // so a seam would read as a grid straight across the wood.
+  ok(/const wrap = \(x: number, y: number, r: number/.test(bushFlat), 'there is a wrap-aware draw helper');
+  ok(/x - r < 0 \? \[x, x \+ S\]/.test(bushFlat) && /x \+ r > S \? \[x, x - S\]/.test(bushFlat),
+    'elements near a vertical edge are redrawn on the far side');
+  ok(/y - r < 0 \? \[y, y \+ S\]/.test(bushFlat) && /y \+ r > S \? \[y, y - S\]/.test(bushFlat),
+    '...and near a horizontal one');
+  const wraps = (bushFlat.match(/wrap\(/g) || []).length;
+  ok(wraps === 5, `all five element kinds go through wrap() (${wraps}: litter, body, leaves, specular, gaps)`);
+
+  // the old broccoli is gone
+  ok(!/const blobs: Array/.test(bushFlat), 'the flat blob list is gone');
+  ok(!/sun flecks/.test(bushFlat), 'the four pale sun-fleck dots are gone');
+  ok(!/rgba\(190,242,150,0\.5\)/.test(bushFlat), '...and so is their colour');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

@@ -721,24 +721,108 @@ function steelTile() {
 
 function bushTile() {
   const { c, ctx } = cv(60, 60);
-  ctx.clearRect(0, 0, 60, 60);
-  ctx.fillStyle = 'rgba(10,30,12,0.55)'; // deep bed
-  ctx.fillRect(0, 0, 60, 60);
-  const blobs: Array<[number, number, number, string]> = [
-    [8, 8, 9, '#1d4d1f'], [24, 6, 11, '#256b24'], [44, 8, 10, '#1d4d1f'],
-    [56, 18, 9, '#2f7f2c'], [6, 26, 11, '#256b24'], [24, 24, 13, '#2f7f2c'],
-    [44, 32, 12, '#1d4d1f'], [10, 44, 11, '#256b24'], [30, 46, 12, '#37963a'],
-    [52, 50, 9, '#1d4d1f'], [20, 56, 9, '#256b24'], [42, 58, 8, '#2f7f2c'],
-  ];
-  for (const [x, y, r, col] of blobs) {
-    ctx.fillStyle = col;
-    ctx.globalAlpha = 0.94;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  const S = 60;
+  // Deterministic, so the canopy is byte-identical every run (textures are
+  // generated once and cached; Math.random here would churn the atlas).
+  let seed = 0x2f6b2d1;
+  const rnd = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  // Wrap-aware draw. A clump within r of an edge is redrawn on the far side, so
+  // the 60px repeat has no seam: the rects are 4.3 x 2 tiles, which would
+  // otherwise show a grid straight across the forest.
+  const wrap = (x: number, y: number, r: number, draw: (px: number, py: number) => void) => {
+    const xs = x - r < 0 ? [x, x + S] : x + r > S ? [x, x - S] : [x];
+    const ys = y - r < 0 ? [y, y + S] : y + r > S ? [y, y - S] : [y];
+    for (const px of xs) for (const py of ys) draw(px, py);
+  };
+
+  // ---- forest floor: the dark bed the canopy sits on ------------------------
+  ctx.fillStyle = '#0b1f10';
+  ctx.fillRect(0, 0, S, S);
+  // leaf litter, so the bed is not a flat void where it shows through
+  for (let i = 0; i < 14; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 0.7 + rnd() * 1.5;
+    wrap(x, y, r + 1, (px, py) => {
+      ctx.fillStyle = rnd() > 0.5 ? 'rgba(74,52,28,0.5)' : 'rgba(20,42,22,0.6)';
+      ctx.beginPath(); ctx.ellipse(px, py, r * 1.6, r, rnd() * 3, 0, Math.PI * 2); ctx.fill();
+    });
   }
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = 'rgba(190,242,150,0.5)'; // sun flecks
-  for (const [x, y] of [[18, 12], [38, 28], [14, 44], [48, 14]] as Array<[number, number]>) {
-    ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+
+  // ---- one clump of foliage -------------------------------------------------
+  // lit: the upper-left face; mid: the body; dark: the underside/occlusion.
+  // The leaves around the rim are what break the circular outline.
+  const clump = (x: number, y: number, r: number, lit: string, mid: string, dark: string,
+    leafA: string, leafB: string, leaves: number) => {
+    wrap(x, y, r * 1.35, (px, py) => {
+      // body: lit from the upper left, falling to dark at the lower right
+      const g = ctx.createRadialGradient(px - r * 0.38, py - r * 0.42, r * 0.1, px, py, r * 1.06);
+      g.addColorStop(0, lit);
+      g.addColorStop(0.45, mid);
+      g.addColorStop(1, dark);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+      // occlusion crescent: the underside, where this clump meets the one behind
+      ctx.fillStyle = 'rgba(4,16,8,0.30)';
+      ctx.beginPath();
+      ctx.arc(px, py, r * 0.99, 0.25, Math.PI * 1.25);
+      ctx.closePath(); ctx.fill();
+    });
+    // leaves: small teardrops around the rim, denser on the lit side, each
+    // sticking out past the circle so the silhouette is ragged
+    for (let i = 0; i < leaves; i++) {
+      const a = (i / leaves) * Math.PI * 2 + rnd() * 0.5;
+      const rr = r * (0.9 + rnd() * 0.22);
+      const lx = x + Math.cos(a) * rr, ly = y + Math.sin(a) * rr;
+      const ls = 1.5 + rnd() * 1.7;
+      // the lit upper-left quadrant gets the brighter leaf
+      const bright = Math.cos(a) < -0.15 && Math.sin(a) < 0.15;
+      wrap(lx, ly, ls + 1, (px, py) => {
+        ctx.fillStyle = bright ? leafB : leafA;
+        ctx.beginPath();
+        ctx.ellipse(px, py, ls * 1.5, ls, a, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    // specular dabs: the wet highlight on the upper-left leaves
+    for (let i = 0; i < 3; i++) {
+      const a = -2.6 + rnd() * 1.5;
+      const rr = r * (0.35 + rnd() * 0.4);
+      const sx = x + Math.cos(a) * rr, sy = y + Math.sin(a) * rr;
+      wrap(sx, sy, 2, (px, py) => {
+        ctx.fillStyle = 'rgba(196,236,150,0.55)';
+        ctx.beginPath(); ctx.ellipse(px, py, 1.5, 0.9, a, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+  };
+
+  // ---- the canopy: back clumps first, front clumps over them ---------------
+  // Back: dark, small, low in the tile -- the shadowed understorey.
+  clump(14, 40, 13, '#1d4423', '#173a1f', '#0d2614', '#1a3d1f', '#24512a', 10);
+  clump(46, 44, 12, '#1d4423', '#173a1f', '#0d2614', '#1a3d1f', '#24512a', 9);
+  clump(30, 12, 12, '#1a3f21', '#153520', '#0c2413', '#18381d', '#214c28', 9);
+  // Middle: the body of the canopy, offset so nothing is concentric.
+  clump(30, 32, 16, '#3a7534', '#2a5c29', '#16361c', '#2a5f2b', '#3d7f39', 14);
+  clump(8, 16, 12, '#356d31', '#265527', '#14311a', '#265427', '#387a34', 10);
+  clump(54, 20, 11, '#356d31', '#265527', '#14311a', '#265427', '#387a34', 9);
+  // Front: the two big lit masses, up and toward the light, drawn last so they
+  // overlap everything and cast the occlusion that gives the canopy depth.
+  clump(22, 24, 17, '#4c8f40', '#356f31', '#1b401f', '#3a7534', '#59a04a', 15);
+  clump(44, 34, 14, '#48893d', '#31692e', '#183c1d', '#357030', '#529a45', 12);
+
+  // ---- gaps in the canopy, so it is not a solid mass ----------------------
+  // A real crown is not continuous: a few holes let the dark bed through and
+  // give the eye somewhere to rest.
+  for (const [x, y, r] of [[37, 52, 3.4], [12, 36, 2.6], [52, 8, 2.2]] as Array<[number, number, number]>) {
+    wrap(x, y, r, (px, py) => {
+      ctx.fillStyle = 'rgba(6,20,10,0.72)';
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+      // a lit leaf edge on the upper side of each gap, or it reads as a stain
+      ctx.strokeStyle = 'rgba(120,170,90,0.4)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.arc(px, py, r, Math.PI * 0.9, Math.PI * 1.9); ctx.stroke();
+    });
   }
   return c;
 }

@@ -21,13 +21,36 @@ export const Session = {
   // bumped by every create/join so an older, slower request can tell it has
   // been superseded and must not touch codeValue or room
   gen: 0,
+  // Every tab on one machine shares localStorage, so reading shooter_name alone
+  // gave all 8 tabs the SAME callsign and the roster looked like a broken join.
+  // localStorage is also not tab-scoped, so sessionStorage is the right store for
+  // "which tab am I" -- it is per-tab by definition.
+  //
+  // Resolution order: a name this tab saved, else a name saved by another tab
+  // with a per-tab suffix so the roster stays readable, else a random one. The
+  // suffix is only added when this tab is not the tab that owns the saved name,
+  // so a returning player still gets their own callsign back.
   name: (() => {
-    try { return cleanName(localStorage.getItem('shooter_name') || '') || randomName(); }
-    catch { return randomName(); }
+    const base = randomName();
+    try {
+      const mine = sessionStorage.getItem('shooter_tab_name');
+      if (mine) return cleanName(mine);
+      const saved = cleanName(localStorage.getItem('shooter_name') || '');
+      if (!saved) return base;
+      // not ours: mark the tab and differentiate
+      const n = Number(sessionStorage.getItem('shooter_tab_seq') || '0') + 1;
+      try { sessionStorage.setItem('shooter_tab_seq', String(n)); } catch { /* private mode */ }
+      return cleanName(`${saved} ${n}`);
+    } catch { return base; }
   })(),
   setName(n: string) {
     this.name = cleanName(n);
-    try { localStorage.setItem('shooter_name', this.name); } catch { /* private mode */ }
+    // sessionStorage too: this tab now owns the name, so a reload or a rematch
+    // does not hand it a " <n>" suffix it no longer needs.
+    try {
+      localStorage.setItem('shooter_name', this.name);
+      sessionStorage.setItem('shooter_tab_name', this.name);
+    } catch { /* private mode */ }
   },
   get isHost() {
     const r: any = this.room;

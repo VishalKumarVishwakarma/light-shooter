@@ -439,6 +439,14 @@ export class LobbyScene extends Phaser.Scene {
       draw();
     });
     room.state.onChange(draw);
+    // The match going live must NOT be detected by polling update(). Phaser
+    // pauses its loop in a hidden tab, so with 8 tabs on one machine the other 7
+    // would never run update(), never see phase === 'playing', and never enter
+    // the arena -- only the visible (host) tab would. A Colyseus patch arrives
+    // over the WebSocket regardless of the render loop, so watch it here instead.
+    room.state.onChange(() => {
+      if (room.state.phase === 'playing') this.enterArena();
+    });
     room.onLeave(() => {
       Session.room = null;
       if (!this.gone) { this.gone = true; this.scene.start('menu'); }
@@ -448,22 +456,33 @@ export class LobbyScene extends Phaser.Scene {
 
   private lastCdSec = -1;
 
+  // Single entry point into the arena, called from the state listener (the path
+  // that works in a background tab) and from update() as a backstop for a patch
+  // that landed before the listener was attached. `gone` makes it idempotent, so
+  // both routes firing cannot start the scene twice.
+  private enterArena() {
+    if (this.gone) return;
+    this.gone = true;
+    // the arena ships as its own chunk; make sure it is registered before the
+    // switch (preloaded during the countdown, so this resolves immediately).
+    // Re-check liveness after the await: `gone` was only tested BEFORE it, so
+    // leaving the lobby while the chunk was still in flight dragged the player
+    // out of the menu into the arena unasked, and dropped the "could not load"
+    // toast on a dead scene.
+    void ensureArena(this.game).then((ok) => {
+      if (!this.scene.isActive()) return; // left the lobby while loading
+      if (ok) this.scene.start('arena');
+      else toast(this, 'could not load the arena - refresh', '#ef4444', 348);
+    });
+  }
+
   update() {
     const phase = (Session.room as any)?.state?.phase;
     if (!Session.room) return;
-    if (phase === 'playing' && !this.gone) {
-      this.gone = true;
-      // the arena ships as its own chunk; make sure it is registered before the
-      // switch (preloaded during the countdown, so this resolves immediately).
-      // Re-check liveness after the await: `gone` was only tested BEFORE it, so
-      // leaving the lobby while the chunk was still in flight dragged the player
-      // out of the menu into the arena unasked, and dropped the "could not load"
-      // toast on a dead scene.
-      void ensureArena(this.game).then((ok) => {
-        if (!this.scene.isActive()) return; // left the lobby while loading
-        if (ok) this.scene.start('arena');
-        else toast(this, 'could not load the arena - refresh', '#ef4444', 348);
-      });
+    if (phase === 'playing') {
+      // backstop only -- the state listener above normally gets there first,
+      // and it is the only route that fires in a hidden tab.
+      this.enterArena();
     } else if (phase === 'countdown') {
       const s = Math.ceil((Session.room as any).state.countdown);
       if (s !== this.lastCdSec) {

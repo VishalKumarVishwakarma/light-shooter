@@ -113,3 +113,6 @@ scratch/
 *.orig
 *.rej
 client/test-audio.stub.mjs
+
+# Screenshots dropped into the repo for review
+alignment.png

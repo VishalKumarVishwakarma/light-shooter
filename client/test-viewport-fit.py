@@ -47,6 +47,11 @@ ok(re.search(r"#frame\s*\{[^}]*min-height:\s*0", css),
 ok(re.search(r"#game\s*\{[^}]*height:\s*100%", css),
    "#game has a height of its own -- this is the box Scale.FIT measures")
 ok(re.search(r"#game\s*\{[^}]*width:\s*100%", css), "#game has a width of its own too")
+# #game must NOT centre the canvas: Phaser sets the canvas margins and copies
+# them onto the DOM container, so flex-centring on top double-centres the canvas
+# and the DOM overlay (out of flow) drifts away from it. See test-dom-align.py.
+ok("align-items: center" not in re.search(r"#game\s*\{([^}]*)\}", css).group(1),
+   "#game does not centre the canvas (Phaser owns that, and copies its margins to the DOM overlay)")
 ok(re.search(r"header\s*\{[^}]*flex:\s*0 0 auto", css), "header is flex:0 0 auto (never squashed)")
 ok(re.search(r"#hud\s*\{[^}]*flex:\s*0 0 auto", css), "#hud is flex:0 0 auto")
 ok(re.search(r"footer\s*\{[^}]*flex:\s*0 0 auto", css), "footer is flex:0 0 auto")

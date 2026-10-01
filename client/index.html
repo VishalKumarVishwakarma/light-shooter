@@ -95,13 +95,27 @@
     }
     @keyframes rise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
     /* The element Phaser measures. It MUST have a size of its own: this is the
-       box FIT scales the canvas into. */
+       box FIT scales the canvas into.
+
+       It must NOT centre the canvas itself. Phaser's ScaleManager already centres
+       the canvas by setting marginLeft/marginTop on it, and then copies those
+       SAME margins onto the DOM container it creates for add.dom() elements
+       (ScaleManager.updateScale, lines 989-990):
+
+           domStyle.marginLeft = canvasStyle.marginLeft;
+           domStyle.marginTop  = canvasStyle.marginTop;
+
+       So the canvas and the DOM overlay are positioned from one shared set of
+       margins, and both get the same transform scale. Adding
+       align-items/justify-content:center here centred the canvas a SECOND time,
+       by flex, on top of Phaser's margins -- so the DOM container, which flex
+       does not touch (it is absolutely positioned and out of flow), ended up
+       offset from the canvas by exactly the centring margin. That is what put the
+       name field above its own plate instead of inside it.
+
+       overflow:hidden stops a 1px rounding overshoot producing a scrollbar. */
     #game {
       width: 100%; height: 100%;
-      display: flex; align-items: center; justify-content: center;
-      /* Phaser sets the canvas CSS width/height to the fitted size and centres
-         it with auto margins. overflow:hidden stops a 1px rounding overshoot
-         from producing a scrollbar. */
       overflow: hidden;
     }
     #game canvas {

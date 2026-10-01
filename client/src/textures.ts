@@ -13,6 +13,26 @@ function put(scene: Phaser.Scene, key: string, c: HTMLCanvasElement) {
   if (!scene.textures.exists(key)) scene.textures.addCanvas(key, c);
 }
 
+// The drawn figure's vertical centre, relative to the 56x56 texture centre.
+//
+// soldier() lays the figure out at head y-22..0, torso y-2..+9, legs y+7..+14, so
+// it spans -22..+14 and its visual centre is (-22+14)/2 = -4: FOUR PIXELS ABOVE
+// the canvas centre. cy = 28 is commented "texture centre == the collision
+// point", but the drawing left 6px of headroom over the helmet and 14px of dead
+// space under the boots, so nothing lands on it.
+//
+// Every avatar therefore sits high inside its own texture and never lines up with
+// the name beside it. Add this (scaled) to the image's y to centre the ART:
+//
+//     this.add.image(x, rowY - SOLDIER_ART_DY * scale, 'soldier_me').setScale(scale)
+//
+// It is negative because up is negative. The generator itself is deliberately
+// left alone: the arena draws the body at (0,0) with NO setScale and positions
+// the gun separately against its hands, so shifting the art inside the texture
+// would move the body 4 game-pixels off its own collision point and away from
+// the gun -- and no browser has been attached to verify that.
+export const SOLDIER_ART_DY = -4;
+
 // Chibi army kid: oversized TEAM-COLORED helmet (the big read), peeking face,
 // tiny uniformed body. Whole silhouette carries the squad color.
 function soldier(base: string, dark: string, light: string, _head: string, badge: string | null) {

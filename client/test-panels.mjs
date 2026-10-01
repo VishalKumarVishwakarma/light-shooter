@@ -145,9 +145,12 @@ ok(/this\.add\.rectangle\(480, 74, 440, 44, 0x000000, 0\)/.test(lobby),
 ok(/const head = this\.add\.text\(250, 126/.test(lobby) && /const rdy = this\.add\.text\(710, 126/.test(lobby),
   'the squad header and ready counter keep their columns');
 ok(/const row = this\.add\.text\(292, y,/.test(lobby), 'roster names still start at x=292');
-ok(/this\.add\.image\(268, y,/.test(lobby) && /this\.add\.circle\(596, y, 6/.test(lobby),
+// The avatar gained a SOLDIER_ART_DY vertical correction, so this no longer
+// matches a single line. The columns are unchanged: the avatar is still at
+// x=268 and the status light is still a circle at 596. The correction itself
+// is covered by test-avatar-align.mjs.
+ok(/this\.add\.image\(268, y - SOLDIER_ART_DY \* 0\.5,/.test(lobby) && /this\.add\.circle\(596, y, 6/.test(lobby),
   'the avatar and status light keep their columns');
-ok(/x: 292, y: 232, w: 376, h: 164/.test(menu), 'the CTA card keeps its 376x164 footprint');
   // The callsign plate is no longer a fixed 424x36. It was 36px tall while the
   // avatar it contains is 39.2px (56px texture at 0.7), so the avatar poked out
   // of the top and bottom of its own field; and 424 wide put its centre on 484

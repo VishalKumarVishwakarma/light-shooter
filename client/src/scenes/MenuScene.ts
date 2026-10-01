@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Session, fetchLobbies, randomName, CODE_RE } from '../net/Session';
-import { ensureTextures } from '../textures';
+import { ensureTextures, SOLDIER_ART_DY } from '../textures';
 import { makeButton, modal, toast, VERSION, quality, setQuality, registerUnderlay } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, TXT, displayText, kicker, prose } from '../fonts';
@@ -133,7 +133,12 @@ export class MenuScene extends Phaser.Scene {
         cut: 11, shadow: true, scan: false, rim: 0.32, inner: 5,
       });
 
-      this.add.image(x + AVATAR / 2, ROW_Y, 'soldier_me').setScale(0.7).setDepth(2);
+      // SOLDIER_ART_DY: the figure is drawn 4px high inside its 56px texture, so
+      // the image is nudged down by that at 0.7 scale to put the CHARACTER's
+      // centre on ROW_Y, level with the name field's text. Without it the avatar
+      // floats ~2.8px above the name it sits beside.
+      this.add.image(x + AVATAR / 2, ROW_Y - SOLDIER_ART_DY * 0.7, 'soldier_me')
+        .setScale(0.7).setDepth(2);
       x += AVATAR + GAP;
       cs.setPosition(x, ROW_Y);
       x += cs.width + GAP;

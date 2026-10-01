@@ -63,8 +63,9 @@ ok(!/add\.image\(292, 204, 'soldier_me'\)/.test(menu),
   "the avatar is no longer pinned to x=292");
 
 // --- the avatar actually uses that footprint -------------------------------
-ok(/add\.image\(x \+ AVATAR \/ 2, ROW_Y, 'soldier_me'\)\.setScale\(0\.7\)/.test(menu),
-  'the avatar is placed at the measured left edge + half its width');
+ok(/add\.image\(x \+ AVATAR \/ 2, ROW_Y - SOLDIER_ART_DY \* 0\.7, 'soldier_me'\)/.test(menu),
+  'the avatar is at the measured left edge + half its width, nudged down for optical centring');
+ok(/setScale\(0\.7\)/.test(menu), 'and still at scale 0.7 (appearance unchanged)');
 ok(/setScale\(0\.7\)/.test(menu), 'and still at scale 0.7 (unchanged appearance)');
 
 // --- the input width is now real -------------------------------------------

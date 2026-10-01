@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Session } from '../net/Session';
-import { ensureTextures } from '../textures';
+import { ensureTextures, SOLDIER_ART_DY } from '../textures';
 import { makeButton, modal, toast, type Btn } from '../ui';
 import { sfx } from '../audio';
 import { BODY, COND, DIM, MONO, SUB, displayText, kicker } from '../fonts';
@@ -355,7 +355,11 @@ export class LobbyScene extends Phaser.Scene {
           spineGlow = this.add.image(252, y, 'halo').setTint(0x4ade80)
             .setBlendMode(Phaser.BlendModes.ADD).setScale(0.5, 0.35).setAlpha(0.7);
         }
-        const icon = this.add.image(268, y, id === meId ? 'soldier_me' : 'soldier_foe').setScale(0.5);
+        // SOLDIER_ART_DY: the figure is drawn 4px high inside its 56px texture, so
+        // nudge the image down by that at 0.5 scale to put the CHARACTER's centre
+        // on the row's y, level with the player name beside it.
+        const icon = this.add.image(268, y - SOLDIER_ART_DY * 0.5,
+          id === meId ? 'soldier_me' : 'soldier_foe').setScale(0.5);
         if (!isReady) icon.setAlpha(0.55); // waiting players visibly dimmed
         const crown = id === hostId ? '👑 ' : '';
         const meTag = id === meId ? '   ← YOU' : '';

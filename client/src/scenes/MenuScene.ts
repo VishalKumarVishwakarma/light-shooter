@@ -265,36 +265,66 @@ export class MenuScene extends Phaser.Scene {
   // out in columns, and MEASURED BEFORE the panel exists so the glass can be
   // sized to the content. One plan drives both the measurement and the render,
   // so the two can never disagree about how tall a row is.
+  // Width of the icon column in the HOW TO PLAY / control lists. The icon and the
+  // text are drawn as two separate objects so every row's text starts at the same
+  // x: previously each row was one string `${icon}   ${txt}`, so the text began
+  // at it.x + width(icon) + 3 spaces, and emoji advance widths differ per glyph.
+  // Some of the set render as text-presentation (narrow, monochrome) and some as
+  // emoji-presentation (wide, coloured), so the text column was ragged.
+  //
+  // Phaser's align:'justify' is deliberately NOT used here. Text.js only
+  // justifies a line that already fills >=85% of the wrap width, and every row in
+  // this section is a single line at roughly 40-70% fill, so it would silently do
+  // nothing. The raggedness was in the icon gutter, not in the line breaks.
+  private static readonly ICON_W = 24;
+
   private planRows(rows: Array<[string, string]>, w: number, size = 16, gap = 10, columns = 1) {
     const colW = (w - 52) / columns;
     const per = Math.ceil(rows.length / columns);
+    const anyIcon = rows.some(([i]) => !!i);
+    // The text wraps on its own column. Probing the combined icon+text string
+    // would under-measure any row that wraps, because the icon would eat width
+    // the text never sees.
+    const textW = colW - 16 - (anyIcon ? MenuScene.ICON_W : 0);
     const probe = this.add.text(0, 0, '', {
       fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600',
-      wordWrap: { width: colW - 16 }, lineSpacing: 5,
+      wordWrap: { width: textW }, lineSpacing: 5,
     });
-    const items: Array<{ s: string; x: number; y: number; h: number }> = [];
+    const items: Array<{ icon: string; s: string; x: number; y: number; h: number }> = [];
     let tallest = 0;
     for (let c = 0; c < columns; c++) {
       let y = 0;
       for (const [icon, txt] of rows.slice(c * per, (c + 1) * per)) {
-        const s = icon ? `${icon}   ${txt}` : txt;
-        probe.setText(s);
-        items.push({ s, x: -w / 2 + 26 + c * colW, y, h: probe.height });
+        probe.setText(txt);
+        items.push({ icon, s: txt, x: -w / 2 + 26 + c * colW, y, h: probe.height });
         y += probe.height + gap;
       }
       tallest = Math.max(tallest, y - gap);
     }
     probe.destroy();
-    return { items, height: tallest, colW };
+    return { items, height: tallest, colW, textW };
   }
 
+  // Hanging indent: the icon gets its own fixed-width column, right-aligned into
+  // it so glyphs of differing width still share one edge, and the text starts at a
+  // fixed x for every row. Wrapped lines align under the first line because the
+  // text is a single Text object with origin(0,0).
   private drawPlan(m: any, plan: ReturnType<MenuScene['planRows']>, yTop: number,
     size = 16, color = TXT) {
+    const hasIcons = plan.items.some((it: { icon: string }) => !!it.icon);
     for (const it of plan.items) {
-      const row = this.add.text(it.x, yTop + it.y, it.s, {
-        fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600', color,
-        wordWrap: { width: plan.colW - 16 }, lineSpacing: 5,
-      }).setOrigin(0, 0);
+      if (hasIcons && it.icon) {
+        const ic = this.add.text(it.x + MenuScene.ICON_W, yTop + it.y, it.icon, {
+          fontSize: `${size}px`, color,
+        }).setOrigin(1, 0);
+        ic.setStroke('#020617', 2);
+        m.body.add(ic);
+      }
+      const row = this.add.text(
+        it.x + (hasIcons ? MenuScene.ICON_W : 0), yTop + it.y, it.s, {
+          fontFamily: BODY, fontSize: `${size}px`, fontStyle: '600', color,
+          wordWrap: { width: plan.textW }, lineSpacing: 5,
+        }).setOrigin(0, 0);
       row.setStroke('#020617', 3);
       m.body.add(row);
     }

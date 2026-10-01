@@ -336,6 +336,26 @@ export class MenuScene extends Phaser.Scene {
     return -h / 2 + 92;
   }
 
+  // Body-local y that centres CONTENT of the given height in the band between the
+  // modal's title rule and its bottom rim, so the space above and below is equal.
+  //
+  // Both anchors are modal()'s, from ui.ts:
+  //     the title rule     at -h/2 + 58      (ui.ts:186)
+  //     the body container at (0, 22)       (ui.ts:197)
+  //
+  // bodyTop() cannot be reused here: it returns a body-local y of -h/2 + 92, but
+  // the container is already +22 down, so content placed there sat 64px under the
+  // rule and 10px off the bottom rim -- in the lower half of the box. openSettings
+  // still uses bodyTop() on purpose, since it stacks rows from the top and pins
+  // RESET CALLSIGN to the bottom.
+  private centredBodyTop(h: number, contentH: number) {
+    const RULE_Y = 58;   // ui.ts modal(): the rule under the title
+    const BODY_DY = 22;  // ui.ts modal(): the body container's own offset
+    const band = h - RULE_Y;              // rule -> bottom rim
+    const pad = Math.max(0, (band - contentH) / 2); // split evenly, never negative
+    return (-h / 2 + RULE_Y) + pad - BODY_DY;        // panel coords -> body-local
+  }
+
   private openSettings() {
     const W = 520;
     // the control list used to be one 60-char line per row, which ran ~110px
@@ -407,9 +427,9 @@ export class MenuScene extends Phaser.Scene {
     const plan = this.planRows(rows, W, 15, 8, 1);
     const h = Math.min(520, Math.max(300, plan.height + 132));
     const m = modal(this, 'HOW TO PLAY', W, h);
-    const top = this.bodyTop(h);
-    const usable = h - 92 - 24;
-    this.drawPlan(m, plan, top + Math.max(0, (usable - plan.height) / 2), 15);
+    // centred in the band between the title rule and the bottom rim, so the
+    // space above and below the rows is equal
+    this.drawPlan(m, plan, this.centredBodyTop(h, plan.height), 15);
   }
 
   private openCredits() {

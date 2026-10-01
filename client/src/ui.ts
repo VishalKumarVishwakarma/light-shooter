@@ -112,40 +112,30 @@ function eachUnderlay(fn: (r: Underlay) => void) {
 }
 
 // ---------------------------------------------------------------------------
-// Lock a DOM overlay to the canvas scale.
+// DO NOT scale DOM overlays by hand.
 //
-// Phaser scales the canvas with CSS (Scale.FIT), but add.dom() positions elements
-// from the camera matrix and the object's own x/y/scale -- the ScaleManager's
-// display scale is NOT part of it. So a DOM element lands in the container's CSS
-// pixels, unscaled, while the canvas around it is up to 1.5x bigger. The field is
-// then the wrong size AND in the wrong place relative to the plate drawn around
-// it.
+// This file used to export a scaleDom() that multiplied each element's position
+// and scale by scaleManager.displayScale. It was wrong, and it was the cause of
+// the name field appearing displaced from its plate.
 //
-// This was invisible while the canvas sat at 1:1 and became obvious once the
-// layout started fitting the window (7984592). `gx`/`gy` are the element's
-// position in GAME coordinates: they are multiplied by the display scale and the
-// element is scaled to match, re-applied on every resize.
+// Phaser already handles this. On every resize, ScaleManager.updateScale gives
+// the DOM container a CSS size of baseSize (game px), a transform of
+// displaySize/baseSize (the canvas display scale), and the SAME margins as the
+// canvas:
 //
-// Text under a CSS transform scale is re-rasterised at the composited scale, so
-// this stays crisp rather than being a bitmap upscale.
+//     this.baseSize.setCSS(domContainer);
+//     domStyle.transform = 'scale(' + displaySize.width / baseSize.width + ','
+//                                   + displaySize.height / baseSize.height + ')';
+//     domStyle.marginLeft = canvasStyle.marginLeft;
+//     domStyle.marginTop  = canvasStyle.marginTop;
+//
+// So an element positioned at game (gx, gy) already lands on the same screen
+// pixel as a canvas object at (gx, gy). Scaling it again by hand multiplies the
+// position by s twice -- at s=1.5 that is x2.25 instead of x1.5, which pushed
+// the callsign field ~150px below the 46px plate that holds it.
+//
+// Position DOM elements in game coordinates and leave the container alone.
 // ---------------------------------------------------------------------------
-export function scaleDom(
-  scene: Phaser.Scene, el: Phaser.GameObjects.DOMElement, gx: number, gy: number,
-) {
-  const apply = () => {
-    const s = scene.scale.displayScale;
-    el.setPosition(gx * s.x, gy * s.y);
-    el.setScale(s.x, s.y);
-  };
-  apply();
-  scene.scale.on(Phaser.Scale.Events.RESIZE, apply);
-  // detach on shutdown: a rematch recreates the scene, and leaving the listener
-  // behind would keep re-touching a destroyed element
-  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-    scene.scale.off(Phaser.Scale.Events.RESIZE, apply);
-  });
-  return el;
-}
 
 export function registerUnderlay(el: Phaser.GameObjects.DOMElement) {
   const rec: Underlay = {

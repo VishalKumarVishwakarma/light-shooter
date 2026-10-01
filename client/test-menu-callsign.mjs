@@ -74,9 +74,11 @@ ok(/add\.dom\(x \+ INPUT_W \/ 2, ROW_Y, input\)/.test(menu),
   'the DOM input is centred on the measured slot');
 
 // --- the row still works ----------------------------------------------------
-// The call is now wrapped over several lines by the scale lock, so match the
-// shape rather than the exact single-line text.
-ok(/registerUnderlay\(scaleDom\(this,[\s\S]{0,120}add\.dom\(x \+ INPUT_W \/ 2, ROW_Y, input\)/.test(menu),
+// The callsign field is registered as an underlay so a modal can hide it. It is
+// positioned with a plain add.dom(): Phaser scales the DOM container to match the
+// canvas on every resize, so hand-scaling the element would double-count the
+// scale and displace it. See ui.ts and test-dom-scale.mjs.
+ok(/registerUnderlay\(this\.add\.dom\(x \+ INPUT_W \/ 2, ROW_Y, input\)/.test(menu),
   'the input is still registered as an underlay so a modal can hide it');
 ok(/input\.addEventListener\('change'/.test(menu), 'the change handler survived');
 ok(/dice\.on\('pointerdown'/.test(menu), 'the dice randomiser survived');

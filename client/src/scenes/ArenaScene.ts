@@ -389,7 +389,9 @@ export class ArenaScene extends Phaser.Scene {
     frame.strokeRect(M, M, X - M * 2, Y - M * 2);
     if (!lowQ) this.tacScan = this.add.tileSprite(480, 300, 960, 600, 'scan').setAlpha(0.35).setScrollFactor(0).setDepth(9);
 
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT,NINE,ZERO,F,TAB') as any;
+    // CTRL is tracked so the movement read can stand the horizontal arrows down
+    // while it is held -- see update(). Phaser maps both control keys to CTRL.
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,CTRL,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT,NINE,ZERO,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
@@ -404,6 +406,16 @@ export class ArenaScene extends Phaser.Scene {
         ['NINE', 'molly'], ['ZERO', 'shield'],
       ];
       KEYMAP.forEach(([code, id]) => kb.on('keydown-' + code, () => this.selectSlot(id, false)));
+      // Ctrl+Left / Ctrl+Right step through OWNED GUNS. The modifier is read off
+      // the event rather than polled, so there is one listener per arrow and no
+      // second key state to keep in sync. `repeat` is ignored on purpose: holding
+      // the combo must not run through the whole loadout.
+      kb.on('keydown-LEFT', (ev: KeyboardEvent) => {
+        if (ev.ctrlKey && !ev.repeat) this.stepGun(-1);
+      });
+      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => {
+        if (ev.ctrlKey && !ev.repeat) this.stepGun(1);
+      });
       kb.on('keydown-G', () => this.throwOrd('grenade'));
       kb.on('keydown-X', () => this.throwOrd('molly'));
       kb.on('keydown-C', () => this.throwOrd('smoke'));
@@ -880,6 +892,29 @@ export class ArenaScene extends Phaser.Scene {
         || s.id === 'pistol' || me?.[s.id] === true);
     }
     return this.wheelCycle;
+  }
+
+  // Ctrl+Left / Ctrl+Right. GUNS ONLY, unlike the wheel's slotCycle(): this is a
+  // gun selector, so it never steps onto a throwable or the shield. The ownership
+  // test is the same one the wheel and selectSlot() use, so an unpicked gun can
+  // never be selected -- and if nothing but the pistol is owned there is nothing
+  // to step to, and the key is inert rather than erroring.
+  private gunCycle(): Slot[] {
+    const me: any = (Session.room as any)?.state?.players.get(this.meId);
+    return SLOTS.filter((s) => s.kind === 'gun'
+      && (s.id === 'pistol' || me?.[s.id] === true));
+  }
+  private stepGun(dir: -1 | 1) {
+    const guns = this.gunCycle();
+    if (guns.length < 2) return;
+    const i = guns.findIndex((s) => s.id === this.activeSlot);
+    // Coming from a throwable or the shield, enter the cycle AT the boundary being
+    // travelled toward and stop there. Stepping as well skipped a gun: from a
+    // grenade, Ctrl+Right landed on `rifle` instead of `pistol`.
+    const idx = i < 0
+      ? (dir > 0 ? 0 : guns.length - 1)
+      : ((i + dir) % guns.length + guns.length) % guns.length;
+    this.selectSlot(guns[idx].id, false);
   }
 
   // called every frame: commits a wheel gesture once its events stop arriving
@@ -2650,8 +2685,12 @@ export class ArenaScene extends Phaser.Scene {
       let dx = 0, dy = 0;
       if (this.keys.W.isDown || this.keys.UP.isDown) dy -= 1;
       if (this.keys.S.isDown || this.keys.DOWN.isDown) dy += 1;
-      if (this.keys.A.isDown || this.keys.LEFT.isDown) dx -= 1;
-      if (this.keys.D.isDown || this.keys.RIGHT.isDown) dx += 1;
+      // Ctrl+Left/Right is the gun selector, so the horizontal arrows are ignored
+      // while Ctrl is held. Up/Down are deliberately NOT gated: Ctrl+Up/Down still
+      // moves, which is what a player reaching for Up expects.
+      const ctrl = !!this.keys.CTRL?.isDown;
+      if (this.keys.A.isDown || (this.keys.LEFT.isDown && !ctrl)) dx -= 1;
+      if (this.keys.D.isDown || (this.keys.RIGHT.isDown && !ctrl)) dx += 1;
       if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
       // twin-stick overrides keyboard while a move stick is held
       if (this.moveStick) { dx = this.joyMove.dx; dy = this.joyMove.dy; }

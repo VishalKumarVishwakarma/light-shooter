@@ -406,15 +406,25 @@ export class ArenaScene extends Phaser.Scene {
         ['NINE', 'molly'], ['ZERO', 'shield'],
       ];
       KEYMAP.forEach(([code, id]) => kb.on('keydown-' + code, () => this.selectSlot(id, false)));
-      // Ctrl+Left / Ctrl+Right step through OWNED GUNS. The modifier is read off
-      // the event rather than polled, so there is one listener per arrow and no
-      // second key state to keep in sync. `repeat` is ignored on purpose: holding
-      // the combo must not run through the whole loadout.
+      // Ctrl+Left / Ctrl+Right step the loadout. The modifier is read off the event
+      // rather than polled, so there is one listener per arrow and no second key state
+      // to keep in sync. `repeat` is ignored on purpose: holding the combo must not run
+      // through the whole strip.
       kb.on('keydown-LEFT', (ev: KeyboardEvent) => {
-        if (ev.ctrlKey && !ev.repeat) this.stepGun(-1);
+        if (ev.ctrlKey && !ev.repeat) this.stepSlot(-1);
       });
       kb.on('keydown-RIGHT', (ev: KeyboardEvent) => {
-        if (ev.ctrlKey && !ev.repeat) this.stepGun(1);
+        if (ev.ctrlKey && !ev.repeat) this.stepSlot(1);
+      });
+      // `,` and `.` do the same with NO modifier. Ctrl+Arrow is a chord, and chords are
+      // exactly what OS shortcuts and browser extensions swallow; a bare keypress has
+      // nothing in the way. Kept deliberately: if Ctrl+Arrow is dead on some machine,
+      // these still work, and neither key is used for anything else.
+      kb.on('keydown-COMMA', (ev: KeyboardEvent) => {
+        if (!ev.repeat) this.stepSlot(-1);
+      });
+      kb.on('keydown-PERIOD', (ev: KeyboardEvent) => {
+        if (!ev.repeat) this.stepSlot(1);
       });
       kb.on('keydown-G', () => this.throwOrd('grenade'));
       kb.on('keydown-X', () => this.throwOrd('molly'));
@@ -894,27 +904,27 @@ export class ArenaScene extends Phaser.Scene {
     return this.wheelCycle;
   }
 
-  // Ctrl+Left / Ctrl+Right. GUNS ONLY, unlike the wheel's slotCycle(): this is a
-  // gun selector, so it never steps onto a throwable or the shield. The ownership
-  // test is the same one the wheel and selectSlot() use, so an unpicked gun can
-  // never be selected -- and if nothing but the pistol is owned there is nothing
-  // to step to, and the key is inert rather than erroring.
-  private gunCycle(): Slot[] {
-    const me: any = (Session.room as any)?.state?.players.get(this.meId);
-    return SLOTS.filter((s) => s.kind === 'gun'
-      && (s.id === 'pistol' || me?.[s.id] === true));
-  }
-  private stepGun(dir: -1 | 1) {
-    const guns = this.gunCycle();
-    if (guns.length < 2) return;
-    const i = guns.findIndex((s) => s.id === this.activeSlot);
-    // Coming from a throwable or the shield, enter the cycle AT the boundary being
-    // travelled toward and stop there. Stepping as well skipped a gun: from a
-    // grenade, Ctrl+Right landed on `rifle` instead of `pistol`.
+  // Steps the loadout strip: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
+  //
+  // This walks slotCycle() -- the SAME list as the wheel -- rather than a guns-only
+  // list. A guns-only filter collapses to [pistol] at spawn, so the key was live but
+  // completely inert until a gun was picked up: no switch, no sound, no toast, which
+  // is indistinguishable from the binding not existing. Matching the wheel also means
+  // one muscle memory for both, and every gun is in the strip anyway.
+  //
+  // slotCycle() is idempotent and already caches into wheelKey/wheelCycle, so sharing
+  // it keeps the wheel's own commit logic in sync instead of fighting it.
+  private stepSlot(dir: -1 | 1) {
+    const list = this.slotCycle();
+    if (list.length < 2) return;
+    const i = list.findIndex((s) => s.id === this.activeSlot);
+    // Coming from a slot the list does not contain (ownership changed under us),
+    // enter AT the boundary being travelled toward and stop there. Stepping as well
+    // skipped an entry: from a throwable, Ctrl+Right landed past the first slot.
     const idx = i < 0
-      ? (dir > 0 ? 0 : guns.length - 1)
-      : ((i + dir) % guns.length + guns.length) % guns.length;
-    this.selectSlot(guns[idx].id, false);
+      ? (dir > 0 ? 0 : list.length - 1)
+      : ((i + dir) % list.length + list.length) % list.length;
+    this.selectSlot(list[idx].id, false);
   }
 
   // called every frame: commits a wheel gesture once its events stop arriving

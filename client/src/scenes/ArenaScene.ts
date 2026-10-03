@@ -30,11 +30,31 @@ const GUN_REST_X = 0;   // where the recoil tween returns the barrel to
 // reports 100, Firefox 3 lines x 33, pages x 400), so dividing by that turns
 // both a wheel and a trackpad into a count of NOTCHES instead of a count of
 // events -- a wheel sends one event per notch, a trackpad dozens per second.
-const WHEEL_NOTCH = 100;
-const WHEEL_EVENT_MAX = 3;    // one event (a momentum fling) is never worth >3
-const WHEEL_GESTURE_MAX = 10; // ...nor is a whole gesture worth more than 10
-const WHEEL_GESTURE_MS = 320; // gap that starts a new gesture
-const WHEEL_SETTLE_MS = 150; // quiet period before a gesture is committed
+//
+// UNITS. The DOM reports a wheel delta in one of THREE units, chosen by
+// event.deltaMode, and Phaser hands the raw value through untouched
+// (Pointer.js: this.deltaY = event.deltaY). So one notch is 100 in pixel mode,
+// 3 in line mode, and a whole page in page mode. Dividing everything by 100 --
+// which is what this used to do -- makes one notch worth 0.03 in line mode, and
+// trunc(0.03) is 0, so the wheel was silently DEAD on Firefox and some Linux
+// setups. Same code, different browser: "sometimes it works, sometimes it
+// doesn't". Each mode gets its own divisor below.
+const WHEEL_PIXEL_NOTCH = 100; // deltaMode 0, DOM_DELTA_PIXEL
+const WHEEL_LINE_NOTCH = 3;    // deltaMode 1, DOM_DELTA_LINE
+const WHEEL_EVENT_MAX = 3;     // one event (a momentum fling) is never worth >3
+const WHEEL_GESTURE_MAX = 10;  // ...nor is a whole gesture worth more than 10
+const WHEEL_GESTURE_MS = 320;  // gap that starts a new gesture
+const WHEEL_SETTLE_MS = 150;   // quiet period before a gesture is committed
+
+// How much accumulated travel commits a switch, in notches.
+//
+// BELOW one on purpose. A trackpad has no notches: it streams small events, and
+// an ordinary one- or two-finger scroll sums to only ~0.2-0.4 notches in a
+// gesture. Committing on trunc(acc) therefore threw all of them away -- the
+// player scrolls, nothing happens, they scroll again. At 0.34 a deliberate
+// scroll always moves a slot, and the dead zone below it still stops a stray
+// nudge from firing the weapon.
+const WHEEL_COMMIT = 0.34;
 type PObj = {
   gfx: Phaser.GameObjects.Container; body: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text;
@@ -403,20 +423,24 @@ export class ArenaScene extends Phaser.Scene {
     // The wheel is a SELECTOR, not a twitch. A gesture is accumulated and
     // committed once, when the events stop, so a fast roll does not spam the
     // server with a switch request per notch.
-    this.input.on('wheel', (_p: unknown, _g: unknown, _dx: number, dy: number) => {
+    this.input.on('wheel', (ptr: any, _g: unknown, _dx: number, dy: number) => {
       const now = this.time.now;
       if (now - this.wheelAt > WHEEL_GESTURE_MS) this.wheelAcc = 0; // a new gesture
       this.wheelAt = now;
       // Weight by MAGNITUDE, not by event count. Counting events was wrong in
       // both directions at once: a 6-notch mouse roll arrived as 6 events and
-      // was capped at 4, so two notches vanished and a long scroll saturated
-      // and then ignored everything after the fourth -- the wheel looked dead.
-      // Meanwhile a trackpad flick arrived as ~18 events and was capped at the
-      // same 4, so one flick jumped four slots, which is exactly what the cap
-      // existed to prevent. One mouse notch is ~100px of deltaY, so dividing by
-      // that counts notches on both kinds of device.
+      // was capped, so two notches vanished and a long scroll saturated and then
+      // ignored everything after the fourth -- the wheel looked dead. Meanwhile a
+      // trackpad flick arrived as ~18 events and was capped at the same number,
+      // so one flick jumped that many slots, which is exactly what the cap
+      // existed to prevent.
+      //
+      // NORMALISE BY deltaMode first, or the divisor below is only right for
+      // pixel mode. See WHEEL_PIXEL_NOTCH.
+      const mode = ptr?.event?.deltaMode ?? 0;
+      const per = mode === 1 ? WHEEL_LINE_NOTCH : mode === 2 ? 1 : WHEEL_PIXEL_NOTCH;
       const notches = Math.max(-WHEEL_EVENT_MAX,
-        Math.min(WHEEL_EVENT_MAX, dy / WHEEL_NOTCH));
+        Math.min(WHEEL_EVENT_MAX, dy / per));
       this.wheelAcc = Math.max(-WHEEL_GESTURE_MAX,
         Math.min(WHEEL_GESTURE_MAX, this.wheelAcc + notches));
     });
@@ -861,12 +885,26 @@ export class ArenaScene extends Phaser.Scene {
   // called every frame: commits a wheel gesture once its events stop arriving
   private commitWheel() {
     if (this.time.now - this.wheelAt < WHEEL_SETTLE_MS) return; // still receiving
-    // whole notches only: a fraction means the scroll has not travelled far
-    // enough yet, and it carries into the next gesture so slow scrolling still
-    // adds up instead of resetting every gesture
-    const steps = Math.trunc(this.wheelAcc);
+    const acc = this.wheelAcc;
+    // Commit on DIRECTION once past the threshold, not on trunc(acc).
+    //
+    // trunc() required a whole notch, so any gesture below one -- i.e. almost
+    // every trackpad scroll, which streams 2-8px events and sums to ~0.2-0.4
+    // notches -- was silently discarded. That is the "sometimes it works,
+    // sometimes it doesn't" a trackpad user sees. Past WHEEL_COMMIT the intent
+    // is unambiguous, so commit at least one slot in that direction.
+    //
+    // The remainder is DROPPED, not carried. It used to be kept so slow
+    // scrolling would "add up", but the gesture only resets after
+    // WHEEL_GESTURE_MS while the settle commits after WHEEL_SETTLE_MS, so a
+    // fraction scrolled inside that 170ms gap was inherited by the next gesture:
+    // a 40% twitch ended up riding on a full notch, and scrolling down then up
+    // accumulated instead of cancelling. A committed notch is committed.
+    let steps = 0;
+    if (acc >= WHEEL_COMMIT) steps = Math.max(1, Math.floor(acc));
+    else if (acc <= -WHEEL_COMMIT) steps = Math.min(-1, -Math.floor(-acc));
     if (!steps) return;
-    this.wheelAcc -= steps;
+    this.wheelAcc = 0;
     const cycle = this.slotCycle();
     if (cycle.length < 2) return;
     const i = cycle.findIndex((s) => s.id === this.activeSlot);

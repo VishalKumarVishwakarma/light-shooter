@@ -406,16 +406,42 @@ export class ArenaScene extends Phaser.Scene {
         ['NINE', 'molly'], ['ZERO', 'shield'],
       ];
       KEYMAP.forEach(([code, id]) => kb.on('keydown-' + code, () => this.selectSlot(id, false)));
-      // Ctrl+Left / Ctrl+Right step the loadout. The modifier is read off the event
-      // rather than polled, so there is one listener per arrow and no second key state
-      // to keep in sync. `repeat` is ignored on purpose: holding the combo must not run
-      // through the whole strip.
-      kb.on('keydown-LEFT', (ev: KeyboardEvent) => {
-        if (ev.ctrlKey && !ev.repeat) this.stepSlot(-1);
+      // Ctrl+Left / Ctrl+Right step the loadout.
+      //
+      // ORDER-INDEPENDENT ON PURPOSE. This used to hang off the arrow's keydown alone
+      // (`if (ev.ctrlKey) this.stepSlot(-1)`), which only worked when Ctrl went down
+      // FIRST. The browser fires a keydown for whichever key lands second and never
+      // re-fires the first, so pressing Left before Ctrl delivered an arrow event with
+      // ctrlKey=false and then a bare keydown-CTRL carrying no arrow information --
+      // nothing happened at all. That is the "sometimes works" report: it came down to
+      // which finger moved first.
+      //
+      // So the chord is completed by EITHER signal. When Ctrl lands second we act on
+      // whichever arrow is already held. Exactly one of the two conditions can be true
+      // at the instant the second key arrives, so it steps once and never twice.
+      // `repeat` is ignored: holding the combo must not run through the whole strip.
+      const once = (ev: KeyboardEvent, dir: -1 | 1) => { if (!ev.repeat) this.stepSlot(dir); };
+      kb.on('keydown-LEFT', (ev: KeyboardEvent) => { if (ev.ctrlKey) once(ev, -1); });
+      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => { if (ev.ctrlKey) once(ev, 1); });
+      kb.on('keydown-CTRL', (ev: KeyboardEvent) => {
+        if (ev.repeat) return;
+        if (this.keys.LEFT.isDown) this.stepSlot(-1);
+        else if (this.keys.RIGHT.isDown) this.stepSlot(1);
       });
-      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => {
-        if (ev.ctrlKey && !ev.repeat) this.stepSlot(1);
-      });
+      // A LOST KEYUP USED TO KILL THIS BINDING PERMANENTLY. Phaser binds keydown/keyup
+      // on window and registers NO blur or visibilitychange listener anywhere in
+      // KeyboardManager, so a keyup lost to an Alt+Tab, a devtools click or a focus
+      // steal leaves Key.isDown true. KeyboardPlugin.update then reads
+      // `repeat = key.isDown` BEFORE onDown clears it, so every later keydown for that
+      // code looks like auto-repeat and `keydown-LEFT` is never emitted again -- dead
+      // for the rest of the session. That is the other half of "sometimes works": it
+      // worked until one stray focus change, then never again.
+      //
+      // Clearing on blur means a lost keyup cannot outlive the focus change. resetKeys()
+      // covers exactly the keys addKeys created, which is the set movement reads. It
+      // also stops a player walking into a wall forever after alt-tabbing.
+      window.addEventListener('blur', () => kb.resetKeys());
+
       // `,` and `.` do the same with NO modifier. Ctrl+Arrow is a chord, and chords are
       // exactly what OS shortcuts and browser extensions swallow; a bare keypress has
       // nothing in the way. Kept deliberately: if Ctrl+Arrow is dead on some machine,

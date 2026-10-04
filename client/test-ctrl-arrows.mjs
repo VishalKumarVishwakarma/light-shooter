@@ -49,18 +49,30 @@ ok(!/this\.keys\.S\.isDown \|\| \(this\.keys\.DOWN\.isDown && !ctrl\)/.test(aren
   'Down is NOT gated -- Ctrl+Down still moves');
 
 // --- the bindings ----------------------------------------------------------
-ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{\s*if \(ev\.ctrlKey && !ev\.repeat\) this\.stepSlot\(-1\);/.test(arena),
+// NOTE: these two used to assert the inline shape
+//   if (ev.ctrlKey && !ev.repeat) this.stepSlot(-1);
+// which the order-independence fix replaced with a shared `once()` guard. The
+// detailed assertions live in the CAUSE 1 block below; these only confirm each
+// arrow is wired at all, and in the right direction.
+ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[^}]*once\(ev, -1\)/.test(arena),
   'Ctrl+Left steps back');
-ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{\s*if \(ev\.ctrlKey && !ev\.repeat\) this\.stepSlot\(1\);/.test(arena),
+ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[^}]*once\(ev, 1\)/.test(arena),
   'Ctrl+Right steps forward');
 ok(/kb\.on\('keydown-COMMA',[\s\S]{0,120}?if \(!ev\.repeat\) this\.stepSlot\(-1\);/.test(arena),
   '`,` steps back with NO modifier');
 ok(/kb\.on\('keydown-PERIOD',[\s\S]{0,120}?if \(!ev\.repeat\) this\.stepSlot\(1\);/.test(arena),
   '`.` steps forward with NO modifier');
-ok((arena.match(/!ev\.repeat/g) || []).length >= 4,
+// auto-repeat is guarded in three places now: the shared once() for the arrows,
+// keydown-CTRL's own early return, and inline on comma/period
+ok((arena.match(/!ev\.repeat/g) || []).length >= 3
+  && /if \(ev\.repeat\) return;/.test(arena),
   'auto-repeat is ignored on all four, so holding a combo steps once');
 ok(/ev\.ctrlKey/.test(arena), 'the modifier is read off the KeyboardEvent');
-ok(!/keydown-CTRL/.test(arena), 'no separate CTRL listener to keep in sync');
+// There IS now a keydown-CTRL listener, deliberately -- it is the fix for pressing
+// the arrow BEFORE Ctrl. What must not exist is a *polled* modifier driving the
+// stepper, which was the original single-listener design.
+ok(!/if \(this\.keys\.CTRL\.isDown\) this\.stepSlot/.test(arena),
+  'the stepper is not driven by polling a CTRL key state');
 
 // --- THE REGRESSION: it must not be a guns-only list -----------------------
 ok(/private stepSlot\(dir: -1 \| 1\)/.test(arena), 'the stepper exists as stepSlot');
@@ -146,6 +158,115 @@ ok(/class="k">Ctrl<\/span>/.test(html), 'the key hints advertise Ctrl + arrows')
 ok(/class="k">,<\/span>|class="k">&comma;|class="k">&#44;/.test(html) || /class="k">\.,?<\/span>/.test(html),
   'and the comma/period fallback');
 ok(/weapon<\/b>/.test(html), 'labelled as the weapon control');
+
+// ===========================================================================
+// INTERMITTENCY. Reported as "sometimes works and sometimes not", which is a
+// different bug from the inert-at-spawn case above and has two causes, both
+// confirmed in Phaser's source rather than guessed at.
+// ===========================================================================
+
+// --- CAUSE 1: PRESS ORDER --------------------------------------------------
+// The browser fires a keydown for whichever key lands SECOND and never re-fires
+// the first. Reading the chord only off the arrow meant pressing Left before Ctrl
+// delivered an arrow event with ctrlKey=false, then a bare keydown-CTRL with no
+// arrow information -- nothing happened. Working or not came down to which
+// finger moved first.
+ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{ if \(ev\.ctrlKey\) once\(ev, -1\); \}\);/.test(arena),
+  'Ctrl+Left still completes on the arrow going down second');
+ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{ if \(ev\.ctrlKey\) once\(ev, 1\); \}\);/.test(arena),
+  'Ctrl+Right likewise');
+ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,200}?this\.keys\.LEFT\.isDown\) this\.stepSlot\(-1\);/.test(arena),
+  'Ctrl going down SECOND acts on an already-held Left');
+ok(/else if \(this\.keys\.RIGHT\.isDown\) this\.stepSlot\(1\);/.test(arena),
+  'and on an already-held Right');
+// the direction must come from which arrow is HELD, not from a polled modifier
+const ctrlIsDown = [...arena.matchAll(/keys\.CTRL\?*\.isDown/g)];
+ok(ctrlIsDown.length === 1,
+  `keys.CTRL.isDown is read exactly once -- in the movement gate, never to drive the stepper (found ${ctrlIsDown.length})`);
+// exactly one of the two conditions can be true when the second key lands, so it
+// cannot double-step; replayed rather than asserted
+ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{ if \(!ev\.repeat\) this\.stepSlot\(dir\); \};/.test(arena),
+  'a shared guard applies !repeat to both arrows');
+ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{\s*if \(ev\.repeat\) return;/.test(arena),
+  'and Ctrl auto-repeat is ignored too');
+
+// --- CAUSE 2: A LOST KEYUP KILLED IT PERMANENTLY ---------------------------
+// Phaser binds keydown/keyup on window and registers NO blur or
+// visibilitychange listener in KeyboardManager. A keyup lost to an Alt+Tab or a
+// devtools click leaves Key.isDown true, and KeyboardPlugin.update reads
+// `repeat = key.isDown` BEFORE onDown clears it -- so every later keydown for
+// that code is treated as auto-repeat and `keydown-LEFT` is never emitted again
+// for the rest of the session. That is the "worked, then stopped dead" half.
+ok(/window\.addEventListener\('blur', \(\) => kb\.resetKeys\(\)\);/.test(arena),
+  'a blur listener clears the key state, so a lost keyup cannot strand it');
+ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena)
+  && (arena.match(/addEventListener\('blur'/g) || []).length === 1,
+  'and it is registered exactly once (inside the kbWired guard, since the plugin is global)');
+{
+  // the blur listener must sit inside the kbWired guard, or every scene start
+  // would stack another one on the cached plugin
+  const guard = arena.indexOf('if (!this.kbWired) {');
+  const blur = arena.indexOf("addEventListener('blur'");
+  ok(guard >= 0 && blur > guard, 'the blur listener is inside the kbWired guard');
+}
+
+// --- the chord, replayed over hand orders ----------------------------------
+{
+  function makeScene() {
+    return {
+      steps: [],
+      keys: { LEFT: { isDown: false }, RIGHT: { isDown: false }, CTRL: { isDown: false } },
+      stepSlot(d) { this.steps.push(d); },
+    };
+  }
+  function wire(sc) {
+    const once = (ev, dir) => { if (!ev.repeat) sc.stepSlot(dir); };
+    return {
+      LEFT: (ev) => { sc.keys.LEFT.isDown = true; if (ev.ctrlKey) once(ev, -1); },
+      RIGHT: (ev) => { sc.keys.RIGHT.isDown = true; if (ev.ctrlKey) once(ev, 1); },
+      CTRL: (ev) => {
+        sc.keys.CTRL.isDown = true;
+        if (ev.repeat) return;
+        if (sc.keys.LEFT.isDown) sc.stepSlot(-1);
+        else if (sc.keys.RIGHT.isDown) sc.stepSlot(1);
+      },
+      up: (k) => { sc.keys[k].isDown = false; },
+    };
+  }
+  const play = (order) => {
+    const sc = makeScene(); const h = wire(sc);
+    for (const s of order) {
+      if (s === 'up-LEFT') h.up('LEFT');
+      else if (s === 'up-RIGHT') h.up('RIGHT');
+      else if (s === 'up-CTRL') h.up('CTRL');
+      else h[s]({ ctrlKey: sc.keys.CTRL.isDown, repeat: false });
+    }
+    return sc.steps;
+  };
+  const cases = [
+    ['Ctrl then Left (ctrl first)', ['CTRL', 'LEFT'], 1],
+    ['Left then Ctrl (arrow first)', ['LEFT', 'CTRL'], 1],
+    ['Ctrl then Right (ctrl first)', ['CTRL', 'RIGHT'], 1],
+    ['Right then Ctrl (arrow first)', ['RIGHT', 'CTRL'], 1],
+    ['Left alone (strafe, no Ctrl)', ['LEFT'], 0],
+    ['Right alone (strafe, no Ctrl)', ['RIGHT'], 0],
+    ['Ctrl alone (no arrow held)', ['CTRL'], 0],
+    ['L rel L, then Ctrl+Left', ['LEFT', 'up-LEFT', 'CTRL', 'LEFT'], 1],
+    ['L rel, R held, then Ctrl', ['LEFT', 'up-LEFT', 'RIGHT', 'CTRL'], 1],
+    ['two presses of the combo', ['CTRL', 'LEFT', 'up-LEFT', 'LEFT'], 2],
+    ['two taps of Ctrl, holding L', ['LEFT', 'CTRL', 'up-CTRL', 'CTRL'], 2],
+  ];
+  let bad = 0;
+  for (const [label, order, want] of cases) {
+    const got = play(order);
+    if (got.length !== want) { bad++; console.log(`     order "${label}" -> ${got.length} steps, wanted ${want}`); }
+  }
+  ok(bad === 0, `all ${cases.length} press orders step exactly once per press, never zero, never twice`);
+  ok(play(['LEFT', 'CTRL']).length === 1,
+    'specifically: arrow-first now works, which is the case that used to do nothing');
+  ok(play(['CTRL', 'LEFT']).length === 1,
+    'and ctrl-first still works, so nothing regressed');
+}
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

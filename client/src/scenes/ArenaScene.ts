@@ -116,6 +116,21 @@ export class ArenaScene extends Phaser.Scene {
   // create() would pile up one dead listener per arena visit. Held on the
   // instance and removed on shutdown.
   private blurHandler: (() => void) | null = null;
+  // ---- selection diagnostics (F3) -------------------------------------
+  // Off by default and read by nothing else in the game. Three fixes to this path
+  // all missed because there was no way to see what the key actually did; see the
+  // block comment on toggleDbg().
+  private dbgOn = false;
+  private dbgText: any = null;
+  private dbgLog: string[] = [];
+  private dbgCount: Record<string, number> = {};
+  private dbgBump(k: string) { this.dbgCount[k] = (this.dbgCount[k] || 0) + 1; }
+  private dbgEv(line: string) {
+    if (!this.dbgOn) return;
+    this.dbgLog.unshift(line);
+    if (this.dbgLog.length > 12) this.dbgLog.length = 12;
+  }
+
   private pendingSlot = ''; // gun asked for, not yet acknowledged by the server
   private pendingAt = 0;
   private pendingFire = false; // fire the moment that switch is confirmed
@@ -420,14 +435,29 @@ export class ArenaScene extends Phaser.Scene {
       // whichever arrow is already held. Exactly one of the two conditions can be true
       // at the instant the second key arrives, so it steps once and never twice.
       // `repeat` is ignored: holding the combo must not run through the whole strip.
-      const once = (ev: KeyboardEvent, dir: -1 | 1) => { if (!ev.repeat) this.stepSlot(dir); };
-      kb.on('keydown-LEFT', (ev: KeyboardEvent) => { if (ev.ctrlKey) once(ev, -1); });
-      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => { if (ev.ctrlKey) once(ev, 1); });
-      kb.on('keydown-CTRL', (ev: KeyboardEvent) => {
-        if (ev.repeat) return;
-        if (this.keys.LEFT.isDown) this.stepSlot(-1);
-        else if (this.keys.RIGHT.isDown) this.stepSlot(1);
+      const once = (ev: KeyboardEvent, dir: -1 | 1) => {
+        this.dbgBump('step');
+        this.dbgEv(`step ${dir < 0 ? 'BACK' : 'FWD'}`);
+        if (!ev.repeat) this.stepSlot(dir);
+      };
+      kb.on('keydown-LEFT', (ev: KeyboardEvent) => {
+        this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ev.ctrlKey ? 1 : 0} rep=${ev.repeat ? 1 : 0}`);
+        if (ev.ctrlKey) once(ev, -1);
       });
+      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => {
+        this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ev.ctrlKey ? 1 : 0} rep=${ev.repeat ? 1 : 0}`);
+        if (ev.ctrlKey) once(ev, 1);
+      });
+      kb.on('keydown-CTRL', (ev: KeyboardEvent) => {
+        this.dbgBump('keyCTRL');
+        this.dbgEv(`CTRL L=${this.keys.LEFT.isDown ? 1 : 0} R=${this.keys.RIGHT.isDown ? 1 : 0}`);
+        if (ev.repeat) return;
+        if (this.keys.LEFT.isDown) once(ev, -1);
+        else if (this.keys.RIGHT.isDown) once(ev, 1);
+      });
+      // F3 toggles the readout. Unbound before this, and deliberately NOT routed
+      // through stepSlot, so it cannot perturb what it measures.
+      kb.on('keydown-F3', () => this.toggleDbg());
       // A LOST KEYUP USED TO KILL THIS BINDING PERMANENTLY. Phaser binds keydown/keyup
       // on window and registers NO blur or visibilitychange listener anywhere in
       // KeyboardManager, so a keyup lost to an Alt+Tab, a devtools click or a focus
@@ -873,6 +903,7 @@ export class ArenaScene extends Phaser.Scene {
       this.pendingAt = this.time.now;
       this.pendingFire = use;
       Session.room?.send('switch', { weapon: id });
+      this.dbgEv(`  sent switch ${id}`);
       sfx.click();
       return;
     }
@@ -891,6 +922,44 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   // called from drawAmmo on every local patch: settle an in-flight switch
+  // F3 readout of the whole selection path. Toggled, off by default, and at a
+  // depth above the HUD so it cannot move anything. It exists because three fixes
+  // to this path all missed: each was reasoned from source, none could be observed,
+  // and "the gun flashed then snapped back" (server refused) is a different fault
+  // from "the gun never changed" (we never sent it). The server drops 'switch'
+  // silently for four reasons -- phase !== 'playing', no player, !p.alive, and
+  // !this.owns(p, want) -- so that distinction is exactly what was invisible.
+  private toggleDbg() {
+    this.dbgOn = !this.dbgOn;
+    if (!this.dbgOn) { this.dbgText?.destroy(); this.dbgText = null; return; }
+    this.dbgLog.unshift('--- F3 diagnostics ON ---');
+    this.dbgText = this.add.text(8, 300, '', {
+      // fontStyle 700 is not decoration: test-type-weight.mjs scans every MONO
+      // text object in this file and fails if any is thin, because synthesised-bold
+      // readouts smear at small sizes. Satisfying it beats carving out an exception
+      // for a debug overlay.
+      fontFamily: MONO, fontSize: '11px', fontStyle: '700', color: '#a5f3fc',
+      backgroundColor: 'rgba(2,6,23,0.88)', padding: { x: 8, y: 6 },
+    }).setScrollFactor(0).setDepth(999).setLineSpacing(2);
+  }
+  private drawDbg() {
+    if (!this.dbgOn || !this.dbgText) return;
+    const p: any = (Session.room as any)?.state?.players.get(this.meId);
+    const c = this.dbgCount;
+    const lines = [
+      `F3 DIAG   keys L=${c.keyL || 0} R=${c.keyR || 0} CTRL=${c.keyCTRL || 0} step=${c.step || 0}`,
+      `meId=${this.meId ? 'set' : 'EMPTY'}  phase=${(Session.room as any)?.state?.phase || '?'}`,
+      `active=${this.activeSlot}  pending=${this.pendingSlot || '-'}`
+      + (this.pendingSlot ? ` (${Math.round(this.time.now - this.pendingAt)}ms)` : ''),
+      `SERVER weapon=${p?.weapon ?? '-'}  alive=${p?.alive ?? '-'}  owned=`
+      + ['rifle', 'shotgun', 'sniper', 'laser', 'electric']
+        .filter((g) => p?.[g] === true).join(',') || 'SERVER owned=',
+      '-'.repeat(46),
+      ...this.dbgLog,
+    ];
+    this.dbgText.setText(lines.join('\n'));
+  }
+
   private settlePending(p: any) {
     if (!this.pendingSlot) {
       // no request in flight: the server is the only truth for gun slots
@@ -900,6 +969,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
     if (p.weapon === this.pendingSlot) {
+      this.dbgEv(`  OK server=${p.weapon}`);
       const wantFire = this.pendingFire;
       this.pendingSlot = '';
       this.pendingFire = false;
@@ -908,6 +978,7 @@ export class ArenaScene extends Phaser.Scene {
     }
     if (this.time.now - this.pendingAt > 600) {
       // never confirmed: refused (dead, wrong phase) or lost in the wire
+      this.dbgEv(`  TIMEOUT asked=${this.pendingSlot} server=${p.weapon}`);
       this.pendingSlot = '';
       this.pendingFire = false;
       this.activeSlot = p.weapon;
@@ -954,6 +1025,7 @@ export class ArenaScene extends Phaser.Scene {
     const guns = SLOTS.filter((s) => s.kind === 'gun'
       && (s.id === 'pistol' || me?.[s.id] === true));
     const list = guns.length >= 2 ? guns : this.slotCycle();
+    this.dbgEv(`  list=${list.map((s) => s.id).join(',')}`);
     if (list.length < 2) return;
     const i = list.findIndex((s) => s.id === this.activeSlot);
     // Coming from a slot the list does not contain (ownership changed under us),
@@ -2644,6 +2716,7 @@ export class ArenaScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number) {
     const dt = dtMs / 1000;
+    this.drawDbg(); // F3 diagnostics; a no-op unless toggled on
     // phase routing, polled every frame: state callbacks can miss a transition
     // (proven with ready toggles), and a missed ended->lobby strands the player
     // on the results screen forever. Polling is the backstop; callbacks stay fast-path.

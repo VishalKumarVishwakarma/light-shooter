@@ -49,14 +49,18 @@ ok(!/this\.keys\.S\.isDown \|\| \(this\.keys\.DOWN\.isDown && !ctrl\)/.test(aren
   'Down is NOT gated -- Ctrl+Down still moves');
 
 // --- the bindings ----------------------------------------------------------
+// These tolerate up to ~240 chars between `=> {` and the guard on purpose: the F3
+// diagnostics (see dbgEv) log each key inside the handler, so an adjacency match
+// would fail on formatting rather than behaviour. They still pin the guard
+// (ev.ctrlKey) and the direction, which are the parts that matter.
 // NOTE: these two used to assert the inline shape
 //   if (ev.ctrlKey && !ev.repeat) this.stepSlot(-1);
 // which the order-independence fix replaced with a shared `once()` guard. The
 // detailed assertions live in the CAUSE 1 block below; these only confirm each
 // arrow is wired at all, and in the right direction.
-ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[^}]*once\(ev, -1\)/.test(arena),
+ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, -1\)/.test(arena),
   'Ctrl+Left steps back');
-ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[^}]*once\(ev, 1\)/.test(arena),
+ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, 1\)/.test(arena),
   'Ctrl+Right steps forward');
 ok(/kb\.on\('keydown-COMMA',[\s\S]{0,120}?if \(!ev\.repeat\) this\.stepSlot\(-1\);/.test(arena),
   '`,` steps back with NO modifier');
@@ -199,13 +203,13 @@ ok(/weapon<\/b>/.test(html), 'labelled as the weapon control');
 // delivered an arrow event with ctrlKey=false, then a bare keydown-CTRL with no
 // arrow information -- nothing happened. Working or not came down to which
 // finger moved first.
-ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{ if \(ev\.ctrlKey\) once\(ev, -1\); \}\);/.test(arena),
+ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, -1\);\s*\}\);/.test(arena),
   'Ctrl+Left still completes on the arrow going down second');
-ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{ if \(ev\.ctrlKey\) once\(ev, 1\); \}\);/.test(arena),
+ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, 1\);\s*\}\);/.test(arena),
   'Ctrl+Right likewise');
-ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,200}?this\.keys\.LEFT\.isDown\) this\.stepSlot\(-1\);/.test(arena),
+ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,320}?this\.keys\.LEFT\.isDown\) once\(ev, -1\)/.test(arena),
   'Ctrl going down SECOND acts on an already-held Left');
-ok(/else if \(this\.keys\.RIGHT\.isDown\) this\.stepSlot\(1\);/.test(arena),
+ok(/else if \(this\.keys\.RIGHT\.isDown\) once\(ev, 1\)/.test(arena),
   'and on an already-held Right');
 // the direction must come from which arrow is HELD, not from a polled modifier
 const ctrlIsDown = [...arena.matchAll(/keys\.CTRL\?*\.isDown/g)];
@@ -213,9 +217,9 @@ ok(ctrlIsDown.length === 1,
   `keys.CTRL.isDown is read exactly once -- in the movement gate, never to drive the stepper (found ${ctrlIsDown.length})`);
 // exactly one of the two conditions can be true when the second key lands, so it
 // cannot double-step; replayed rather than asserted
-ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{ if \(!ev\.repeat\) this\.stepSlot\(dir\); \};/.test(arena),
+ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{[\s\S]{0,200}?if \(!ev\.repeat\) this\.stepSlot\(dir\);\s*\};/.test(arena),
   'a shared guard applies !repeat to both arrows');
-ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{\s*if \(ev\.repeat\) return;/.test(arena),
+ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,320}?if \(ev\.repeat\) return;/.test(arena),
   'and Ctrl auto-repeat is ignored too');
 
 // --- CAUSE 2: A LOST KEYUP KILLED IT PERMANENTLY ---------------------------

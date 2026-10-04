@@ -120,6 +120,12 @@ export class ArenaScene extends Phaser.Scene {
   // Off by default and read by nothing else in the game. Three fixes to this path
   // all missed because there was no way to see what the key actually did; see the
   // block comment on toggleDbg().
+  // Raw keyboard listener state. Deliberately NOT Phaser's keydown-* events -- see the
+  // block comment where they are registered. Held keys are tracked here because we no
+  // longer read Phaser's Key objects for the chord.
+  private rawHeld = new Set<string>();
+  private rawOff: Array<() => void> = [];
+
   private dbgOn = false;
   private dbgText: any = null;
   private dbgLog: string[] = [];
@@ -282,6 +288,10 @@ export class ArenaScene extends Phaser.Scene {
         this.blurHandler = null;
       }
       this.firing = false;
+      // the raw listeners were registered on window, which outlives this scene
+      for (const off of this.rawOff) { try { off(); } catch { /* window gone */ } }
+      this.rawOff = [];
+      this.rawHeld.clear();
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // Ground. This used to be a hard 40px grid of opaque lines across the whole
@@ -435,26 +445,74 @@ export class ArenaScene extends Phaser.Scene {
       // whichever arrow is already held. Exactly one of the two conditions can be true
       // at the instant the second key arrives, so it steps once and never twice.
       // `repeat` is ignored: holding the combo must not run through the whole strip.
+      // THE WEAPON STEPPER RUNS ON A RAW WINDOW LISTENER, not on Phaser's
+      // keydown-LEFT / keydown-RIGHT / keydown-COMMA / keydown-PERIOD events.
+      //
+      // Four fixes went into the Phaser path and all four missed, so the pipeline
+      // itself is what's untrusted. Everything hazardous is upstream of our handler:
+      //
+      //   * KeyboardManager.onKeyDown returns immediately on `event.defaultPrevented`,
+      //     so any listener that preventDefaults the key first removes it from
+      //     Phaser's queue and the event is never emitted at all. We do not control
+      //     the user's extensions or the browser.
+      //   * events are queued and drained on the game step, so a throttled or
+      //     backgrounded tab defers them.
+      //   * `repeat = key.isDown` is read before onDown clears it, so one lost keyup
+      //     suppresses that key permanently. The blur reset below narrows that window
+      //     but cannot close it.
+      //   * dispatch is on event.keyCode through KeyMap, so a layout whose arrows are
+      //     not 37/39 resolves no name at all.
+      //
+      // e.code is the PHYSICAL key, so this is immune to all four and to layout.
+      //
+      // The Phaser handlers are REMOVED rather than supplemented, or every press would
+      // step twice. Order-independence is kept by tracking held keys ourselves: the
+      // browser fires keydown for whichever key lands second, so pressing the arrow
+      // before Ctrl is handled by the Control branch acting on rawHeld.
       const once = (ev: KeyboardEvent, dir: -1 | 1) => {
         this.dbgBump('step');
         this.dbgEv(`step ${dir < 0 ? 'BACK' : 'FWD'}`);
         if (!ev.repeat) this.stepSlot(dir);
       };
-      kb.on('keydown-LEFT', (ev: KeyboardEvent) => {
-        this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ev.ctrlKey ? 1 : 0} rep=${ev.repeat ? 1 : 0}`);
-        if (ev.ctrlKey) once(ev, -1);
-      });
-      kb.on('keydown-RIGHT', (ev: KeyboardEvent) => {
-        this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ev.ctrlKey ? 1 : 0} rep=${ev.repeat ? 1 : 0}`);
-        if (ev.ctrlKey) once(ev, 1);
-      });
-      kb.on('keydown-CTRL', (ev: KeyboardEvent) => {
-        this.dbgBump('keyCTRL');
-        this.dbgEv(`CTRL L=${this.keys.LEFT.isDown ? 1 : 0} R=${this.keys.RIGHT.isDown ? 1 : 0}`);
+      const onDown = (ev: KeyboardEvent) => {
+        this.rawHeld.add(ev.code);
+        const c = ev.code;
+        if (c === 'ArrowLeft') { this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ev.ctrlKey ? 1 : 0}`); }
+        else if (c === 'ArrowRight') { this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ev.ctrlKey ? 1 : 0}`); }
+        else if (c === 'ControlLeft' || c === 'ControlRight') this.dbgBump('keyCTRL');
         if (ev.repeat) return;
-        if (this.keys.LEFT.isDown) once(ev, -1);
-        else if (this.keys.RIGHT.isDown) once(ev, 1);
-      });
+        // `,` and `.`: no modifier, so nothing between the keyboard and here can
+        // swallow them the way an OS shortcut can swallow a chord.
+        if (c === 'Comma') { once(ev, -1); ev.preventDefault(); return; }
+        if (c === 'Period') { once(ev, 1); ev.preventDefault(); return; }
+        if (c === 'ArrowLeft' || c === 'ArrowRight') {
+          if (ev.ctrlKey) once(ev, c === 'ArrowLeft' ? -1 : 1);
+          return; // a bare arrow is movement, and Phaser owns that
+        }
+        // Ctrl landed second: act on whichever arrow is already held. Exactly one of
+        // the two branches can be true when the second key arrives, so it steps once.
+        if (c === 'ControlLeft' || c === 'ControlRight') {
+          if (this.rawHeld.has('ArrowLeft')) once(ev, -1);
+          else if (this.rawHeld.has('ArrowRight')) once(ev, 1);
+        }
+      };
+      const onUp = (ev: KeyboardEvent) => { this.rawHeld.delete(ev.code); };
+      // kbWired resets on scene start while window outlives every scene, so the
+      // previous listener must come off first or a rematch stacks a second one and
+      // every press steps twice. Same discipline as the blurHandler above.
+      for (const off of this.rawOff) { try { off(); } catch { /* window gone */ } }
+      this.rawOff = [];
+      const onRawDown = (ev: KeyboardEvent) => onDown(ev);
+      const onRawUp = (ev: KeyboardEvent) => onUp(ev);
+      const onRawBlur = () => { this.rawHeld.clear(); };
+      window.addEventListener('keydown', onRawDown);
+      window.addEventListener('keyup', onRawUp);
+      window.addEventListener('blur', onRawBlur);
+      this.rawOff = [
+        () => window.removeEventListener('keydown', onRawDown),
+        () => window.removeEventListener('keyup', onRawUp),
+        () => window.removeEventListener('blur', onRawBlur),
+      ];
       // F3 toggles the readout. Unbound before this, and deliberately NOT routed
       // through stepSlot, so it cannot perturb what it measures.
       kb.on('keydown-F3', () => this.toggleDbg());
@@ -472,16 +530,8 @@ export class ArenaScene extends Phaser.Scene {
       // also stops a player walking into a wall forever after alt-tabbing.
       window.addEventListener('blur', () => kb.resetKeys());
 
-      // `,` and `.` do the same with NO modifier. Ctrl+Arrow is a chord, and chords are
-      // exactly what OS shortcuts and browser extensions swallow; a bare keypress has
-      // nothing in the way. Kept deliberately: if Ctrl+Arrow is dead on some machine,
-      // these still work, and neither key is used for anything else.
-      kb.on('keydown-COMMA', (ev: KeyboardEvent) => {
-        if (!ev.repeat) this.stepSlot(-1);
-      });
-      kb.on('keydown-PERIOD', (ev: KeyboardEvent) => {
-        if (!ev.repeat) this.stepSlot(1);
-      });
+      // `,` and `.` are handled by the raw listener above, not here: keeping a second
+      // Phaser handler for the same physical keys would step twice per press.
       kb.on('keydown-G', () => this.throwOrd('grenade'));
       kb.on('keydown-X', () => this.throwOrd('molly'));
       kb.on('keydown-C', () => this.throwOrd('smoke'));

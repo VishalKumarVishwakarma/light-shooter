@@ -25,6 +25,18 @@
 //   - nothing of ours calls preventDefault on keydown (the only hit was
 //     webglcontextlost), so Phaser's `event.defaultPrevented` bail never fires.
 import fs from 'node:fs';
+//
+// REVISION 3. The stepper now runs on a RAW window keydown listener using e.code,
+// not on Phaser's keydown-LEFT / keydown-COMMA events. Four fixes inside the
+// Phaser pipeline all missed, and every hazard was upstream of our handler:
+// KeyboardManager returns early on `event.defaultPrevented`; events are queued
+// and drained on the game step; `repeat = key.isDown` is read before onDown clears
+// it; and dispatch is on keyCode via KeyMap, so a non-37/39 arrow layout resolves
+// no name. e.code is the physical key and has none of those failure modes.
+//
+// These assertions pin the NEW mechanism. The behavioural ones -- which list gets
+// stepped, the guns-only ternary, the 11 press orders, the never-dead fallback --
+// are unchanged and still discriminate all three historical builds.
 
 const arena = fs.readFileSync(new URL('./src/scenes/ArenaScene.ts', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
@@ -58,19 +70,16 @@ ok(!/this\.keys\.S\.isDown \|\| \(this\.keys\.DOWN\.isDown && !ctrl\)/.test(aren
 // which the order-independence fix replaced with a shared `once()` guard. The
 // detailed assertions live in the CAUSE 1 block below; these only confirm each
 // arrow is wired at all, and in the right direction.
-ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, -1\)/.test(arena),
-  'Ctrl+Left steps back');
-ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, 1\)/.test(arena),
-  'Ctrl+Right steps forward');
-ok(/kb\.on\('keydown-COMMA',[\s\S]{0,120}?if \(!ev\.repeat\) this\.stepSlot\(-1\);/.test(arena),
-  '`,` steps back with NO modifier');
-ok(/kb\.on\('keydown-PERIOD',[\s\S]{0,120}?if \(!ev\.repeat\) this\.stepSlot\(1\);/.test(arena),
-  '`.` steps forward with NO modifier');
+ok(/c === 'ArrowLeft' \|\| c === 'ArrowRight'\) \{\s*if \(ev\.ctrlKey\) once\(ev, c === 'ArrowLeft' \? -1 : 1\)/.test(arena),
+  'Ctrl+Left/Right steps on the raw listener, gated on ev.ctrlKey');
+ok(/c === 'Comma'\) \{ once\(ev, -1\)/.test(arena), '`,` steps back with NO modifier');
+ok(/c === 'Period'\) \{ once\(ev, 1\)/.test(arena), '`.` steps forward with NO modifier');
 // auto-repeat is guarded in three places now: the shared once() for the arrows,
 // keydown-CTRL's own early return, and inline on comma/period
-ok((arena.match(/!ev\.repeat/g) || []).length >= 3
-  && /if \(ev\.repeat\) return;/.test(arena),
-  'auto-repeat is ignored on all four, so holding a combo steps once');
+ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{[\s\S]{0,200}?if \(!ev\.repeat\) this\.stepSlot\(dir\);\s*\};/.test(arena),
+  'auto-repeat is ignored, so holding a combo steps once');
+ok(/onDown[\s\S]{0,600}?if \(ev\.repeat\) return;/.test(arena),
+  'and the raw listener bails on repeat before any branch runs');
 ok(/ev\.ctrlKey/.test(arena), 'the modifier is read off the KeyboardEvent');
 // There IS now a keydown-CTRL listener, deliberately -- it is the fix for pressing
 // the arrow BEFORE Ctrl. What must not exist is a *polled* modifier driving the
@@ -181,8 +190,18 @@ ok(!/\(dir > 0 \? 0 : list\.length - 1\) : i/.test(arena),
   'entering from outside the list does NOT also take a step (that skipped an entry)');
 ok(/this\.selectSlot\(list\[idx\]\.id, false\);/.test(arena),
   'it goes through selectSlot, so the server is told exactly as for 1-0');
-ok(/this\.stepSlot\(-1\)/.test(arena) && /this\.stepSlot\(1\)/.test(arena),
-  'both arrows are wired to the stepper');
+ok(/window\.addEventListener\('keydown', onRawDown\)/.test(arena),
+  'the stepper listens on window keydown');
+ok(/window\.removeEventListener\('keydown', onRawDown\)/.test(arena),
+  'and is unregistered, because window outlives every scene');
+ok(/for \(const off of this\.rawOff\) \{ try \{ off\(\); \} catch \{ \/\* window gone \*\/ \} \}/.test(arena),
+  'the previous listener is removed before a new one is added (kbWired resets per scene)');
+// duplication is the real hazard: Phaser AND window would both step
+for (const k of ['LEFT', 'RIGHT', 'COMMA', 'PERIOD']) {
+  ok(!new RegExp(`kb\\.on\\('keydown-${k}'`).test(arena),
+    `no Phaser keydown-${k} handler remains -- it would step twice per press`);
+}
+ok(/keydown-F3/.test(arena), 'F3 is still bound (Phaser is fine for a plain toggle)');
 ok(!/this\.stepGun\(/.test(arena), 'no stale stepGun calls remain');
 
 // --- discoverable ----------------------------------------------------------
@@ -203,24 +222,19 @@ ok(/weapon<\/b>/.test(html), 'labelled as the weapon control');
 // delivered an arrow event with ctrlKey=false, then a bare keydown-CTRL with no
 // arrow information -- nothing happened. Working or not came down to which
 // finger moved first.
-ok(/kb\.on\('keydown-LEFT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, -1\);\s*\}\);/.test(arena),
-  'Ctrl+Left still completes on the arrow going down second');
-ok(/kb\.on\('keydown-RIGHT', \(ev: KeyboardEvent\) => \{[\s\S]{0,240}?if \(ev\.ctrlKey\) once\(ev, 1\);\s*\}\);/.test(arena),
-  'Ctrl+Right likewise');
-ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,320}?this\.keys\.LEFT\.isDown\) once\(ev, -1\)/.test(arena),
-  'Ctrl going down SECOND acts on an already-held Left');
-ok(/else if \(this\.keys\.RIGHT\.isDown\) once\(ev, 1\)/.test(arena),
-  'and on an already-held Right');
+ok(/c === 'ControlLeft' \|\| c === 'ControlRight'\) \{\s*if \(this\.rawHeld\.has\('ArrowLeft'\)\) once\(ev, -1\);\s*else if \(this\.rawHeld\.has\('ArrowRight'\)\) once\(ev, 1\);/.test(arena),
+  'Ctrl going down SECOND acts on an already-held arrow, via our own rawHeld set');
 // the direction must come from which arrow is HELD, not from a polled modifier
 const ctrlIsDown = [...arena.matchAll(/keys\.CTRL\?*\.isDown/g)];
 ok(ctrlIsDown.length === 1,
   `keys.CTRL.isDown is read exactly once -- in the movement gate, never to drive the stepper (found ${ctrlIsDown.length})`);
 // exactly one of the two conditions can be true when the second key lands, so it
 // cannot double-step; replayed rather than asserted
-ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{[\s\S]{0,200}?if \(!ev\.repeat\) this\.stepSlot\(dir\);\s*\};/.test(arena),
-  'a shared guard applies !repeat to both arrows');
-ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,320}?if \(ev\.repeat\) return;/.test(arena),
-  'and Ctrl auto-repeat is ignored too');
+ok(/this\.rawHeld\.add\(ev\.code\)/.test(arena), 'held keys are tracked from e.code');
+ok(/const onUp = \(ev: KeyboardEvent\) => \{ this\.rawHeld\.delete\(ev\.code\); \};/.test(arena),
+  'and released on keyup');
+ok(/onRawBlur = \(\) => \{ this\.rawHeld\.clear\(\); \}/.test(arena),
+  'and cleared on blur, so a lost keyup cannot strand a held arrow');
 
 // --- CAUSE 2: A LOST KEYUP KILLED IT PERMANENTLY ---------------------------
 // Phaser binds keydown/keyup on window and registers NO blur or
@@ -231,9 +245,8 @@ ok(/kb\.on\('keydown-CTRL', \(ev: KeyboardEvent\) => \{[\s\S]{0,320}?if \(ev\.re
 // for the rest of the session. That is the "worked, then stopped dead" half.
 ok(/window\.addEventListener\('blur', \(\) => kb\.resetKeys\(\)\);/.test(arena),
   'a blur listener clears the key state, so a lost keyup cannot strand it');
-ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena)
-  && (arena.match(/addEventListener\('blur'/g) || []).length === 1,
-  'and it is registered exactly once (inside the kbWired guard, since the plugin is global)');
+ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena),
+  'Phaser key state is still cleared on blur (movement still reads Phaser keys)');
 {
   // the blur listener must sit inside the kbWired guard, or every scene start
   // would stack another one on the cached plugin

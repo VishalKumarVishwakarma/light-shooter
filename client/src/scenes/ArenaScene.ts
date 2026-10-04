@@ -104,6 +104,10 @@ const SLOTS: Slot[] = [
 const isGunSlot = (id: string) => SLOTS.some((s) => s.id === id && s.kind === 'gun');
 const ORD_ICON: Record<string, string> = { grenade: '\u{1F4A3}', smoke: '\u{1F4A8}', molly: '\u{1F525}' };
 
+// ONE raw stepper listener for the whole module, not one per scene instance.
+// See the registration site for why this must not be an instance field.
+const RAWN: { onDown: any; onUp: any; onBlur: any } = { onDown: null, onUp: null, onBlur: null };
+
 export class ArenaScene extends Phaser.Scene {
   meId = '';
   players = new Map<string, PObj>();
@@ -124,7 +128,7 @@ export class ArenaScene extends Phaser.Scene {
   // block comment where they are registered. Held keys are tracked here because we no
   // longer read Phaser's Key objects for the chord.
   private rawHeld = new Set<string>();
-  private rawOff: Array<() => void> = [];
+  private rawOwned = false; // is this scene the owner of the RAWN listeners?
 
   private dbgOn = false;
   private dbgText: any = null;
@@ -288,9 +292,17 @@ export class ArenaScene extends Phaser.Scene {
         this.blurHandler = null;
       }
       this.firing = false;
-      // the raw listeners were registered on window, which outlives this scene
-      for (const off of this.rawOff) { try { off(); } catch { /* window gone */ } }
-      this.rawOff = [];
+      // The raw listeners live on window, which outlives this scene, and they are a
+      // module singleton so a later scene can replace them. Detach only if this scene
+      // is still the owner -- otherwise a rematch that has already re-registered would
+      // have its live listener torn down by the outgoing scene's shutdown.
+      if (this.rawOwned) {
+        if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown);
+        if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp);
+        if (RAWN.onBlur) window.removeEventListener('blur', RAWN.onBlur);
+        RAWN.onDown = RAWN.onUp = RAWN.onBlur = null;
+        this.rawOwned = false;
+      }
       this.rawHeld.clear();
     });
     this.cameras.main.setBounds(0, 0, W, H);
@@ -497,22 +509,25 @@ export class ArenaScene extends Phaser.Scene {
         }
       };
       const onUp = (ev: KeyboardEvent) => { this.rawHeld.delete(ev.code); };
-      // kbWired resets on scene start while window outlives every scene, so the
-      // previous listener must come off first or a rematch stacks a second one and
-      // every press steps twice. Same discipline as the blurHandler above.
-      for (const off of this.rawOff) { try { off(); } catch { /* window gone */ } }
-      this.rawOff = [];
-      const onRawDown = (ev: KeyboardEvent) => onDown(ev);
-      const onRawUp = (ev: KeyboardEvent) => onUp(ev);
-      const onRawBlur = () => { this.rawHeld.clear(); };
-      window.addEventListener('keydown', onRawDown);
-      window.addEventListener('keyup', onRawUp);
-      window.addEventListener('blur', onRawBlur);
-      this.rawOff = [
-        () => window.removeEventListener('keydown', onRawDown),
-        () => window.removeEventListener('keyup', onRawUp),
-        () => window.removeEventListener('blur', onRawBlur),
-      ];
+      // MODULE-LEVEL SINGLETON, not per instance. rawOff used to be an instance field,
+      // but kbWired resets per scene, so a fresh ArenaScene's cleanup loop iterated its
+      // OWN empty array and removed nothing. If the new scene's create() ran before the
+      // old one's shutdown, both listeners stayed attached and every press stepped
+      // TWICE -- jumping two guns, which reads as "sometimes it doesn't switch".
+      // Hoisting the state to module scope means at most one listener can exist, and
+      // registering replaces the previous one by identity, so scene ordering is
+      // irrelevant.
+      if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown);
+      if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp);
+      if (RAWN.onBlur) window.removeEventListener('blur', RAWN.onBlur);
+      RAWN.onDown = (ev: KeyboardEvent) => onDown(ev);
+      RAWN.onUp = (ev: KeyboardEvent) => onUp(ev);
+      RAWN.onBlur = () => { this.rawHeld.clear(); };
+      window.addEventListener('keydown', RAWN.onDown);
+      window.addEventListener('keyup', RAWN.onUp);
+      window.addEventListener('blur', RAWN.onBlur);
+      // rawHeld belongs to whichever scene is live; on shutdown, hand it back
+      this.rawOwned = true;
       // F3 toggles the readout. Unbound before this, and deliberately NOT routed
       // through stepSlot, so it cannot perturb what it measures.
       kb.on('keydown-F3', () => this.toggleDbg());

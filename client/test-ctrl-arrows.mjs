@@ -190,18 +190,49 @@ ok(!/\(dir > 0 \? 0 : list\.length - 1\) : i/.test(arena),
   'entering from outside the list does NOT also take a step (that skipped an entry)');
 ok(/this\.selectSlot\(list\[idx\]\.id, false\);/.test(arena),
   'it goes through selectSlot, so the server is told exactly as for 1-0');
-ok(/window\.addEventListener\('keydown', onRawDown\)/.test(arena),
+ok(/window\.addEventListener\('keydown', RAWN\.onDown\)/.test(arena),
   'the stepper listens on window keydown');
-ok(/window\.removeEventListener\('keydown', onRawDown\)/.test(arena),
+ok(/window\.removeEventListener\('keydown', RAWN\.onDown\)/.test(arena),
   'and is unregistered, because window outlives every scene');
-ok(/for \(const off of this\.rawOff\) \{ try \{ off\(\); \} catch \{ \/\* window gone \*\/ \} \}/.test(arena),
-  'the previous listener is removed before a new one is added (kbWired resets per scene)');
 // duplication is the real hazard: Phaser AND window would both step
 for (const k of ['LEFT', 'RIGHT', 'COMMA', 'PERIOD']) {
   ok(!new RegExp(`kb\\.on\\('keydown-${k}'`).test(arena),
     `no Phaser keydown-${k} handler remains -- it would step twice per press`);
 }
 ok(/keydown-F3/.test(arena), 'F3 is still bound (Phaser is fine for a plain toggle)');
+
+// --- the listener must be a MODULE singleton, not per scene instance ------
+// Regression: rawOff was an instance field while kbWired resets per scene, so a fresh
+// ArenaScene's cleanup loop iterated its OWN empty array and removed nothing. If the new
+// scene's create() ran before the old one's shutdown, both listeners stayed attached and
+// every press stepped TWICE -- a two-gun skip, which reads as "sometimes it doesn't
+// switch" and is intermittent because it depends on scene ordering (rematch, not first
+// join).
+ok(!/private rawOff/.test(arena), 'rawOff is no longer a per-instance field');
+ok(/const RAWN: \{ onDown: any; onUp: any; onBlur: any \}/.test(arena),
+  'a module-level holder exists, so at most one listener can be registered');
+{
+  const decl = arena.indexOf('const RAWN');
+  const cls = arena.search(/\n(?:export )?class ArenaScene[^\n{]*\{/);
+  ok(decl >= 0 && cls > decl, 'and it is declared at module scope, ABOVE the class');
+}
+ok(/if \(RAWN\.onDown\) window\.removeEventListener\('keydown', RAWN\.onDown\);/.test(arena),
+  'the previous listener is removed BY IDENTITY before a new one is added');
+ok(/window\.addEventListener\('keydown', RAWN\.onDown\)/.test(arena),
+  'and the singleton is what gets registered');
+ok(/if \(this\.rawOwned\) \{/.test(arena),
+  'shutdown only detaches if this scene still owns the listener');
+ok(/RAWN\.onDown = RAWN\.onUp = RAWN\.onBlur = null;/.test(arena),
+  'and clears all three slots so a later scene starts from a known state');
+{
+  // ONE add, TWO removes: remove-before-add in the registration block, plus remove in
+  // shutdown. That asymmetry IS the design -- it is what makes a second listener
+  // impossible. I originally asserted 2 and 2, which was a guess and wrong.
+  const reg = (arena.match(/window\.addEventListener\('keydown',/g) || []).length;
+  const rem = (arena.match(/window\.removeEventListener\('keydown',/g) || []).length;
+  ok(reg === 1, `keydown is added in exactly one place (found ${reg})`);
+  ok(rem === 2, `and removed in two: before re-adding, and on shutdown (found ${rem})`);
+}
 ok(!/this\.stepGun\(/.test(arena), 'no stale stepGun calls remain');
 
 // --- discoverable ----------------------------------------------------------
@@ -233,7 +264,7 @@ ok(ctrlIsDown.length === 1,
 ok(/this\.rawHeld\.add\(ev\.code\)/.test(arena), 'held keys are tracked from e.code');
 ok(/const onUp = \(ev: KeyboardEvent\) => \{ this\.rawHeld\.delete\(ev\.code\); \};/.test(arena),
   'and released on keyup');
-ok(/onRawBlur = \(\) => \{ this\.rawHeld\.clear\(\); \}/.test(arena),
+ok(/RAWN\.onBlur = \(\) => \{ this\.rawHeld\.clear\(\); \}/.test(arena),
   'and cleared on blur, so a lost keyup cannot strand a held arrow');
 
 // --- CAUSE 2: A LOST KEYUP KILLED IT PERMANENTLY ---------------------------

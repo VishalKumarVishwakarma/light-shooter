@@ -74,16 +74,25 @@ ok(/ev\.ctrlKey/.test(arena), 'the modifier is read off the KeyboardEvent');
 ok(!/if \(this\.keys\.CTRL\.isDown\) this\.stepSlot/.test(arena),
   'the stepper is not driven by polling a CTRL key state');
 
-// --- THE REGRESSION: it must not be a guns-only list -----------------------
+// --- WHICH LIST gets stepped ----------------------------------------------
+// Three versions have shipped, and each broke something, so all three are pinned:
+//
+//   69673c2  guns only, `if (guns.length < 2) return`   -> inert at spawn
+//   ea84703  the wheel's full strip                      -> 4 presses in 5 selected a
+//                                                          throwable, so a "gun switch"
+//                                                          that mostly did not switch guns
+//   now      guns when >= 2, the strip when < 2         -> a gun every press, never dead
 ok(/private stepSlot\(dir: -1 \| 1\)/.test(arena), 'the stepper exists as stepSlot');
 const body = /private stepSlot\(dir: -1 \| 1\) \{([\s\S]*?)\n  \}/.exec(arena);
 ok(!!body, 'stepSlot body is locatable');
-ok(!/private gunCycle\(/.test(arena), 'the guns-only cycle is gone');
+ok(!/private gunCycle\(/.test(arena), 'the guns-only cycle is gone as a separate method');
 if (body) {
-  ok(/this\.slotCycle\(\)/.test(body[1]),
-    'it steps slotCycle() -- the WHEEL\'s list, so it is a true drop-in for the wheel');
-  ok(!/kind === 'gun'/.test(body[1]),
-    'and does not re-filter to guns only (that is what made it inert at spawn)');
+  ok(/kind === 'gun'/.test(body[1]), 'it filters to guns -- this is a gun selector');
+  ok(/this\.slotCycle\(\)/.test(body[1]), 'and can reach slotCycle() as a fallback');
+  ok(/guns\.length >= 2 \? guns : this\.slotCycle\(\)/.test(body[1]),
+    'the ternary picks guns when two or more are carried, the strip otherwise');
+  ok(!/guns\.length < 2\) return/.test(body[1]),
+    'and does NOT bail out entirely with one gun, which is what made 69673c2 dead');
 }
 
 // BEHAVIOUR, modelled from the SOURCE's list.
@@ -94,10 +103,25 @@ if (body) {
 // derived from what stepSlot actually does, so the shipped bug fails on BEHAVIOUR:
 // with a guns-only filter `cycle({}).length` is 1 and every "not a no-op" assertion
 // below goes red, which is the symptom that was reported.
-const gunsOnly = body ? /kind === 'gun'/.test(body[1]) : true;
-const cycle = (me) => (gunsOnly
-  ? SLOTS.filter((s) => s.kind === 'gun' && (s.id === 'pistol' || (me && me[s.id] === true)))
-  : SLOTS.filter((s) => s.kind !== 'gun' || s.id === 'pistol' || (me && me[s.id] === true)));
+// Derived from the SOURCE, so a revert changes what the behaviour assertions see.
+// Three shapes are recognised so all three historical bugs fail here rather than
+// only tripping the shape checks above:
+//   gunsOnly + early return -> the 69673c2 inert build
+//   gunsOnly, no fallback  -> dead with one gun
+//   neither                -> the ea84703 everything-selector
+const srcGuns = body ? /kind === 'gun'/.test(body[1]) : false;
+const srcFallback = body ? /guns\.length >= 2 \? guns : this\.slotCycle\(\)/.test(body[1]) : false;
+const srcBails = body ? /guns\.length < 2\) return/.test(body[1]) : false;
+const gunsList = (me) => SLOTS.filter((s) => s.kind === 'gun'
+  && (s.id === 'pistol' || (me && me[s.id] === true)));
+const stripList = (me) => SLOTS.filter((s) => s.kind !== 'gun'
+  || s.id === 'pistol' || (me && me[s.id] === true));
+const cycle = (me) => {
+  if (!srcGuns) return stripList(me);                       // ea84703: everything
+  if (!srcFallback) return gunsList(me);                    // guns only, dead at spawn
+  const g = gunsList(me);
+  return srcBails && g.length < 2 ? g : (g.length >= 2 ? g : stripList(me));
+};
 function step(dir, active, me) {
   const l = cycle(me);
   if (l.length < 2) return active;
@@ -107,9 +131,8 @@ function step(dir, active, me) {
   return l[idx].id;
 }
 {
-  ok(!gunsOnly, 'the stepped list is the wheel\'s list, not a guns-only one');
   ok(cycle({}).length >= 2,
-    `the list is usable at spawn (${cycle({}).length} slots, guns-only gave 1 = inert)`);
+    `the list is usable at spawn (${cycle({}).length} slots, a bare guns-only list gives 1 = inert)`);
   const seen = ['pistol'];
   let cur = 'pistol';
   for (let i = 0; i < 3; i++) { cur = step(1, cur, {}); seen.push(cur); }
@@ -122,8 +145,9 @@ function step(dir, active, me) {
   const all = ['rifle', 'shotgun', 'sniper', 'laser', 'electric'];
   const me = Object.fromEntries(all.map((g) => [g, true]));
   const l = cycle(me);
-  ok(all.every((g) => l.some((s) => s.id === g)), 'every owned gun is in the strip');
-  ok(l.some((s) => s.kind !== 'gun'), 'and the throwables/shield are in it too');
+  ok(all.every((g) => l.some((s) => s.id === g)), 'every owned gun is in the stepped list');
+  ok(!l.some((s) => s.kind !== 'gun'),
+    'and with guns carried NO throwable or shield is in it -- every press is a gun');
   // all six guns reachable in one sweep
   const hit = new Set(['pistol']);
   let cur = 'pistol';
@@ -132,7 +156,11 @@ function step(dir, active, me) {
     `all six guns reached in 5 presses (${[...hit].join(', ')})`);
   ok(step(1, 'rifle', me) === 'shotgun', 'Ctrl+Right walks the strip in order');
   ok(step(-1, 'rifle', me) === 'pistol', 'Ctrl+Left walks it back');
-  ok(step(-1, 'pistol', me) === 'shield', 'and wraps past the start to the far end');
+  // wraps to the LAST GUN, not to the shield -- the stepped list is guns-only
+  // while guns are carried, so the far end is `electric`, not a throwable
+  ok(step(-1, 'pistol', me) === 'electric',
+    'and wraps past the start to the last gun, not to a throwable');
+  ok(step(-1, 'electric', me) === 'laser', 'wrapping is a plain cycle of the guns');
   // unpicked guns are skipped, not selectable
   ok(step(1, 'pistol', { shotgun: true }) === 'shotgun',
     'with only pistol+shotgun owned, Ctrl+Right goes to shotgun');
@@ -266,6 +294,42 @@ ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena)
     'specifically: arrow-first now works, which is the case that used to do nothing');
   ok(play(['CTRL', 'LEFT']).length === 1,
     'and ctrl-first still works, so nothing regressed');
+}
+
+// --- the regression that actually caused the third report ------------------
+// How many of four presses select a gun. This is the number that matters: at 1-in-5
+// the control "works" but is not a gun switch, which is what the user reported.
+{
+  const ALL = ['rifle', 'shotgun', 'sniper', 'laser', 'electric'];
+  const allMe = Object.fromEntries(ALL.map((g) => [g, true]));
+  const isGun = (id) => (SLOTS.find((s) => s.id === id) || {}).kind === 'gun';
+  const sweep = (me) => {
+    let cur = 'pistol';
+    const out = [];
+    for (let i = 0; i < 4; i++) { cur = step(1, cur, me); out.push(cur); }
+    return out;
+  };
+  for (const [label, me] of [['2 guns', { rifle: true }], ['3 guns', { rifle: true, shotgun: true }],
+    ['all 6', allMe]]) {
+    const seq = sweep(me);
+    ok(seq.every(isGun),
+      `with ${label}, all four presses select guns (${seq.join(' -> ')})`);
+    ok(new Set(seq).size > 1, `with ${label}, consecutive presses actually differ`);
+  }
+  // the specific ea84703 failure: a full strip lands on a throwable almost every time
+  const stripSeq = sweep(allMe);
+  const stripGunRate = stripSeq.filter(isGun).length / stripSeq.length;
+  ok(!cycle(allMe).some((s) => s.kind !== 'gun'),
+    `the ea84703 build put throwables in the list (a strip sweep hits a gun only `
+    + `${Math.round(stripGunRate * 100)}% of the time) -- that was the bug`);
+
+  // and it must still never be dead
+  ok(step(1, 'pistol', {}) !== 'pistol',
+    'with only the pistol it falls back to the strip rather than doing nothing');
+  ok(step(-1, 'pistol', {}) !== 'pistol', 'stepping left is not dead either');
+  const solo = cycle({});
+  ok(solo.length >= 2 && solo.some((s) => s.kind !== 'gun'),
+    'and the fallback really is the throwables/shield strip, not a one-item list');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

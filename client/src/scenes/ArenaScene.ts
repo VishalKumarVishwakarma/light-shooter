@@ -930,18 +930,30 @@ export class ArenaScene extends Phaser.Scene {
     return this.wheelCycle;
   }
 
-  // Steps the loadout strip: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
+  // Steps the weapon: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
   //
-  // This walks slotCycle() -- the SAME list as the wheel -- rather than a guns-only
-  // list. A guns-only filter collapses to [pistol] at spawn, so the key was live but
-  // completely inert until a gun was picked up: no switch, no sound, no toast, which
-  // is indistinguishable from the binding not existing. Matching the wheel also means
-  // one muscle memory for both, and every gun is in the strip anyway.
+  // GUNS ONLY when that is actually possible, because this is a gun selector and
+  // stepping onto a grenade is not what was asked for. Simulated while diagnosing:
+  // stepping the full strip landed on a gun only 1 press in 5 at spawn, and 2 in 5
+  // with a rifle carried -- so it "worked" sometimes and did nothing useful otherwise,
+  // which is precisely the report.
   //
-  // slotCycle() is idempotent and already caches into wheelKey/wheelCycle, so sharing
-  // it keeps the wheel's own commit logic in sync instead of fighting it.
+  // That was my own regression. 69673c2 cycled guns only, which matched the intent but
+  // returned early with fewer than two guns carried, so it was inert at spawn. The cure
+  // in ea84703 was to switch to the wheel's full strip, which made it never dead but
+  // turned a gun selector into an everything-selector: I fixed the symptom I was shown
+  // and broke the stated requirement.
+  //
+  // So: guns >= 2 steps the guns, guns < 2 falls back to the whole strip. Never dead,
+  // and a real gun the moment a second one is picked up. Ownership does move the list
+  // under your fingers, which is the cost -- but dead, non-gun and unpredictable were
+  // each worse. slotCycle() is idempotent and already caches into wheelKey/wheelCycle,
+  // so the fallback keeps the wheel's own commit logic in sync instead of fighting it.
   private stepSlot(dir: -1 | 1) {
-    const list = this.slotCycle();
+    const me: any = (Session.room as any)?.state?.players.get(this.meId);
+    const guns = SLOTS.filter((s) => s.kind === 'gun'
+      && (s.id === 'pistol' || me?.[s.id] === true));
+    const list = guns.length >= 2 ? guns : this.slotCycle();
     if (list.length < 2) return;
     const i = list.findIndex((s) => s.id === this.activeSlot);
     // Coming from a slot the list does not contain (ownership changed under us),

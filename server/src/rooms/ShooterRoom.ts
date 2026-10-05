@@ -3,6 +3,7 @@ import { ShooterState, Player, Bullet, Pickup, Brick, Throw, Cloud } from '../sc
 import {
   W, H, SPAWNS, MUZZLE, WEAPONS, PICKUP_POINTS, BRICK_HP,
   STEEL, BRICKS, WATER, ICE, inRect, pointInWall, stepMove, clamp, randomSpot,
+  collideCircle,
 } from '../map.js';
 import { log, metrics } from '../ops.js';
 import { adoptRoom, releaseRoom } from '../codes.js';
@@ -20,7 +21,26 @@ const THROWABLE: Record<string, {
   smoke: { count: 'smokes', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 120 },
   molly: { count: 'mollies', give: 2, cap: 3, speed: 520, fuse: 0.45, r: 100 },
 };
-const SMOKE_DUR = 6, FIRE_DUR = 6, FIRE_TICK = 0.5, FIRE_DMG = 12;
+  // Thrown-ordnance physics. rest = fraction of speed surviving a wall hit, fric = how
+  // fast speed bleeds off while rolling (per second).
+  //   grenade is a ball: lively bounce, keeps rolling, so it can be banked off a wall.
+  //   smoke / molly are canisters: almost dead on impact and stop quickly, so they land
+  //   near where you threw them instead of sliding across the map.
+  const THROW_R = 6; // collision radius of a thrown body
+  // Stopping distance is speed/fric, so these ARE the ranges in pixels:
+  //   grenade 236px, molly 186px, smoke 162px
+  // Canisters were originally tuned at fric 7.5 / 6.5, which gave 69px and 80px --
+  // a third of the 234px they cover unobstructed. A smoke cloud that lands at your feet
+  // cannot be placed, which defeats the point of throwing it.
+  const THROW_PHYS: Record<string, { rest: number; fric: number }> = {
+    grenade: { rest: 0.46, fric: 2.2 },
+    smoke: { rest: 0.24, fric: 3.2 },
+    molly: { rest: 0.30, fric: 2.8 },
+  };
+  // below this speed a throw is parked, so friction alone cannot leave it buzzing
+  // against a wall and jittering the replicated position every tick
+  const THROW_STOP = 12;
+  const SMOKE_DUR = 6, FIRE_DUR = 6, FIRE_TICK = 0.5, FIRE_DMG = 12;
 const NADE_MAX = 80, NADE_MIN = 15;
 // electric gun: every hit re-arcs the lock and drags the victim to a crawl
 const ELECTRIC_SLOW = 2.5, ELECTRIC_MULT = 0.35;
@@ -299,6 +319,53 @@ export class ShooterRoom extends Room<ShooterState> {
       if ((this.state.bricks.get(`br_${i}`)?.hp ?? BRICK_HP) > 0) out.push(rc);
     });
     return out;
+  }
+
+  // Advance one thrown body by dt, bouncing off solids and the arena border.
+  //
+  // Lives here, not in map.ts, because bouncing needs the contact normal and neither
+  // shared helper exposes one: stepMove is driven by player input and hardcodes
+  // RADIUS, and collideCircle returns a settled position but not the axis it resolved
+  // along. Keeping it out of map.ts also keeps client/ and server/ map.ts identical.
+  //
+  // The normal comes from the settle itself: collideCircle pushes out along the
+  // shallowest penetration axis, so the larger of the two corrections IS the wall we
+  // hit, and reflecting only that component gives correct wall and corner behaviour.
+  private stepThrow(th: Throw, dt: number, solids: Rect[]) {
+    const P = THROW_PHYS[th.kind] || THROW_PHYS.grenade;
+    const r = THROW_R;
+    // substep: at 520px/s a 30Hz tick covers ~17px, which is enough to pass clean
+    // through a thin wall in one step and lose the bounce entirely
+    const speed = Math.hypot(th.vx, th.vy);
+    const n = Math.max(1, Math.min(8, Math.ceil((speed * dt) / (r * 0.8))));
+    const sub = dt / n;
+    const lo = 20 + r, hx = W - 20 - r, hy = H - 20 - r;
+    for (let i = 0; i < n; i++) {
+      const nx = th.x + th.vx * sub;
+      const ny = th.y + th.vy * sub;
+      const f = collideCircle(nx, ny, r, solids);
+      const cx = f.x - nx, cy = f.y - ny;
+      if (cx !== 0 || cy !== 0) {
+        if (Math.abs(cx) >= Math.abs(cy)) th.vx = -th.vx * P.rest;
+        else th.vy = -th.vy * P.rest;
+      }
+      th.x = f.x; th.y = f.y;
+      // the arena border bounces too. the old code clamped the position and threw the
+      // velocity away, so anything that reached the edge simply stopped dead
+      if (th.x < lo) { th.x = lo; th.vx = Math.abs(th.vx) * P.rest; }
+      else if (th.x > hx) { th.x = hx; th.vx = -Math.abs(th.vx) * P.rest; }
+      if (th.y < lo) { th.y = lo; th.vy = Math.abs(th.vy) * P.rest; }
+      else if (th.y > hy) { th.y = hy; th.vy = -Math.abs(th.vy) * P.rest; }
+      const k = Math.max(0, 1 - P.fric * sub);
+      th.vx *= k; th.vy *= k;
+    }
+    if (Math.hypot(th.vx, th.vy) < THROW_STOP) { th.vx = 0; th.vy = 0; }
+    // belt and braces: a NaN here makes the schema encoder log 30x a second, forever
+    if (!Number.isFinite(th.x) || !Number.isFinite(th.y)) {
+      th.x = W / 2; th.y = H / 2; th.vx = 0; th.vy = 0;
+    }
+    th.x = clamp(th.x, 20, W - 20);
+    th.y = clamp(th.y, 20, H - 20);
   }
 
   // Is the straight line between two points broken by steel or a standing brick?
@@ -764,16 +831,18 @@ export class ShooterRoom extends Room<ShooterState> {
       if (!consumed) { b.x = nx; b.y = ny; }
     });
     dead.forEach((id) => this.state.bullets.delete(id));
-    // thrown ordnance: grenades roll + blow, smoke/molly land into clouds
+    // thrown ordnance: grenades bounce + blow, smoke/molly land into clouds.
+    // solids() allocates, so it is built once per tick and shared, not per throw.
+    const throwSolids = this.solids();
     const deadT: string[] = [];
     this.state.throws.forEach((th) => {
       if (this.state.phase !== 'playing') return;
       th.t -= dt;
-      th.x = clamp(th.x + th.vx * dt, 20, W - 20);
-      th.y = clamp(th.y + th.vy * dt, 20, H - 20);
+      // ordnance used to fly in a straight line and ignore the entire map: only the
+      // arena border touched it, by clamping the position and discarding the velocity.
+      // it now bounces off steel, standing brick and water, and rolls to a stop.
+      this.stepThrow(th, dt, throwSolids);
       if (th.kind === 'grenade') {
-        const fr = Math.max(0, 1 - 3 * dt);
-        th.vx *= fr; th.vy *= fr;
         if (th.t <= 0) {
           this.explode(th.x, th.y, th.ownerId, feed, hits);
           this.broadcast('boom', { x: th.x, y: th.y, r: THROWABLE.grenade.r });

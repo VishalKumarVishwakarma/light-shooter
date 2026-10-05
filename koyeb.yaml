@@ -2,19 +2,29 @@
 #
 # Deploy with either:
 #   1. the dashboard: New Service -> pick this repo -> "Dockerfile" ->
-#      Dockerfile path `server/Dockerfile`
-#   2. the CLI:            koyeb app deploy myapp --dockerfile server/Dockerfile
+#      Dockerfile path `server/Dockerfile`, Config file `koyeb.yaml`
+#   2. the CLI:  koyeb app deploy myapp --dockerfile server/Dockerfile --config koyeb.yaml
 #
-# This file only takes effect if you set the Dockerfile path to
-# `server/koyeb.yaml` in the dashboard, or use --config. The Dockerfile is the
-# thing that actually builds; this records the sizing and the healthcheck.
+# WHY THIS FILE LIVES AT THE REPO ROOT
+#
+# It used to be server/koyeb.yaml with `dockerfile: ../Dockerfile`, which is wrong: the
+# only Dockerfile is server/Dockerfile and there is none at the root, so that path either
+# pointed at a file that does not exist or escaped the repository entirely, depending on
+# which base Koyeb resolves it against.
+#
+# From the root, `server/Dockerfile` is correct under BOTH conventions -- relative to the
+# repository root, and relative to this config file's own directory, since they are now
+# the same directory. That removes the need to know which one Koyeb implements.
+#
+# The build context stays the repo root either way, which is what the Dockerfile requires:
+# it COPYs the workspace package.json as well as server/package.json.
 
 # Koyeb's free instance. 0.25 vCPU is enough: the sim is a 30Hz tick over at most
 # 8 players of axis-aligned movement and a bullet sweep, not a physics engine.
 # If you ever raise maxClients well past 8, revisit this.
 instance_type: free:small
 region: was
-dockerfile: ../Dockerfile
+dockerfile: server/Dockerfile
 
 # Koyeb restarts the container if /health stops answering, so a crashed sim
 # self-heals instead of leaving a dead lobby code pointing at nothing.

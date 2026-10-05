@@ -33,18 +33,18 @@ configured and ready.
 
 ## Part 1 — the game server (Koyeb, free tier)
 
-Already set up: `server/Dockerfile` (two-stage) and `server/koyeb.yaml`.
+Already set up: `server/Dockerfile` (two-stage) and `koyeb.yaml` at the repo root.
 
 ```
 Koyeb dashboard -> New Service -> pick this repo -> Dockerfile
   Dockerfile path:  server/Dockerfile
-  Config file:      server/koyeb.yaml
+  Config file:      koyeb.yaml
 ```
 
 Or with the CLI:
 
 ```
-koyeb app deploy myapp --dockerfile server/Dockerfile
+koyeb app deploy myapp --dockerfile server/Dockerfile --config koyeb.yaml
 ```
 
 Notes:

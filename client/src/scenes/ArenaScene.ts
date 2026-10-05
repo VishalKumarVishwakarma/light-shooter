@@ -1066,6 +1066,27 @@ export class ArenaScene extends Phaser.Scene {
     return this.wheelCycle;
   }
 
+  // Explode a particle emitter, or do nothing if it has been destroyed.
+  //
+  // Phaser nulls ParticleEmitter.counters inside preDestroy() (verified in the bundled
+  // source: counters is allocated in boot, resetCounters() does counters.fill(0), and
+  // preDestroy() sets it to null). Calling explode() after that throws
+  //   TypeError: Cannot read properties of null (reading 'fill')
+  // which is a hard crash, not a missed effect.
+  //
+  // It happens because a Colyseus state callback can fire AFTER the scene is torn down:
+  // the patch still invokes our handlers, they still hold this.sparks / this.blood /
+  // this.dust, and they explode an emitter that no longer exists. That is a race between
+  // the network and scene teardown, so it lands intermittently -- on leaving, on a
+  // rematch, or when the match ends.
+  //
+  // Testing `counters` is exact rather than heuristic: a null counters array IS the
+  // destroyed state, and it is precisely what resetCounters() dereferences.
+  private boom(em: any, n: number, x: number, y: number) {
+    if (!em || !(em as any).counters) return;
+    try { em.explode(n, x, y); } catch { /* emitter went away mid-call */ }
+  }
+
   // Steps the weapon: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
   //
   // GUNS ONLY when that is actually possible, because this is a gun selector and
@@ -1257,7 +1278,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!this.rubble.has(id)) {
         this.rubble.set(id, this.add.image(rc.x + rc.w / 2, rc.y + rc.h / 2, 'rubble'));
       }
-      this.sparks.explode(14, rc.x + rc.w / 2, rc.y + rc.h / 2);
+      this.boom(this.sparks, 14, rc.x + rc.w / 2, rc.y + rc.h / 2);
       return;
     }
     this.rubble.get(id)?.destroy();
@@ -1361,7 +1382,7 @@ export class ArenaScene extends Phaser.Scene {
       if (Math.random() < 0.55 && reach > 8) {
         // continuous spark shed off the live arc, not just on trigger frames
         const t = 0.2 + Math.random() * 0.8;
-        this.sparks.explode(1,
+        this.boom(this.sparks, 1,
           mx + Math.cos(ang) * (reach * t) + (Math.random() - 0.5) * 26,
           my + Math.sin(ang) * (reach * t) + (Math.random() - 0.5) * 26);
       }
@@ -1509,7 +1530,7 @@ export class ArenaScene extends Phaser.Scene {
       targets: dst, scaleX: 1.9, scaleY: 1.9, alpha: 0, duration: 220, ease: 'Quad.easeOut',
       onComplete: () => dst.destroy(),
     });
-    this.sparks.explode(5, end.x, end.y);
+    this.boom(this.sparks, 5, end.x, end.y);
   }
 
   // electric impact: white flash, radial crackle and a grounding ring
@@ -1538,7 +1559,7 @@ export class ArenaScene extends Phaser.Scene {
       g.strokePath();
     }
     this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
-    this.sparks.explode(6, x, y);
+    this.boom(this.sparks, 6, x, y);
   }
 
   // lock aura on a shocked body: crackling shell that dies with slowT
@@ -1659,7 +1680,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     room.onMessage('hit', (h: { x: number; y: number; by?: string; dmg?: number; ox?: number; oy?: number; to?: string; w?: string }) => {
       if (!live()) return;
-      this.sparks.explode(8, h.x, h.y);
+      this.boom(this.sparks, 8, h.x, h.y);
       const blocked = (h.dmg ?? 0) <= 0;
       // electric impacts arc and report the lock instead of plain damage
       if (h.w === 'electric') {
@@ -1698,8 +1719,8 @@ export class ArenaScene extends Phaser.Scene {
     room.onMessage('chip', (c: { x: number; y: number; kind: string }) => {
       if (!live()) return;
       // wall impacts: sparks off steel, dust puff off crumbling brick
-      this.sparks.explode(6, c.x, c.y);
-      if (c.kind === 'brick') this.dust.explode(4, c.x, c.y);
+      this.boom(this.sparks, 6, c.x, c.y);
+      if (c.kind === 'brick') this.boom(this.dust, 4, c.x, c.y);
     });
 
     this.keep(room.state.bricks.onAdd((b: any, id: string) => {
@@ -1841,7 +1862,7 @@ export class ArenaScene extends Phaser.Scene {
         // fresh hit -> white flash + blood puff (+ hurt cue for self)
         if (p.hp < o.hp && p.alive) {
           o.body.setTintFill(0xffffff);
-          this.blood.explode(6, o.gfx.x, o.gfx.y);
+          this.boom(this.blood, 6, o.gfx.x, o.gfx.y);
           if (id === this.meId) {
             sfx.hurt();
             try { (navigator as any).vibrate?.(45); } catch { /* noop */ }
@@ -1854,7 +1875,7 @@ export class ArenaScene extends Phaser.Scene {
         }
         // death -> burst + blood pool + fall over (+ shake for self)
         if (!p.alive && o.alive) {
-          this.blood.explode(24, o.gfx.x, o.gfx.y);
+          this.boom(this.blood, 24, o.gfx.x, o.gfx.y);
           o.pool?.destroy(true);
           o.pool = this.add.image(o.gfx.x, o.gfx.y + 6, 'pool').setDepth(1);
           this.tweens.killTweensOf(o.body);
@@ -2086,7 +2107,7 @@ export class ArenaScene extends Phaser.Scene {
           delay: 380, loop: true,
           callback: () => {
             if (!c.active) return;
-            this.sparks.explode(2, cl.x + (Math.random() - 0.5) * R, cl.y + (Math.random() - 0.5) * R * 0.6);
+            this.boom(this.sparks, 2, cl.x + (Math.random() - 0.5) * R, cl.y + (Math.random() - 0.5) * R * 0.6);
           },
         });
         timers.push(fountain);
@@ -2154,8 +2175,8 @@ export class ArenaScene extends Phaser.Scene {
           .setScale(Math.max(0.8, r / 90));
         this.tweens.add({ targets: s, alpha: 0, duration: 8000, onComplete: () => s.destroy() });
       }
-      this.sparks.explode(Math.min(26, 8 + Math.round(r / 10)), x, y);
-      this.dust.explode(8, x, y);
+      this.boom(this.sparks, Math.min(26, 8 + Math.round(r / 10)), x, y);
+      this.boom(this.dust, 8, x, y);
       const me = this.players.get(this.meId);
       const d = me ? Math.hypot(me.gfx.x - x, me.gfx.y - y) : 400;
       if (d < 550) this.cameras.main.shake(160, 0.005 * Math.max(0, 1 - d / 650));
@@ -2836,7 +2857,7 @@ export class ArenaScene extends Phaser.Scene {
         const t2 = _t / 70 + h;
         o.zap.setPosition(Math.sin(t2 * 3.1) * 2, Math.cos(t2 * 2.3) * 2);
         o.zap2?.setPosition(Math.cos(t2 * 3.7) * 3, Math.sin(t2 * 2.9) * 3);
-        if (Math.random() < 0.16) this.sparks.explode(1, o.gfx.x, o.gfx.y);
+        if (Math.random() < 0.16) this.boom(this.sparks, 1, o.gfx.x, o.gfx.y);
       }
       let vx: number, vy: number;
       if (id === this.meId) {
@@ -2928,7 +2949,7 @@ export class ArenaScene extends Phaser.Scene {
         (this as any)._dust = ((this as any)._dust || 0) + dt;
         if ((this as any)._dust > 0.3) {
           (this as any)._dust = 0;
-          this.dust.explode(1, me.gfx.x, me.gfx.y + 10);
+          this.boom(this.dust, 1, me.gfx.x, me.gfx.y + 10);
         }
       }
       this.myMove = { dx, dy };

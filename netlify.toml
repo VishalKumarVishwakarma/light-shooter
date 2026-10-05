@@ -1,0 +1,66 @@
+# Netlify serves the CLIENT only. The Colyseus game server cannot run here -- see
+# DEPLOY.md for why, and for where it goes instead.
+#
+# `base = "client"` makes Netlify treat client/ as the project root, so `command` and
+# `publish` are both relative to it. Without this you would have to repeat the client
+# prefix in three places and change all of them if the folder moved.
+
+[build]
+  base    = "client"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Pinned rather than inherited. Netlify's default Node has moved more than once and a
+  # surprise major would fail the build for reasons that have nothing to do with the game.
+  # Node 22 is what the bundle is built and tested against locally.
+  NODE_VERSION = "22"
+
+  # THE ONE THING YOU MUST SET. Vite inlines VITE_* variables at BUILD time, so this is
+  # baked into the deployed JavaScript -- it cannot be changed from the Netlify UI after
+  # the fact without a rebuild.
+  #
+  # Point it at the deployed game server, e.g. https://shooter-server-yourname.koyeb.app
+  # Leave it unset and serverUrl.ts falls back to http://localhost:2567, which resolves
+  # to the player's own machine and therefore never connects for anyone else.
+  #
+  # The client derives the WebSocket URL from this same value
+  # (http->ws, https->wss), so one variable is enough.
+  #
+  # NOTE: there is also a runtime override that needs no rebuild:
+  #   https://your-site.netlify.app/?server=https://shooter-server.koyeb.app
+  # Useful for testing a server change without redeploying the client.
+  VITE_SERVER_URL = ""
+
+# Hashed filenames, so they can be cached forever and never revalidated.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# index.html must never be cached, or a deploy leaves players on the old bundle
+# holding a stale ArenaScene hash.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "SAMEORIGIN"
+    # The game draws every texture procedurally on a canvas and loads no external
+    # assets, so the policy can be tight. 'unsafe-inline' covers style="" attributes and
+    # the Google Fonts stylesheet; script stays strict because nothing needs eval.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: wss: ws:; worker-src 'self' blob:; base-uri 'self'; form-action 'self'"
+
+# The client routes with QUERY parameters (?room=1234, ?server=...), not path segments,
+# so there is no deep link to rewrite. This exists only so an unknown path returns the
+# app instead of Netlify's 404 page. Existing files still win over the rewrite, so a
+# genuinely missing asset still 404s.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

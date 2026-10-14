@@ -422,8 +422,9 @@ ok(/arc\(cx, cy, 12, 0, Math\.PI \* 2\)/.test(src) === false, 'the old torso bal
   ok(!/drawSteel\(this\.add\.graphics\(\)/.test(arena),
     'steel is not drawn into a retained-mode Graphics either');
   ok(!/drawIce\(/.test(arena), 'ice is not drawn into a retained-mode Graphics either');
-  ok(/this\.textures\.addCanvas\('groundTex', groundCanvas\(W, H\)\)/.test(arena),
-    'the ground bakes to a canvas texture instead');
+  ok(/textures\.exists\('groundTex'\)/.test(arena)
+    && /this\.textures\.addCanvas\('groundTex', groundCanvas\(W, H\)\)/.test(arena),
+    'the ground bakes to a canvas texture once, reused on rematch');
   ok(/this\.add\.image\(0, 0, 'groundTex'\)/.test(arena),
     'and is drawn as ONE image, i.e. one draw call per frame');
   ok(/this\.add\.image\(st\.x, st\.y, this\.steelTex\(this, st,/.test(arena),

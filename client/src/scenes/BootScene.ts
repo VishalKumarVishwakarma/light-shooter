@@ -54,20 +54,36 @@ export class BootScene extends Phaser.Scene {
         if (!res.ok) throw new Error('unreachable');
       }],
     ];
-    (async () => {
+    // Every await below can resolve AFTER this scene is gone (HMR, a fast
+    // scene.start, or the player refreshing mid-boot). Phaser Text.preDestroy()
+    // nulls Frame.data; setText then hits Frame.updateUVs → this.data.drawImage
+    // and paints the red "Something broke" banner. Guard every resume.
+    //
+    // Do NOT use sys.isActive() here. That is `status === RUNNING`, and create()
+    // runs as CREATING — so the first line of this IIFE used to return immediately
+    // and the bar sat at 0% forever. `settings.active` is true from start() until
+    // shutdown(), which is the liveness we actually want.
+    void (async () => {
+      const live = () => this.sys.settings.active;
       for (let i = 0; i < stages.length; i++) {
+        if (!live()) return;
         try { await stages[i][1](); }
         catch {
+          if (!live()) return;
           status.setText('server unreachable — menu loads, matches need :2567 up');
         }
+        if (!live()) return;
         const p = (i + 1) / stages.length;
         fill.displayWidth = Math.max(1, 416 * p);
         pct.setText(`${Math.round(p * 100)}%`);
         await new Promise((r) => setTimeout(r, 250));
       }
+      if (!live()) return;
       tipTimer.destroy();
       this.cameras.main.fadeOut(350, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('menu'));
-    })();
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        if (live()) this.scene.start('menu');
+      });
+    })().catch(() => { /* scene died mid-boot; next create() starts clean */ });
   }
 }

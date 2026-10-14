@@ -4,6 +4,7 @@ const rows = [
   ['\u270B', 'Move with WASD or arrows.'],
   ['\u{1F5B1}\uFE0F', 'Aim with the mouse, hold click to fire.'],
   ['\u{1F52B}', 'Grab guns with E. 1-0 or the wheel switches any slot.'],
+  ['\u2194', 'Ctrl + Left/Right also switches guns and throwables.'],
   ['\u{1F52A}', 'F is a knife: 50 damage, and it pierces shields.'],
   ['\u26A1', 'Electric gun: every hit locks them for 2.5s.'],
   ['\u{1F6E1}\uFE0F', 'You spawn SHIELDED; a raised shield stops every bullet.'],
@@ -15,7 +16,7 @@ const rows = [
 ];
 const ctl = [
   'move WASD / arrows \u00b7 aim with mouse \u00b7 hold click to fire',
-  'wheel or 1-0 switches any slot \u00b7 R reloads \u00b7 Q toggles the shield',
+  'wheel, 1-0, or Ctrl+arrows switch guns and throwables \u00b7 R reloads \u00b7 Q shield',
   'G / X / C throw now \u00b7 F knife \u00b7 E grabs a gun',
 ];
 

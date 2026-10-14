@@ -116,6 +116,8 @@ export class ArenaScene extends Phaser.Scene {
   clouds = new Map<string, { c: Phaser.GameObjects.Container; parts: Phaser.GameObjects.GameObject[]; timers: Phaser.Time.TimerEvent[] }>();
   activeSlot = 'pistol'; // the switchable item in hand (gun, ord, or shield)
   private fireWas = false; // rising edge of the trigger, for one-shot items
+  private slotStepAt = 0; // last stepSlot time; poll and keydown share it so they cannot double-step
+  private chordHeld: -1 | 0 | 1 = 0; // Ctrl+Arrow still physically down
   // The game's event emitter outlives the scene, so a BLUR handler added per
   // create() would pile up one dead listener per arena visit. Held on the
   // instance and removed on shutdown.
@@ -129,6 +131,9 @@ export class ArenaScene extends Phaser.Scene {
   // longer read Phaser's Key objects for the chord.
   private rawHeld = new Set<string>();
   private rawOwned = false; // is this scene the owner of the RAWN listeners?
+  private rawDown: ((ev: KeyboardEvent) => void) | null = null;
+  private rawUp: ((ev: KeyboardEvent) => void) | null = null;
+  private rawBlur: (() => void) | null = null;
 
   private dbgOn = false;
   private dbgText: any = null;
@@ -213,6 +218,7 @@ export class ArenaScene extends Phaser.Scene {
   private joyMove = { dx: 0, dy: 0 };
   private stickG: Phaser.GameObjects.Graphics | null = null;
   private crossG: Phaser.GameObjects.Graphics | null = null;
+  private xhKey = ''; // last crosshair draw; skip tessellate when unchanged
   private txtCache = new Map<string, string>();
 
   // setText re-uploads the canvas texture even for identical strings — at
@@ -226,6 +232,7 @@ export class ArenaScene extends Phaser.Scene {
   }
   private myVel = { x: 0, y: 0 };
   private brickHp = new Map<string, number>();
+  private solidCache: Array<{ x: number; y: number; w: number; h: number }> | null = null;
   private brickViews = new Map<string, { c: Phaser.GameObjects.Container; cracks: Phaser.GameObjects.Graphics }>();
   private rubble = new Map<string, Phaser.GameObjects.Image>();
   private waterTiles: Phaser.GameObjects.TileSprite[] = [];
@@ -264,6 +271,10 @@ export class ArenaScene extends Phaser.Scene {
 
   create() {
     ensureTextures(this);
+    // Click-to-play: leftover menu <input> or Cursor chrome can keep focus, and
+    // Ctrl+Arrow then word-jumps the caret instead of switching guns. Blur it
+    // and give the canvas a tab index so the next key lands here.
+    this.claimCanvas();
     this.cameras.main.fadeIn(250, 0, 0, 0);
     this.events.once('shutdown', () => {
       try { this.input.setDefaultCursor('default'); } catch { /* dying */ }
@@ -296,14 +307,19 @@ export class ArenaScene extends Phaser.Scene {
       // module singleton so a later scene can replace them. Detach only if this scene
       // is still the owner -- otherwise a rematch that has already re-registered would
       // have its live listener torn down by the outgoing scene's shutdown.
-      if (this.rawOwned) {
-        if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown);
-        if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp);
+      // Only detach OUR handlers. A rematch can create() the next arena before
+      // this shutdown runs; ripping out RAWN.onDown then would kill the live
+      // listener and Ctrl+Arrow would go dead until a full refresh.
+      if (this.rawOwned && RAWN.onDown === this.rawDown) {
+        if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown, true);
+        if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp, true);
         if (RAWN.onBlur) window.removeEventListener('blur', RAWN.onBlur);
         RAWN.onDown = RAWN.onUp = RAWN.onBlur = null;
-        this.rawOwned = false;
       }
+      this.rawOwned = false;
+      this.rawDown = this.rawUp = this.rawBlur = null;
       this.rawHeld.clear();
+      this.chordHeld = 0;
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // Ground. This used to be a hard 40px grid of opaque lines across the whole
@@ -314,7 +330,9 @@ export class ArenaScene extends Phaser.Scene {
     // Baked to a texture, NOT drawn into a Graphics: the same art is ~8,560
     // triangles, and Graphics is retained-mode, so it would be re-tessellated and
     // re-uploaded every frame. One image is one draw call. See terrain.ts.
-    this.textures.addCanvas('groundTex', groundCanvas(W, H));
+    if (!this.textures.exists('groundTex')) {
+      this.textures.addCanvas('groundTex', groundCanvas(W, H));
+    }
     this.add.image(0, 0, 'groundTex').setOrigin(0);
     const lowQ = quality() === 'low';
     this.add.tileSprite(W / 2, H / 2, W, H, 'noise').setAlpha(lowQ ? 0.15 : 0.5);
@@ -359,6 +377,7 @@ export class ArenaScene extends Phaser.Scene {
         .setDepth(7).setAlpha(0.94);
     }
     this.brickHp.clear();
+    this.solidCache = null;
     this.brickViews.forEach((v) => v.c.destroy(true));
     this.brickViews.clear();
     this.rubble.forEach((r) => r.destroy());
@@ -430,6 +449,10 @@ export class ArenaScene extends Phaser.Scene {
     // while it is held -- see update(). Phaser maps both control keys to CTRL.
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,R,E,Q,G,X,C,CTRL,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT,NINE,ZERO,F,TAB') as any;
     this.input.keyboard!.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,TAB'); // stop page scroll + focus steal
+    // Ctrl+Arrow must rebind every visit. kbWired skips Phaser keydown-* on a
+    // live plugin; the window listener is a module singleton and has to be
+    // claimed by THIS scene even when those Phaser handlers are already wired.
+    this.bindRawSlotChord();
     // global KeyboardPlugin outlives the scene: wire once or keys multi-fire
     if (!this.kbWired) {
       this.kbWired = true;
@@ -443,91 +466,6 @@ export class ArenaScene extends Phaser.Scene {
         ['NINE', 'molly'], ['ZERO', 'shield'],
       ];
       KEYMAP.forEach(([code, id]) => kb.on('keydown-' + code, () => this.selectSlot(id, false)));
-      // Ctrl+Left / Ctrl+Right step the loadout.
-      //
-      // ORDER-INDEPENDENT ON PURPOSE. This used to hang off the arrow's keydown alone
-      // (`if (ev.ctrlKey) this.stepSlot(-1)`), which only worked when Ctrl went down
-      // FIRST. The browser fires a keydown for whichever key lands second and never
-      // re-fires the first, so pressing Left before Ctrl delivered an arrow event with
-      // ctrlKey=false and then a bare keydown-CTRL carrying no arrow information --
-      // nothing happened at all. That is the "sometimes works" report: it came down to
-      // which finger moved first.
-      //
-      // So the chord is completed by EITHER signal. When Ctrl lands second we act on
-      // whichever arrow is already held. Exactly one of the two conditions can be true
-      // at the instant the second key arrives, so it steps once and never twice.
-      // `repeat` is ignored: holding the combo must not run through the whole strip.
-      // THE WEAPON STEPPER RUNS ON A RAW WINDOW LISTENER, not on Phaser's
-      // keydown-LEFT / keydown-RIGHT / keydown-COMMA / keydown-PERIOD events.
-      //
-      // Four fixes went into the Phaser path and all four missed, so the pipeline
-      // itself is what's untrusted. Everything hazardous is upstream of our handler:
-      //
-      //   * KeyboardManager.onKeyDown returns immediately on `event.defaultPrevented`,
-      //     so any listener that preventDefaults the key first removes it from
-      //     Phaser's queue and the event is never emitted at all. We do not control
-      //     the user's extensions or the browser.
-      //   * events are queued and drained on the game step, so a throttled or
-      //     backgrounded tab defers them.
-      //   * `repeat = key.isDown` is read before onDown clears it, so one lost keyup
-      //     suppresses that key permanently. The blur reset below narrows that window
-      //     but cannot close it.
-      //   * dispatch is on event.keyCode through KeyMap, so a layout whose arrows are
-      //     not 37/39 resolves no name at all.
-      //
-      // e.code is the PHYSICAL key, so this is immune to all four and to layout.
-      //
-      // The Phaser handlers are REMOVED rather than supplemented, or every press would
-      // step twice. Order-independence is kept by tracking held keys ourselves: the
-      // browser fires keydown for whichever key lands second, so pressing the arrow
-      // before Ctrl is handled by the Control branch acting on rawHeld.
-      const once = (ev: KeyboardEvent, dir: -1 | 1) => {
-        this.dbgBump('step');
-        this.dbgEv(`step ${dir < 0 ? 'BACK' : 'FWD'}`);
-        if (!ev.repeat) this.stepSlot(dir);
-      };
-      const onDown = (ev: KeyboardEvent) => {
-        this.rawHeld.add(ev.code);
-        const c = ev.code;
-        if (c === 'ArrowLeft') { this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ev.ctrlKey ? 1 : 0}`); }
-        else if (c === 'ArrowRight') { this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ev.ctrlKey ? 1 : 0}`); }
-        else if (c === 'ControlLeft' || c === 'ControlRight') this.dbgBump('keyCTRL');
-        if (ev.repeat) return;
-        // `,` and `.`: no modifier, so nothing between the keyboard and here can
-        // swallow them the way an OS shortcut can swallow a chord.
-        if (c === 'Comma') { once(ev, -1); ev.preventDefault(); return; }
-        if (c === 'Period') { once(ev, 1); ev.preventDefault(); return; }
-        if (c === 'ArrowLeft' || c === 'ArrowRight') {
-          if (ev.ctrlKey) once(ev, c === 'ArrowLeft' ? -1 : 1);
-          return; // a bare arrow is movement, and Phaser owns that
-        }
-        // Ctrl landed second: act on whichever arrow is already held. Exactly one of
-        // the two branches can be true when the second key arrives, so it steps once.
-        if (c === 'ControlLeft' || c === 'ControlRight') {
-          if (this.rawHeld.has('ArrowLeft')) once(ev, -1);
-          else if (this.rawHeld.has('ArrowRight')) once(ev, 1);
-        }
-      };
-      const onUp = (ev: KeyboardEvent) => { this.rawHeld.delete(ev.code); };
-      // MODULE-LEVEL SINGLETON, not per instance. rawOff used to be an instance field,
-      // but kbWired resets per scene, so a fresh ArenaScene's cleanup loop iterated its
-      // OWN empty array and removed nothing. If the new scene's create() ran before the
-      // old one's shutdown, both listeners stayed attached and every press stepped
-      // TWICE -- jumping two guns, which reads as "sometimes it doesn't switch".
-      // Hoisting the state to module scope means at most one listener can exist, and
-      // registering replaces the previous one by identity, so scene ordering is
-      // irrelevant.
-      if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown);
-      if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp);
-      if (RAWN.onBlur) window.removeEventListener('blur', RAWN.onBlur);
-      RAWN.onDown = (ev: KeyboardEvent) => onDown(ev);
-      RAWN.onUp = (ev: KeyboardEvent) => onUp(ev);
-      RAWN.onBlur = () => { this.rawHeld.clear(); };
-      window.addEventListener('keydown', RAWN.onDown);
-      window.addEventListener('keyup', RAWN.onUp);
-      window.addEventListener('blur', RAWN.onBlur);
-      // rawHeld belongs to whichever scene is live; on shutdown, hand it back
-      this.rawOwned = true;
       // F3 toggles the readout. Unbound before this, and deliberately NOT routed
       // through stepSlot, so it cannot perturb what it measures.
       kb.on('keydown-F3', () => this.toggleDbg());
@@ -788,6 +726,7 @@ export class ArenaScene extends Phaser.Scene {
     this.firing = false;
     this.connect();
     this.input.on('pointerdown', (pt: Phaser.Input.Pointer) => {
+      this.claimCanvas();
       if ((pt as any).wasTouch) { this.pressStick(pt); return; } // twin-sticks own touches
       // clicks on HUD buttons belong to the buttons, not the trigger
       if (this.grabBtn?.c.visible
@@ -836,10 +775,15 @@ export class ArenaScene extends Phaser.Scene {
   private drawCrosshair() {
     const g = this.crossG;
     if (!g) return;
-    g.clear();
-    if (this.touchMode || (Session.room as any)?.state?.phase !== 'playing') return;
+    if (this.touchMode || (Session.room as any)?.state?.phase !== 'playing') {
+      if (this.xhKey) { g.clear(); this.xhKey = ''; }
+      return;
+    }
     const pt = this.input.activePointer;
-    if (pt.x < 0 || pt.y < 0 || pt.x > 960 || pt.y > 600) return;
+    if (pt.x < 0 || pt.y < 0 || pt.x > 960 || pt.y > 600) {
+      if (this.xhKey) { g.clear(); this.xhKey = ''; }
+      return;
+    }
     const since = this.time.now / 1000 - this.lastFire;
     const gap = 7 + 15 * Math.max(0, 1 - since * 3.5); // bloom after each shot
     const L = 9;
@@ -848,6 +792,10 @@ export class ArenaScene extends Phaser.Scene {
     const cc = cw === 'electric' ? 0xc084fc : cw === 'sniper' ? 0xc084fc
       : cw === 'laser' ? 0x22d3ee : cw === 'shotgun' ? 0xfb923c
       : cw === 'rifle' ? 0xfacc15 : 0x22d3ee;
+    const key = `${pt.x | 0},${pt.y | 0},${gap | 0},${cc}`;
+    if (key === this.xhKey) return;
+    this.xhKey = key;
+    g.clear();
     g.lineStyle(2.5, cc, 0.95);
     g.beginPath();
     g.moveTo(pt.x - gap - L, pt.y); g.lineTo(pt.x - gap, pt.y);
@@ -1087,30 +1035,153 @@ export class ArenaScene extends Phaser.Scene {
     try { em.explode(n, x, y); } catch { /* emitter went away mid-call */ }
   }
 
-  // Steps the weapon: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
-  //
-  // GUNS ONLY when that is actually possible, because this is a gun selector and
-  // stepping onto a grenade is not what was asked for. Simulated while diagnosing:
-  // stepping the full strip landed on a gun only 1 press in 5 at spawn, and 2 in 5
-  // with a rifle carried -- so it "worked" sometimes and did nothing useful otherwise,
-  // which is precisely the report.
-  //
-  // That was my own regression. 69673c2 cycled guns only, which matched the intent but
-  // returned early with fewer than two guns carried, so it was inert at spawn. The cure
-  // in ea84703 was to switch to the wheel's full strip, which made it never dead but
-  // turned a gun selector into an everything-selector: I fixed the symptom I was shown
-  // and broke the stated requirement.
-  //
-  // So: guns >= 2 steps the guns, guns < 2 falls back to the whole strip. Never dead,
-  // and a real gun the moment a second one is picked up. Ownership does move the list
-  // under your fingers, which is the cost -- but dead, non-gun and unpredictable were
-  // each worse. slotCycle() is idempotent and already caches into wheelKey/wheelCycle,
-  // so the fallback keeps the wheel's own commit logic in sync instead of fighting it.
+  // Keep the canvas as the key target so Ctrl+Arrow cannot word-jump a leftover
+  // callsign <input> or Cursor chrome instead of cycling the loadout.
+  private claimCanvas() {
+    try {
+      const canvas = this.game.canvas;
+      if (!canvas) return;
+      if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== canvas) {
+        const tag = (active.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) active.blur();
+      }
+      if (document.activeElement !== canvas) canvas.focus({ preventScroll: true });
+    } catch { /* headless / detached */ }
+  }
+
+  // Extra loadout stepper: Ctrl+Left / Ctrl+Right is an EXTRA option on top of
+  // 1–0, the wheel, and `,` / `.`. Same list as those — owned guns, then grenade /
+  // smoke / molly, then the shield. Guns-only cycling skipped throwables and read
+  // as "the switch did not work".
+  private bindRawSlotChord() {
+    // ORDER-INDEPENDENT ON PURPOSE. This used to hang off the arrow's keydown alone
+    // (`if (ev.ctrlKey) this.stepSlot(-1)`), which only worked when Ctrl went down
+    // FIRST. The browser fires a keydown for whichever key lands second and never
+    // re-fires the first, so pressing Left before Ctrl delivered an arrow event with
+    // ctrlKey=false and then a bare keydown-CTRL carrying no arrow information --
+    // nothing happened at all. That is the "sometimes works" report: it came down to
+    // which finger moved first.
+    //
+    // So the chord is completed by EITHER signal. When Ctrl lands second we act on
+    // whichever arrow is already held. Exactly one of the two conditions can be true
+    // at the instant the second key arrives, so it steps once and never twice.
+    // `repeat` is ignored: holding the combo must not run through the whole strip.
+    // THE WEAPON STEPPER RUNS ON A RAW WINDOW LISTENER, not on Phaser's
+    // keydown-LEFT / keydown-RIGHT / keydown-COMMA / keydown-PERIOD events.
+    //
+    // Four fixes went into the Phaser path and all four missed, so the pipeline
+    // itself is what's untrusted. Everything hazardous is upstream of our handler:
+    //
+    //   * KeyboardManager.onKeyDown returns immediately on `event.defaultPrevented`,
+    //     so any listener that preventDefaults the key first removes it from
+    //     Phaser's queue and the event is never emitted at all. We do not control
+    //     the user's extensions or the browser.
+    //   * events are queued and drained on the game step, so a throttled or
+    //     backgrounded tab defers them.
+    //   * `repeat = key.isDown` is read before onDown clears it, so one lost keyup
+    //     suppresses that key permanently. The blur reset below narrows that window
+    //     but cannot close it.
+    //   * dispatch is on event.keyCode through KeyMap, so a layout whose arrows are
+    //     not 37/39 resolves no name at all.
+    //
+    // e.code is the PHYSICAL key, so this is immune to all four and to layout.
+    //
+    // The Phaser handlers are REMOVED rather than supplemented, or every press would
+    // step twice. Order-independence is kept by tracking held keys ourselves: the
+    // browser fires keydown for whichever key lands second, so pressing the arrow
+    // before Ctrl is handled by the Control branch acting on rawHeld.
+    const eat = (ev: KeyboardEvent) => {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    };
+    const once = (ev: KeyboardEvent, dir: -1 | 1) => {
+      this.dbgBump('step');
+      this.dbgEv(`step ${dir < 0 ? 'BACK' : 'FWD'}`);
+      if (!ev.repeat) this.stepSlot(dir);
+    };
+    const onDown = (ev: KeyboardEvent) => {
+      this.rawHeld.add(ev.code);
+      const c = ev.code;
+      // OS truth at this event, not a stale rawHeld Control: a lost Ctrl keyup
+      // must NOT turn later strafes into gun switches.
+      const ctrl = !!(ev.ctrlKey || ev.metaKey || ev.getModifierState?.('Control'));
+      const left = c === 'ArrowLeft' || ev.key === 'ArrowLeft';
+      const right = c === 'ArrowRight' || ev.key === 'ArrowRight';
+      if (left) { this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ctrl ? 1 : 0}`); }
+      else if (right) { this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ctrl ? 1 : 0}`); }
+      else if (c === 'ControlLeft' || c === 'ControlRight') this.dbgBump('keyCTRL');
+      if (ev.repeat) return;
+      // `,` and `.`: no modifier, so nothing between the keyboard and here can
+      // swallow them the way an OS shortcut can swallow a chord.
+      if (c === 'Comma') { once(ev, -1); eat(ev); return; }
+      if (c === 'Period') { once(ev, 1); eat(ev); return; }
+      if (left || right) {
+        if (ctrl) {
+          once(ev, left ? -1 : 1);
+          eat(ev); // else Chrome/Cursor eat Ctrl+Arrow as word-jump
+        }
+        return; // a bare arrow is movement, and Phaser owns that
+      }
+      // Ctrl landed second: act on whichever arrow is already held. Exactly one of
+      // the two branches can be true when the second key arrives, so it steps once.
+      if (c === 'ControlLeft' || c === 'ControlRight') {
+        if (this.rawHeld.has('ArrowLeft')) { once(ev, -1); eat(ev); }
+        else if (this.rawHeld.has('ArrowRight')) { once(ev, 1); eat(ev); }
+      }
+    };
+    const onUp = (ev: KeyboardEvent) => {
+      // delete() is true only if we saw the matching keydown. Cursor/Electron
+      // often swallow Ctrl+Arrow's keydown (word-jump) but still deliver keyup
+      // with ctrlKey set — that is the press the keydown path never got.
+      const had = this.rawHeld.delete(ev.code);
+      const left = ev.code === 'ArrowLeft' || ev.key === 'ArrowLeft';
+      const right = ev.code === 'ArrowRight' || ev.key === 'ArrowRight';
+      if (!(left || right)) return;
+      const ctrl = !!(ev.ctrlKey || ev.metaKey || ev.getModifierState?.('Control'));
+      if (!ctrl) { this.chordHeld = 0; return; }
+      if (had) return;
+      if (this.time.now - this.slotStepAt < 160) return;
+      this.dbgBump('step');
+      this.dbgEv(`step ${left ? 'BACK' : 'FWD'} (keyup)`);
+      this.stepSlot(left ? -1 : 1);
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    };
+    const onBlur = () => { this.rawHeld.clear(); this.chordHeld = 0; };
+    // MODULE-LEVEL SINGLETON, not per instance. rawOff used to be an instance field,
+    // but kbWired resets per scene, so a fresh ArenaScene's cleanup loop iterated its
+    // OWN empty array and removed nothing. If the new scene's create() ran before the
+    // old one's shutdown, both listeners stayed attached and every press stepped
+    // TWICE -- jumping two guns, which reads as "sometimes it doesn't switch".
+    // Hoisting the state to module scope means at most one listener can exist, and
+    // registering replaces the previous one by identity, so scene ordering is
+    // irrelevant.
+    //
+    // CAPTURE, not bubble. Phaser (and leftover DOM inputs) bind bubble-phase
+    // keydown on window; Cursor/Chrome bind Ctrl+Arrow as word-jump. Capture
+    // runs first, and preventDefault on the chord stops the steal. removeEventListener
+    // must pass the same `true` or the old listener leaks.
+    if (RAWN.onDown) window.removeEventListener('keydown', RAWN.onDown, true);
+    if (RAWN.onUp) window.removeEventListener('keyup', RAWN.onUp, true);
+    if (RAWN.onBlur) window.removeEventListener('blur', RAWN.onBlur);
+    this.rawDown = RAWN.onDown = onDown;
+    this.rawUp = RAWN.onUp = onUp;
+    this.rawBlur = RAWN.onBlur = onBlur;
+    window.addEventListener('keydown', RAWN.onDown, true);
+    window.addEventListener('keyup', RAWN.onUp, true);
+    window.addEventListener('blur', RAWN.onBlur);
+    this.rawOwned = true;
+  }
+
+  // Extra loadout stepper: Ctrl+Left / Ctrl+Right, and the plain `,` / `.` keys.
+  // Same list as keys 1–0 and the mouse wheel — owned guns, then grenade / smoke /
+  // molly, then the shield. It is an EXTRA option, not a guns-only cycle: a press
+  // that skipped throwables looked like "the switch did not work".
   private stepSlot(dir: -1 | 1) {
-    const me: any = (Session.room as any)?.state?.players.get(this.meId);
-    const guns = SLOTS.filter((s) => s.kind === 'gun'
-      && (s.id === 'pistol' || me?.[s.id] === true));
-    const list = guns.length >= 2 ? guns : this.slotCycle();
+    const list = this.slotCycle();
+    this.slotStepAt = this.time.now;
     this.dbgEv(`  list=${list.map((s) => s.id).join(',')}`);
     if (list.length < 2) return;
     const i = list.findIndex((s) => s.id === this.activeSlot);
@@ -1121,6 +1192,25 @@ export class ArenaScene extends Phaser.Scene {
       ? (dir > 0 ? 0 : list.length - 1)
       : ((i + dir) % list.length + list.length) % list.length;
     this.selectSlot(list[idx].id, false);
+  }
+
+  // Backup for Ctrl+Arrow. Chrome and Cursor steal that chord as word-jump, so
+  // the capture keydown never fires. Phaser Key.isDown and our rawHeld set still
+  // see the two keys as held, so a rising edge here catches the press the event
+  // path missed. slotStepAt stops this from double-stepping with the listener.
+  private pollSlotChord() {
+    const k = this.keys;
+    if (!k) return;
+    const ctrl = !!(k.CTRL?.isDown || this.rawHeld.has('ControlLeft') || this.rawHeld.has('ControlRight'));
+    const left = !!(k.LEFT?.isDown || this.rawHeld.has('ArrowLeft'));
+    const right = !!(k.RIGHT?.isDown || this.rawHeld.has('ArrowRight'));
+    if (left && right) { return; } // a stuck leftover arrow must not block the other
+    const dir: -1 | 0 | 1 = ctrl && left ? -1 : ctrl && right ? 1 : 0;
+    if (!dir) { this.chordHeld = 0; return; }
+    if (this.time.now - this.slotStepAt < 160) { this.chordHeld = dir; return; }
+    if (dir === this.chordHeld) return;
+    this.chordHeld = dir;
+    this.stepSlot(dir);
   }
 
   // called every frame: commits a wheel gesture once its events stop arriving
@@ -1260,15 +1350,18 @@ export class ArenaScene extends Phaser.Scene {
 
   // steel + standing bricks + water (mirrors server solids())
   private solids(): Array<{ x: number; y: number; w: number; h: number }> {
+    if (this.solidCache) return this.solidCache;
     const out = [...STEEL, ...WATER];
     BRICKS.forEach((rc, i) => {
       if ((this.brickHp.get(`br_${i}`) ?? BRICK_HP) > 0) out.push(rc);
     });
+    this.solidCache = out;
     return out;
   }
 
   private syncBrick(id: string, hp: number) {
     this.brickHp.set(id, hp);
+    this.solidCache = null;
     const idx = Number(id.split('_')[1]);
     const rc = BRICKS[idx];
     if (!rc) return;
@@ -2879,6 +2972,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.tickFoeArcs(dt);
     this.commitWheel();
+    this.pollSlotChord();
     // a switch the server never acknowledges must not strand the strip on
     // "SWITCHING" - state changes drive the happy path, this drives the timeout
     if (this.pendingSlot) {
@@ -2921,7 +3015,7 @@ export class ArenaScene extends Phaser.Scene {
       // electric gun idles with a live charge crackling off the prongs
       const mySt: any = (Session.room as any)?.state?.players.get(this.meId);
       const volt = mySt?.weapon === 'electric';
-      if (volt && me.alive && Math.random() < 0.3) {
+      if (volt && me.alive && quality() !== 'low' && Math.random() < 0.08) {
         const zx = me.gfx.x + Math.cos(ang) * (MUZZLE + 4), zy = me.gfx.y + Math.sin(ang) * (MUZZLE + 4);
         const z = this.add.image(zx, zy, 'zap').setDepth(5)
           .setScale(0.26 + Math.random() * 0.22).setAngle(Math.random() * 360)
@@ -3036,14 +3130,14 @@ export class ArenaScene extends Phaser.Scene {
     }
     this.drawCrosshair();
     for (const w of this.waterTiles) w.tilePositionX += dt * 12;
-    // fps meter (?fps=1) + auto low-graphics: 3 straight sub-35fps seconds
-    // on HIGH drops scan/vignette/dust live (two tabs on one box stay fluid)
+    // fps meter (?fps=1) + auto low-graphics: one sub-40fps second on HIGH
+    // drops scan/vignette/dust (two tabs on one box stay fluid)
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 1) {
       const fps = Math.round(this.fpsN / this.fpsAcc);
       if (!this.autoQTrip && quality() === 'high' && playing) {
-        this.autoQLow = fps < 35 ? this.autoQLow + 1 : 0;
-        if (this.autoQLow >= 3) {
+        this.autoQLow = fps < 40 ? this.autoQLow + 1 : 0;
+        if (this.autoQLow >= 1) {
           this.autoQTrip = true;
           setQuality('low');
           this.tacScan?.setVisible(false);

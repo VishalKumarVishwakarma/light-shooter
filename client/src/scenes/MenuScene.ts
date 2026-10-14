@@ -19,11 +19,8 @@ export class MenuScene extends Phaser.Scene {
     this.listing = false;
     // backdrop: stretched gradient + grain + grid + drifting glow orbs + embers
     this.add.image(480, 300, 'menubg').setDisplaySize(960, 600);
-    const grid = this.add.graphics().setDepth(1).setAlpha(0.5);
-    grid.lineStyle(1, 0x22d3ee, 0.07);
-    for (let gx = 0; gx <= 960; gx += 48) grid.lineBetween(gx, 0, gx, 600);
-    for (let gy = 0; gy <= 600; gy += 48) grid.lineBetween(0, gy, 960, gy);
-    this.add.tileSprite(480, 300, 960, 600, 'noise').setAlpha(0.35);
+    this.add.image(480, 300, 'menugrid').setDisplaySize(960, 600).setAlpha(0.5).setDepth(1);
+    this.add.tileSprite(480, 300, 960, 600, 'noise').setAlpha(quality() === 'low' ? 0.15 : 0.35);
     const orbC = this.add.image(180, 420, 'halo').setTint(0x22d3ee)
       .setBlendMode(Phaser.BlendModes.ADD).setScale(5, 5).setAlpha(0.16).setDepth(1);
     const orbA = this.add.image(790, 400, 'halo').setTint(0xf59e0b)
@@ -36,17 +33,19 @@ export class MenuScene extends Phaser.Scene {
       targets: orbA, x: 750, y: 440, alpha: 0.18,
       duration: 6200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
-    this.add.particles(0, 0, 'dot', {
-      x: { min: 40, max: 920 },
-      y: 620,
-      lifespan: 3800,
-      speedY: { min: -60, max: -25 },
-      speedX: { min: -12, max: 12 },
-      scale: { start: 0.7, end: 0 },
-      alpha: { start: 0.7, end: 0 },
-      tint: [0x22d3ee, 0xf59e0b, 0x64748b],
-      frequency: 140,
-    }).setDepth(1);
+    if (quality() !== 'low') {
+      this.add.particles(0, 0, 'dot', {
+        x: { min: 40, max: 920 },
+        y: 620,
+        lifespan: 3800,
+        speedY: { min: -60, max: -25 },
+        speedX: { min: -12, max: 12 },
+        scale: { start: 0.7, end: 0 },
+        alpha: { start: 0.7, end: 0 },
+        tint: [0x22d3ee, 0xf59e0b, 0x64748b],
+        frequency: 280,
+      }).setDepth(1);
+    }
 
     const title = displayText(this, 480, 106, 'LIGHT SHOOTER', 54);
     this.tweens.add({ targets: title, y: 100, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
@@ -183,8 +182,10 @@ export class MenuScene extends Phaser.Scene {
         this.errText.setText('');
         try {
           await Session.createLobby();
+          if (!this.sys.isActive()) return;
           this.scene.start('lobby');
         } catch (e: any) {
+          if (!this.sys.isActive()) return;
           this.errText.setText('create failed: ' + (e?.message || e));
         }
       },
@@ -226,11 +227,18 @@ export class MenuScene extends Phaser.Scene {
     live.setStroke('#020617', 3);
     live.setShadow(0, 0, '#4ade80', 8, false, true);
     const pingLobbies = async () => {
+      // CREATE/JOIN can tear this scene down while GET /lobbies is in flight.
+      // live is a Phaser Text: after preDestroy, Frame.data is null and setText
+      // throws "Cannot read properties of null (reading 'drawImage')".
       try {
         const ls = await fetchLobbies();
+        if (!this.sys.isActive()) return;
         const n = ls.reduce((a, l) => a + l.players, 0);
         live.setText(`● ${ls.length} LOBBIES · ${n} PLAYERS ONLINE`);
-      } catch { live.setText(''); }
+      } catch {
+        if (!this.sys.isActive()) return;
+        live.setText('');
+      }
     };
     void pingLobbies();
     this.time.addEvent({ delay: 5000, loop: true, callback: () => void pingLobbies() });
@@ -241,8 +249,8 @@ export class MenuScene extends Phaser.Scene {
         history.replaceState({}, '', location.pathname);
         this.errText.setText('joining shared lobby…');
         Session.joinLobby(rc).then(
-          () => this.scene.start('lobby'),
-          () => this.showError('LINK EXPIRED', 'That lobby is gone. Create a new one!'),
+          () => { if (this.sys.isActive()) this.scene.start('lobby'); },
+          () => { if (this.sys.isActive()) this.showError('LINK EXPIRED', 'That lobby is gone. Create a new one!'); },
         );
       }
     } catch { /* non-browser env */ }
@@ -362,7 +370,7 @@ export class MenuScene extends Phaser.Scene {
     // past the right edge of a 520-wide panel
     const ctl: Array<[string, string]> = [
       ['', 'move WASD / arrows · aim with mouse · hold click to fire'],
-      ['', 'wheel or 1-0 switches any slot · R reloads · Q toggles the shield'],
+      ['', 'wheel, 1-0, or Ctrl+arrows switch guns and throwables · R reloads · Q shield'],
       ['', 'G / X / C throw now · F knife · E grabs a gun'],
     ];
     const ctlPlan = this.planRows(ctl, W, 14, 7);
@@ -412,6 +420,7 @@ export class MenuScene extends Phaser.Scene {
       ['✋', 'Move with WASD or arrows.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
       ['🔫', 'Grab guns with E. 1-0 or the wheel switches any slot.'],
+      ['↔️', 'Ctrl + Left/Right also switches guns and throwables.'],
       ['🔪', 'F is a knife: 50 damage, and it pierces shields.'],
       ['⚡', 'Electric gun: every hit locks them for 2.5s.'],
       ['🛡️', 'You spawn SHIELDED; a raised shield stops every bullet.'],
@@ -478,14 +487,16 @@ export class MenuScene extends Phaser.Scene {
     try {
       lobbies = await fetchLobbies();
     } catch (e: any) {
-      this.errText.setText('list failed, enter code manually. ' + (e?.message || e));
       this.listing = false;
+      if (!this.sys.isActive()) return;
+      this.errText.setText('list failed, enter code manually. ' + (e?.message || e));
       return this.askCode();
     } finally {
       // one-way latch: anything thrown while rendering the rows used to leave
       // `listing` true, and every later click on JOIN LOBBY was a silent no-op
       this.listing = false;
     }
+    if (!this.sys.isActive()) return;
     this.clearList();
     this.errText.setText(lobbies.length ? '' : 'no open lobbies — create one!');
     const rows = lobbies.slice(0, 2);
@@ -540,8 +551,10 @@ export class MenuScene extends Phaser.Scene {
         this.errText.setText('joining ' + l.code + '…');
         try {
           await Session.joinLobby(l.code);
+          if (!this.sys.isActive()) return;
           this.scene.start('lobby');
         } catch (e: any) {
+          if (!this.sys.isActive()) return;
           this.errText.setText('');
           this.showError('JOIN FAILED', String(e?.message || e));
         }
@@ -615,9 +628,10 @@ export class MenuScene extends Phaser.Scene {
       m.close();
       this.errText.setText('joining…');
       Session.joinLobby(code).then(
-        () => this.scene.start('lobby'),
+        () => { if (this.sys.isActive()) this.scene.start('lobby'); },
         (e: any) => {
           joining = false;
+          if (!this.sys.isActive()) return;
           this.errText.setText('');
           this.showError('JOIN FAILED', String(e?.message || e));
         },

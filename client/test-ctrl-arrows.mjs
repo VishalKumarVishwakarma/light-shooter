@@ -41,6 +41,7 @@ import fs from 'node:fs';
 const arena = fs.readFileSync(new URL('./src/scenes/ArenaScene.ts', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
 const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const menu = fs.readFileSync(new URL('./src/scenes/MenuScene.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const SLOTS = [...arena.matchAll(/\{ key: '(\d)', nm: '([^']*)', id: '(\w+)', kind: '(\w+)' \}/g)]
   .map((m) => ({ key: m[1], id: m[3], kind: m[4] }));
 
@@ -70,22 +71,35 @@ ok(!/this\.keys\.S\.isDown \|\| \(this\.keys\.DOWN\.isDown && !ctrl\)/.test(aren
 // which the order-independence fix replaced with a shared `once()` guard. The
 // detailed assertions live in the CAUSE 1 block below; these only confirm each
 // arrow is wired at all, and in the right direction.
-ok(/c === 'ArrowLeft' \|\| c === 'ArrowRight'\) \{\s*if \(ev\.ctrlKey\) once\(ev, c === 'ArrowLeft' \? -1 : 1\)/.test(arena),
-  'Ctrl+Left/Right steps on the raw listener, gated on ev.ctrlKey');
+ok(/if \(left \|\| right\) \{\s*if \(ctrl\) \{\s*once\(ev, left \? -1 : 1\);\s*eat\(ev\);/.test(arena),
+  'Ctrl+Left/Right steps on the raw listener, gated on ctrl, and eats the event so Chrome/Cursor cannot steal the chord');
+ok(/ev\.stopImmediatePropagation\(\)/.test(arena),
+  'stopImmediatePropagation is used so a later window listener cannot swallow the chord');
 ok(/c === 'Comma'\) \{ once\(ev, -1\)/.test(arena), '`,` steps back with NO modifier');
 ok(/c === 'Period'\) \{ once\(ev, 1\)/.test(arena), '`.` steps forward with NO modifier');
 // auto-repeat is guarded in three places now: the shared once() for the arrows,
 // keydown-CTRL's own early return, and inline on comma/period
 ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{[\s\S]{0,200}?if \(!ev\.repeat\) this\.stepSlot\(dir\);\s*\};/.test(arena),
   'auto-repeat is ignored, so holding a combo steps once');
-ok(/onDown[\s\S]{0,600}?if \(ev\.repeat\) return;/.test(arena),
+ok(/const onDown = \(ev: KeyboardEvent\) => \{[\s\S]{0,900}?if \(ev\.repeat\) return;/.test(arena),
   'and the raw listener bails on repeat before any branch runs');
-ok(/ev\.ctrlKey/.test(arena), 'the modifier is read off the KeyboardEvent');
+ok(/const ctrl = !!\(ev\.ctrlKey \|\| ev\.metaKey \|\| ev\.getModifierState\?\.\('Control'\)\)/.test(arena),
+  'the modifier is OS truth (ctrlKey / metaKey / getModifierState), not a stale held-Control bit');
 // There IS now a keydown-CTRL listener, deliberately -- it is the fix for pressing
 // the arrow BEFORE Ctrl. What must not exist is a *polled* modifier driving the
 // stepper, which was the original single-listener design.
+ok(/this\.bindRawSlotChord\(\)/.test(arena),
+  'the window listener is rebound every arena visit, not trapped behind kbWired');
+ok(/private bindRawSlotChord\(/.test(arena), '...as bindRawSlotChord()');
+ok(/private claimCanvas\(/.test(arena),
+  'claimCanvas exists so a leftover callsign input cannot steal Ctrl+Arrow');
+ok(/this\.claimCanvas\(\)/.test(arena), '...and is called from create / pointerdown');
+
+ok(/this\.pollSlotChord\(\)/.test(arena),
+  'Ctrl+Arrow is also polled each frame so a stolen keydown cannot kill the switch');
+ok(/private pollSlotChord\(/.test(arena), '...via pollSlotChord, not a raw CTRL.isDown -> stepSlot');
 ok(!/if \(this\.keys\.CTRL\.isDown\) this\.stepSlot/.test(arena),
-  'the stepper is not driven by polling a CTRL key state');
+  'the stepper is not a polled CTRL.isDown with no edge (that would machine-gun the strip)');
 
 // --- WHICH LIST gets stepped ----------------------------------------------
 // Three versions have shipped, and each broke something, so all three are pinned:
@@ -100,41 +114,17 @@ const body = /private stepSlot\(dir: -1 \| 1\) \{([\s\S]*?)\n  \}/.exec(arena);
 ok(!!body, 'stepSlot body is locatable');
 ok(!/private gunCycle\(/.test(arena), 'the guns-only cycle is gone as a separate method');
 if (body) {
-  ok(/kind === 'gun'/.test(body[1]), 'it filters to guns -- this is a gun selector');
-  ok(/this\.slotCycle\(\)/.test(body[1]), 'and can reach slotCycle() as a fallback');
-  ok(/guns\.length >= 2 \? guns : this\.slotCycle\(\)/.test(body[1]),
-    'the ternary picks guns when two or more are carried, the strip otherwise');
+  ok(/this\.slotCycle\(\)/.test(body[1]),
+    'Ctrl+Arrow steps slotCycle() — the same guns+throwables+shield strip as 1-0');
+  ok(!/guns\.length >= 2 \? guns : this\.slotCycle\(\)/.test(body[1]),
+    'and does NOT collapse to guns-only once a second gun is picked up');
   ok(!/guns\.length < 2\) return/.test(body[1]),
     'and does NOT bail out entirely with one gun, which is what made 69673c2 dead');
 }
 
-// BEHAVIOUR, modelled from the SOURCE's list.
-//
-// The first version of this suite hard-coded the wheel's filter in the helper, so
-// reverting the source to the guns-only filter changed nothing the behaviour
-// assertions could see -- they only tripped the shape checks. The list is now
-// derived from what stepSlot actually does, so the shipped bug fails on BEHAVIOUR:
-// with a guns-only filter `cycle({}).length` is 1 and every "not a no-op" assertion
-// below goes red, which is the symptom that was reported.
-// Derived from the SOURCE, so a revert changes what the behaviour assertions see.
-// Three shapes are recognised so all three historical bugs fail here rather than
-// only tripping the shape checks above:
-//   gunsOnly + early return -> the 69673c2 inert build
-//   gunsOnly, no fallback  -> dead with one gun
-//   neither                -> the ea84703 everything-selector
-const srcGuns = body ? /kind === 'gun'/.test(body[1]) : false;
-const srcFallback = body ? /guns\.length >= 2 \? guns : this\.slotCycle\(\)/.test(body[1]) : false;
-const srcBails = body ? /guns\.length < 2\) return/.test(body[1]) : false;
-const gunsList = (me) => SLOTS.filter((s) => s.kind === 'gun'
-  && (s.id === 'pistol' || (me && me[s.id] === true)));
 const stripList = (me) => SLOTS.filter((s) => s.kind !== 'gun'
   || s.id === 'pistol' || (me && me[s.id] === true));
-const cycle = (me) => {
-  if (!srcGuns) return stripList(me);                       // ea84703: everything
-  if (!srcFallback) return gunsList(me);                    // guns only, dead at spawn
-  const g = gunsList(me);
-  return srcBails && g.length < 2 ? g : (g.length >= 2 ? g : stripList(me));
-};
+const cycle = (me) => stripList(me);
 function step(dir, active, me) {
   const l = cycle(me);
   if (l.length < 2) return active;
@@ -159,24 +149,15 @@ function step(dir, active, me) {
   const me = Object.fromEntries(all.map((g) => [g, true]));
   const l = cycle(me);
   ok(all.every((g) => l.some((s) => s.id === g)), 'every owned gun is in the stepped list');
-  ok(!l.some((s) => s.kind !== 'gun'),
-    'and with guns carried NO throwable or shield is in it -- every press is a gun');
-  // all six guns reachable in one sweep
-  const hit = new Set(['pistol']);
-  let cur = 'pistol';
-  for (let i = 0; i < 5; i++) { cur = step(1, cur, me); hit.add(cur); }
-  ok(['pistol', ...all].every((g) => hit.has(g)),
-    `all six guns reached in 5 presses (${[...hit].join(', ')})`);
-  ok(step(1, 'rifle', me) === 'shotgun', 'Ctrl+Right walks the strip in order');
+  ok(l.some((s) => s.kind === 'ord'), 'throwables stay in the Ctrl+Arrow strip — it is an extra 1-0 option');
+  ok(l.some((s) => s.kind === 'shield'), '...and so does the shield');
+  ok(step(1, 'rifle', me) === 'shotgun', 'Ctrl+Right walks owned guns in strip order');
   ok(step(-1, 'rifle', me) === 'pistol', 'Ctrl+Left walks it back');
-  // wraps to the LAST GUN, not to the shield -- the stepped list is guns-only
-  // while guns are carried, so the far end is `electric`, not a throwable
-  ok(step(-1, 'pistol', me) === 'electric',
-    'and wraps past the start to the last gun, not to a throwable');
-  ok(step(-1, 'electric', me) === 'laser', 'wrapping is a plain cycle of the guns');
-  // unpicked guns are skipped, not selectable
+  ok(step(-1, 'pistol', me) === 'shield',
+    'and wraps past the start onto the shield (full strip, same as key 0)');
+  ok(step(1, 'electric', me) === 'grenade', 'after the last gun comes grenade, not a wrap to pistol');
   ok(step(1, 'pistol', { shotgun: true }) === 'shotgun',
-    'with only pistol+shotgun owned, Ctrl+Right goes to shotgun');
+    'with only pistol+shotgun owned, Ctrl+Right still reaches shotgun');
   ok(step(1, 'pistol', { rifle: true }) === 'rifle',
     'and never lands on a gun that was not picked up');
 }
@@ -190,10 +171,10 @@ ok(!/\(dir > 0 \? 0 : list\.length - 1\) : i/.test(arena),
   'entering from outside the list does NOT also take a step (that skipped an entry)');
 ok(/this\.selectSlot\(list\[idx\]\.id, false\);/.test(arena),
   'it goes through selectSlot, so the server is told exactly as for 1-0');
-ok(/window\.addEventListener\('keydown', RAWN\.onDown\)/.test(arena),
-  'the stepper listens on window keydown');
-ok(/window\.removeEventListener\('keydown', RAWN\.onDown\)/.test(arena),
-  'and is unregistered, because window outlives every scene');
+ok(/window\.addEventListener\('keydown', RAWN\.onDown, true\)/.test(arena),
+  'the stepper listens on window keydown in the CAPTURE phase');
+ok(/window\.removeEventListener\('keydown', RAWN\.onDown, true\)/.test(arena),
+  'and is unregistered with the same capture flag, because window outlives every scene');
 // duplication is the real hazard: Phaser AND window would both step
 for (const k of ['LEFT', 'RIGHT', 'COMMA', 'PERIOD']) {
   ok(!new RegExp(`kb\\.on\\('keydown-${k}'`).test(arena),
@@ -216,11 +197,11 @@ ok(/const RAWN: \{ onDown: any; onUp: any; onBlur: any \}/.test(arena),
   const cls = arena.search(/\n(?:export )?class ArenaScene[^\n{]*\{/);
   ok(decl >= 0 && cls > decl, 'and it is declared at module scope, ABOVE the class');
 }
-ok(/if \(RAWN\.onDown\) window\.removeEventListener\('keydown', RAWN\.onDown\);/.test(arena),
+ok(/if \(RAWN\.onDown\) window\.removeEventListener\('keydown', RAWN\.onDown, true\);/.test(arena),
   'the previous listener is removed BY IDENTITY before a new one is added');
-ok(/window\.addEventListener\('keydown', RAWN\.onDown\)/.test(arena),
+ok(/window\.addEventListener\('keydown', RAWN\.onDown, true\)/.test(arena),
   'and the singleton is what gets registered');
-ok(/if \(this\.rawOwned\) \{/.test(arena),
+ok(/if \(this\.rawOwned && RAWN\.onDown === this\.rawDown\) \{/.test(arena),
   'shutdown only detaches if this scene still owns the listener');
 ok(/RAWN\.onDown = RAWN\.onUp = RAWN\.onBlur = null;/.test(arena),
   'and clears all three slots so a later scene starts from a known state');
@@ -239,7 +220,11 @@ ok(!/this\.stepGun\(/.test(arena), 'no stale stepGun calls remain');
 ok(/class="k">Ctrl<\/span>/.test(html), 'the key hints advertise Ctrl + arrows');
 ok(/class="k">,<\/span>|class="k">&comma;|class="k">&#44;/.test(html) || /class="k">\.,?<\/span>/.test(html),
   'and the comma/period fallback');
-ok(/weapon<\/b>/.test(html), 'labelled as the weapon control');
+ok(/gun \/ throw<\/b>/.test(html), 'labelled as gun / throw — Ctrl+Arrow is the extra 1-0 option');
+ok(/Ctrl \+ Left\/Right also switches guns and throwables/.test(menu),
+  'HOW TO PLAY lists Ctrl+Left/Right as an extra gun/throwable switch');
+ok(/wheel, 1-0, or Ctrl\+arrows switch guns and throwables/.test(menu),
+  'SETTINGS controls list the same extra option');
 
 // ===========================================================================
 // INTERMITTENCY. Reported as "sometimes works and sometimes not", which is a
@@ -253,7 +238,7 @@ ok(/weapon<\/b>/.test(html), 'labelled as the weapon control');
 // delivered an arrow event with ctrlKey=false, then a bare keydown-CTRL with no
 // arrow information -- nothing happened. Working or not came down to which
 // finger moved first.
-ok(/c === 'ControlLeft' \|\| c === 'ControlRight'\) \{\s*if \(this\.rawHeld\.has\('ArrowLeft'\)\) once\(ev, -1\);\s*else if \(this\.rawHeld\.has\('ArrowRight'\)\) once\(ev, 1\);/.test(arena),
+ok(/c === 'ControlLeft' \|\| c === 'ControlRight'\) \{\s*if \(this\.rawHeld\.has\('ArrowLeft'\)\) \{ once\(ev, -1\); eat\(ev\); \}\s*else if \(this\.rawHeld\.has\('ArrowRight'\)\) \{ once\(ev, 1\); eat\(ev\); \}/.test(arena),
   'Ctrl going down SECOND acts on an already-held arrow, via our own rawHeld set');
 // the direction must come from which arrow is HELD, not from a polled modifier
 const ctrlIsDown = [...arena.matchAll(/keys\.CTRL\?*\.isDown/g)];
@@ -262,9 +247,11 @@ ok(ctrlIsDown.length === 1,
 // exactly one of the two conditions can be true when the second key lands, so it
 // cannot double-step; replayed rather than asserted
 ok(/this\.rawHeld\.add\(ev\.code\)/.test(arena), 'held keys are tracked from e.code');
-ok(/const onUp = \(ev: KeyboardEvent\) => \{ this\.rawHeld\.delete\(ev\.code\); \};/.test(arena),
-  'and released on keyup');
-ok(/RAWN\.onBlur = \(\) => \{ this\.rawHeld\.clear\(\); \}/.test(arena),
+ok(/const had = this\.rawHeld\.delete\(ev\.code\)/.test(arena),
+  'keyup knows whether we saw the matching keydown');
+ok(/if \(had\) return;/.test(arena),
+  'and only steps on keyup when keydown was stolen (had is false)');
+ok(/RAWN\.onBlur = onBlur/.test(arena) && /this\.rawHeld\.clear\(\); this\.chordHeld = 0/.test(arena),
   'and cleared on blur, so a lost keyup cannot strand a held arrow');
 
 // --- CAUSE 2: A LOST KEYUP KILLED IT PERMANENTLY ---------------------------
@@ -344,9 +331,52 @@ ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena),
     'and ctrl-first still works, so nothing regressed');
 }
 
-// --- the regression that actually caused the third report ------------------
-// How many of four presses select a gun. This is the number that matters: at 1-in-5
-// the control "works" but is not a gun switch, which is what the user reported.
+// Stolen keydown: Cursor/Electron ate Ctrl+Arrow's keydown, but keyup still
+// arrives with ctrlKey set and rawHeld never saw the arrow. Must step once,
+// and must NOT double-step when keydown DID fire (had === true).
+{
+  function stolen(upCtrl) {
+    const steps = [];
+    const rawHeld = new Set();
+    let slotStepAt = -1000;
+    const now = 5000;
+    const stepSlot = (d) => { steps.push(d); slotStepAt = now; };
+    const onUp = (ev) => {
+      const had = rawHeld.delete(ev.code);
+      const left = ev.code === 'ArrowLeft';
+      const right = ev.code === 'ArrowRight';
+      if (!(left || right)) return;
+      const ctrl = !!ev.ctrlKey;
+      if (!ctrl) return;
+      if (had) return;
+      if (now - slotStepAt < 160) return;
+      stepSlot(left ? -1 : 1);
+    };
+    if (upCtrl) onUp({ code: 'ArrowLeft', ctrlKey: true });
+    return steps;
+  }
+  ok(stolen(true).length === 1,
+    'keyup of Arrow+Ctrl steps when keydown never arrived (the Cursor steal)');
+  {
+    const steps = [];
+    const rawHeld = new Set(['ArrowLeft']);
+    let slotStepAt = 5000;
+    const now = 5050;
+    const onUp = (ev) => {
+      const had = rawHeld.delete(ev.code);
+      const left = ev.code === 'ArrowLeft';
+      if (!left || !ev.ctrlKey) return;
+      if (had) return;
+      if (now - slotStepAt < 160) return;
+      steps.push(-1);
+    };
+    onUp({ code: 'ArrowLeft', ctrlKey: true });
+    ok(steps.length === 0,
+      'keyup does NOT step again when keydown already handled the chord');
+  }
+}
+
+// Ctrl+Arrow is an EXTRA 1-0 option: guns AND throwables AND shield, always.
 {
   const ALL = ['rifle', 'shotgun', 'sniper', 'laser', 'electric'];
   const allMe = Object.fromEntries(ALL.map((g) => [g, true]));
@@ -357,27 +387,15 @@ ok(/window\.addEventListener\('blur'[\s\S]{0,60}?kb\.resetKeys\(\)/.test(arena),
     for (let i = 0; i < 4; i++) { cur = step(1, cur, me); out.push(cur); }
     return out;
   };
-  for (const [label, me] of [['2 guns', { rifle: true }], ['3 guns', { rifle: true, shotgun: true }],
-    ['all 6', allMe]]) {
-    const seq = sweep(me);
-    ok(seq.every(isGun),
-      `with ${label}, all four presses select guns (${seq.join(' -> ')})`);
-    ok(new Set(seq).size > 1, `with ${label}, consecutive presses actually differ`);
-  }
-  // the specific ea84703 failure: a full strip lands on a throwable almost every time
-  const stripSeq = sweep(allMe);
-  const stripGunRate = stripSeq.filter(isGun).length / stripSeq.length;
-  ok(!cycle(allMe).some((s) => s.kind !== 'gun'),
-    `the ea84703 build put throwables in the list (a strip sweep hits a gun only `
-    + `${Math.round(stripGunRate * 100)}% of the time) -- that was the bug`);
-
-  // and it must still never be dead
-  ok(step(1, 'pistol', {}) !== 'pistol',
-    'with only the pistol it falls back to the strip rather than doing nothing');
+  ok(cycle(allMe).some((s) => s.kind === 'ord'),
+    'the strip includes throwables even when every gun is owned');
+  const seq = sweep(allMe);
+  ok(new Set(seq).size > 1, `consecutive presses actually differ (${seq.join(' -> ')})`);
+  ok(step(1, 'pistol', {}) !== 'pistol', 'with only the pistol it still steps (onto a throwable)');
   ok(step(-1, 'pistol', {}) !== 'pistol', 'stepping left is not dead either');
   const solo = cycle({});
   ok(solo.length >= 2 && solo.some((s) => s.kind !== 'gun'),
-    'and the fallback really is the throwables/shield strip, not a one-item list');
+    'and the spawn list really is the throwables/shield strip, not a one-item gun list');
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

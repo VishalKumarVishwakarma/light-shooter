@@ -929,6 +929,22 @@ function menubg() {
   return c;
 }
 
+// Menu TAC grid. Used to be a Phaser Graphics of ~40 lineBetween calls —
+// Graphics is retained-mode, so those lines were re-tessellated every frame
+// on the MENU. One image, one draw call.
+function menugrid() {
+  const { c, ctx } = cv(960, 600);
+  ctx.strokeStyle = 'rgba(34,211,238,0.07)';
+  ctx.lineWidth = 1;
+  for (let gx = 0; gx <= 960; gx += 48) {
+    ctx.beginPath(); ctx.moveTo(gx + 0.5, 0); ctx.lineTo(gx + 0.5, 600); ctx.stroke();
+  }
+  for (let gy = 0; gy <= 600; gy += 48) {
+    ctx.beginPath(); ctx.moveTo(0, gy + 0.5); ctx.lineTo(960, gy + 0.5); ctx.stroke();
+  }
+  return c;
+}
+
 // Premium HQ button shell: sculpted face, gloss + sheen, deep bottom weight.
 // Kept light-based so per-use tint() colors it cleanly (green/blue/gold).
 function btn(w: number, h: number) {
@@ -1027,6 +1043,7 @@ export function ensureTextures(scene: Phaser.Scene) {
   put(scene, 'waterTile', waterTile());
   put(scene, 'rubble', rubble());
   put(scene, 'menubg', menubg());
+  put(scene, 'menugrid', menugrid());
   put(scene, 'btn320', btn(320, 56));
   put(scene, 'btn220', btn(220, 52));
 }

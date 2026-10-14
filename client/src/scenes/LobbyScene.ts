@@ -194,7 +194,7 @@ export class LobbyScene extends Phaser.Scene {
     leave.on('pointerdown', async () => {
       this.gone = true;
       await Session.leave();
-      this.scene.start('menu');
+      if (this.sys.isActive()) this.scene.start('menu');
     });
     this.wire();
   }
@@ -205,23 +205,35 @@ export class LobbyScene extends Phaser.Scene {
 
   private drawMapPreview(cx: number, cy: number) {
     const s = 100 / 1600, w = 100, h = 1200 * s;
-    const g = this.add.graphics().setDepth(2);
-    g.fillStyle(0x020617, 0.85);
-    g.fillRect(cx - w / 2, cy - h / 2, w, h);
-    const dot = (rc: { x: number; y: number; w: number; h: number }) =>
-      g.fillRect(cx - w / 2 + rc.x * s, cy - h / 2 + rc.y * s, Math.max(1, rc.w * s), Math.max(1, rc.h * s));
-    g.fillStyle(0x7dd3fc, 0.6);
-    for (const rc of WATER) dot(rc);
-    g.fillStyle(0xcbd5e1, 0.9);
-    for (const rc of STEEL) dot(rc);
-    g.fillStyle(0xc65a1e, 0.9);
-    for (const rc of BRICKS) dot(rc);
-    g.fillStyle(0x22c55e, 0.5);
-    for (const rc of BUSH) dot(rc);
-    g.fillStyle(0x4ade80, 1);
-    for (const [x, y] of SPAWNS) g.fillCircle(cx - w / 2 + x * s, cy - h / 2 + y * s, 1.8);
-    g.lineStyle(1, 0x22d3ee, 0.5);
-    g.strokeRect(cx - w / 2, cy - h / 2, w, h);
+    const key = 'lobbyMapPrev';
+    // Bake once. A Graphics of every steel/brick/water/bush rect is retained-mode
+    // and was re-tessellated every lobby frame.
+    if (!this.textures.exists(key)) {
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(w));
+      cv.height = Math.max(1, Math.round(h));
+      const ctx = cv.getContext('2d');
+      if (ctx) {
+        const box = (hex: string, a: number, rc: { x: number; y: number; w: number; h: number }) => {
+          ctx.globalAlpha = a;
+          ctx.fillStyle = hex;
+          ctx.fillRect(rc.x * s, rc.y * s, Math.max(1, rc.w * s), Math.max(1, rc.h * s));
+        };
+        ctx.globalAlpha = 0.85; ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, w, h);
+        for (const rc of WATER) box('#7dd3fc', 0.6, rc);
+        for (const rc of STEEL) box('#cbd5e1', 0.9, rc);
+        for (const rc of BRICKS) box('#c65a1e', 0.9, rc);
+        for (const rc of BUSH) box('#22c55e', 0.5, rc);
+        ctx.globalAlpha = 1; ctx.fillStyle = '#4ade80';
+        for (const [x, y] of SPAWNS) {
+          ctx.beginPath(); ctx.arc(x * s, y * s, 1.8, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 0.5; ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1;
+        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      }
+      this.textures.addCanvas(key, cv);
+    }
+    this.add.image(cx, cy, key).setDepth(2);
     // A map is legitimately a rectangle -- what was missing was the sense that
     // it is a screen inset into the panel, so it gets a cast plate behind it and
     // the same corner brackets as every other surface.

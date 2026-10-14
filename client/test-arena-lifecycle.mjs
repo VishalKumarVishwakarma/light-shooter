@@ -117,7 +117,7 @@ ok(/o\?\.gfx\.destroy\(true\);/.test(onRemove), '...after the container is destr
 //    so each rematch added a handler per entity. live() stopped them drawing, so
 //    it was a slow tax, not a visible bug: invisible to every headless suite.
 const connect = body('async connect() {', '\n  }\n');
-const keeps = (connect.match(/this\.keep\(/g) || []).length;
+const keeps = (connect.match(/this\.keep\((?:room\.state(?:\.\w+)?|p|b|pk|th|cl)\.on(?:Add|Change|Remove)\(/g) || []).length;
 ok(keeps === 18, `all 18 Colyseus subscriptions are kept (${keeps}/18)`);
 // every collection-level hook, or entities would keep re-binding on each visit
 for (const coll of ['bricks', 'pickups', 'players', 'bullets', 'throws', 'clouds']) {

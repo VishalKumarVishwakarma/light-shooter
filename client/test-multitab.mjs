@@ -38,7 +38,7 @@ const body = (src, start, end) => {
 {
   // the transition is reached from a state listener, which fires on a WebSocket
   // patch and therefore runs with the render loop paused
-  ok(/room\.state\.onChange\(\(\) => \{\s*if \(room\.state\.phase === 'playing'\) this\.enterArena\(\);/.test(lobby),
+  ok(/room\.state\.onChange\(\(\) => \{\s*if \(live\(\) && room\.state\.phase === 'playing'\) this\.enterArena\(\);/.test(lobby),
     'phase === "playing" is watched on a state change, so it fires in a hidden tab');
   ok(!/this\.scene\.start\('arena'\)/.test(body(lobby, 'private lastCdSec')),
     'the raw scene.start("arena") is not left inline in update()');

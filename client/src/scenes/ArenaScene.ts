@@ -118,6 +118,7 @@ export class ArenaScene extends Phaser.Scene {
   private fireWas = false; // rising edge of the trigger, for one-shot items
   private slotStepAt = 0; // last stepSlot time; poll and keydown share it so they cannot double-step
   private chordHeld: -1 | 0 | 1 = 0; // Ctrl+Arrow still physically down
+  private slotModifier = false; // OS event state: Ctrl (Windows) or Command (Mac)
   // The game's event emitter outlives the scene, so a BLUR handler added per
   // create() would pile up one dead listener per arena visit. Held on the
   // instance and removed on shutdown.
@@ -293,11 +294,6 @@ export class ArenaScene extends Phaser.Scene {
       // WASD kept working because addKeys is unconditional, which is exactly
       // why this survived a casual playtest. Clear the guard on the way out.
       this.kbWired = false;
-      // detach every Colyseus subscription made in connect(), so a rematch
-      // starts from a clean callback list instead of stacking another handler
-      // per entity on the room state
-      for (const d of this.colyOff) { try { d(); } catch { /* state already gone */ } }
-      this.colyOff = [];
       if (this.blurHandler) {
         this.game.events.off(Phaser.Core.Events.BLUR, this.blurHandler);
         this.blurHandler = null;
@@ -320,6 +316,7 @@ export class ArenaScene extends Phaser.Scene {
       this.rawDown = this.rawUp = this.rawBlur = null;
       this.rawHeld.clear();
       this.chordHeld = 0;
+      this.slotModifier = false;
     });
     this.cameras.main.setBounds(0, 0, W, H);
     // Ground. This used to be a hard 40px grid of opaque lines across the whole
@@ -1107,12 +1104,16 @@ export class ArenaScene extends Phaser.Scene {
       // OS truth at this event, not a stale rawHeld Control: a lost Ctrl keyup
       // must NOT turn later strafes into gun switches.
       const ctrl = !!(ev.ctrlKey || ev.metaKey || ev.getModifierState?.('Control'));
+      this.slotModifier = ctrl;
       const left = c === 'ArrowLeft' || ev.key === 'ArrowLeft';
       const right = c === 'ArrowRight' || ev.key === 'ArrowRight';
       if (left) { this.dbgBump('keyL'); this.dbgEv(`LEFT ctrl=${ctrl ? 1 : 0}`); }
       else if (right) { this.dbgBump('keyR'); this.dbgEv(`RIGHT ctrl=${ctrl ? 1 : 0}`); }
       else if (c === 'ControlLeft' || c === 'ControlRight') this.dbgBump('keyCTRL');
-      if (ev.repeat) return;
+      if (ev.repeat) {
+        if (ctrl && (left || right)) eat(ev);
+        return;
+      }
       // `,` and `.`: no modifier, so nothing between the keyboard and here can
       // swallow them the way an OS shortcut can swallow a chord.
       if (c === 'Comma') { once(ev, -1); eat(ev); return; }
@@ -1124,9 +1125,9 @@ export class ArenaScene extends Phaser.Scene {
         }
         return; // a bare arrow is movement, and Phaser owns that
       }
-      // Ctrl landed second: act on whichever arrow is already held. Exactly one of
+      // Ctrl/Command landed second: act on whichever arrow is already held. Exactly one of
       // the two branches can be true when the second key arrives, so it steps once.
-      if (c === 'ControlLeft' || c === 'ControlRight') {
+      if (c === 'ControlLeft' || c === 'ControlRight' || c === 'MetaLeft' || c === 'MetaRight') {
         if (this.rawHeld.has('ArrowLeft')) { once(ev, -1); eat(ev); }
         else if (this.rawHeld.has('ArrowRight')) { once(ev, 1); eat(ev); }
       }
@@ -1136,6 +1137,16 @@ export class ArenaScene extends Phaser.Scene {
       // often swallow Ctrl+Arrow's keydown (word-jump) but still deliver keyup
       // with ctrlKey set — that is the press the keydown path never got.
       const had = this.rawHeld.delete(ev.code);
+      this.slotModifier = !!(ev.ctrlKey || ev.metaKey || ev.getModifierState?.('Control'));
+      // Some browsers omit arrow keyup while Command is held. Releasing
+      // Command must not leave an old arrow strafing or switching next time.
+      if ((ev.code === 'MetaLeft' || ev.code === 'MetaRight') && !ev.metaKey) {
+        this.rawHeld.delete('ArrowLeft');
+        this.rawHeld.delete('ArrowRight');
+        this.keys?.LEFT?.reset();
+        this.keys?.RIGHT?.reset();
+        this.chordHeld = 0;
+      }
       const left = ev.code === 'ArrowLeft' || ev.key === 'ArrowLeft';
       const right = ev.code === 'ArrowRight' || ev.key === 'ArrowRight';
       if (!(left || right)) return;
@@ -1149,7 +1160,7 @@ export class ArenaScene extends Phaser.Scene {
       ev.preventDefault();
       ev.stopImmediatePropagation();
     };
-    const onBlur = () => { this.rawHeld.clear(); this.chordHeld = 0; };
+    const onBlur = () => { this.rawHeld.clear(); this.chordHeld = 0; this.slotModifier = false; };
     // MODULE-LEVEL SINGLETON, not per instance. rawOff used to be an instance field,
     // but kbWired resets per scene, so a fresh ArenaScene's cleanup loop iterated its
     // OWN empty array and removed nothing. If the new scene's create() ran before the
@@ -1201,7 +1212,7 @@ export class ArenaScene extends Phaser.Scene {
   private pollSlotChord() {
     const k = this.keys;
     if (!k) return;
-    const ctrl = !!(k.CTRL?.isDown || this.rawHeld.has('ControlLeft') || this.rawHeld.has('ControlRight'));
+    const ctrl = !!(this.slotModifier || k.CTRL?.isDown || this.rawHeld.has('ControlLeft') || this.rawHeld.has('ControlRight'));
     const left = !!(k.LEFT?.isDown || this.rawHeld.has('ArrowLeft'));
     const right = !!(k.RIGHT?.isDown || this.rawHeld.has('ArrowRight'));
     if (left && right) { return; } // a stuck leftover arrow must not block the other
@@ -1716,7 +1727,17 @@ export class ArenaScene extends Phaser.Scene {
     this.meId = room.sessionId;
     // generation token: callbacks from previous arena visits exit early
     const gen = ++this.subGen;
-    const live = () => gen === this.subGen && Session.room === room;
+    const live = () => gen === this.subGen && Session.room === room && this.sys.settings.active;
+    this.events.once('shutdown', () => {
+      ++this.subGen;
+      this.pingTimer?.remove();
+      this.pingTimer = undefined;
+      for (const d of this.colyOff) { try { d(); } catch { /* state already gone */ } }
+      this.colyOff = [];
+    });
+    const onMessage = (type: string, callback: (message: any) => void) => {
+      this.keep(room.onMessage(type, callback));
+    };
 
     this.keep(room.state.onChange(() => {
       if (!live()) return;
@@ -1733,7 +1754,7 @@ export class ArenaScene extends Phaser.Scene {
     if (room.state.phase === 'ended') this.showEnd(room.state.winnerName);
     this.drawScore();
 
-    room.onMessage('kill', (k: { killer: string; victim: string; w?: string }) => {
+    onMessage('kill', (k: { killer: string; victim: string; w?: string }) => {
       if (!live()) return;
       const w = (k.w || 'pistol').toUpperCase();
       const myName = (Session.room as any)?.state?.players.get(this.meId)?.name;
@@ -1771,7 +1792,7 @@ export class ArenaScene extends Phaser.Scene {
       }
       this.feedExpiry = Date.now() + 6000;
     });
-    room.onMessage('hit', (h: { x: number; y: number; by?: string; dmg?: number; ox?: number; oy?: number; to?: string; w?: string }) => {
+    onMessage('hit', (h: { x: number; y: number; by?: string; dmg?: number; ox?: number; oy?: number; to?: string; w?: string }) => {
       if (!live()) return;
       this.boom(this.sparks, 8, h.x, h.y);
       const blocked = (h.dmg ?? 0) <= 0;
@@ -1809,7 +1830,7 @@ export class ArenaScene extends Phaser.Scene {
       }
       if (h.w === 'electric') sfx.zap(1.2 - Math.min(1, Math.hypot((this.players.get(this.meId)?.gfx.x ?? 0) - h.x, (this.players.get(this.meId)?.gfx.y ?? 0) - h.y) / 700));
     });
-    room.onMessage('chip', (c: { x: number; y: number; kind: string }) => {
+    onMessage('chip', (c: { x: number; y: number; kind: string }) => {
       if (!live()) return;
       // wall impacts: sparks off steel, dust puff off crumbling brick
       this.boom(this.sparks, 6, c.x, c.y);
@@ -1821,7 +1842,7 @@ export class ArenaScene extends Phaser.Scene {
       this.syncBrick(id, b.hp);
       this.keep(b.onChange(() => { if (live()) this.syncBrick(id, b.hp); }));
     }));
-    room.onMessage('collect', (c: { name: string; kind: string; x: number; y: number }) => {
+    onMessage('collect', (c: { name: string; kind: string; x: number; y: number }) => {
       if (!live()) return;
       sfx.pickup();
       const txt = c.kind === 'health' ? '+50 HP' : c.kind === 'ammo' ? 'AMMO FULL' : c.kind.toUpperCase() + '!';
@@ -2236,7 +2257,7 @@ export class ArenaScene extends Phaser.Scene {
       }));
     }));
 
-    room.onMessage('boom', (m: { x?: number; y?: number; r?: number }) => {
+    onMessage('boom', (m: { x?: number; y?: number; r?: number }) => {
       if (!live()) return;
       const x = m?.x || 0, y = m?.y || 0, r = m?.r || 100;
       const big = r >= 100; // grenades stage the full show; landings pop small
@@ -2277,16 +2298,20 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     // server gone mid-match: don't freeze silently, route back to menu
-    room.onLeave(() => {
+    const onLeave = () => {
       if (!live()) return;
       this.leaveToMenu();
-    });
-    room.onError(() => {
+    };
+    const onError = () => {
       if (!live()) return;
       this.leaveToMenu();
-    });
+    };
+    room.onLeave(onLeave);
+    room.onError(onError);
+    this.keep(() => room.onLeave.remove(onLeave));
+    this.keep(() => room.onError.remove(onError));
     // latency probe for the HUD ping meter (mod-1M keeps ints 32-bit for the codec)
-    room.onMessage('pong', (m: { t?: number }) => {
+    onMessage('pong', (m: { t?: number }) => {
       if (!live()) return;
       const now = Date.now() % 1000000;
       const sent = typeof m?.t === 'number' ? m.t : now;
@@ -2986,10 +3011,10 @@ export class ArenaScene extends Phaser.Scene {
       let dx = 0, dy = 0;
       if (this.keys.W.isDown || this.keys.UP.isDown) dy -= 1;
       if (this.keys.S.isDown || this.keys.DOWN.isDown) dy += 1;
-      // Ctrl+Left/Right is the gun selector, so the horizontal arrows are ignored
-      // while Ctrl is held. Up/Down are deliberately NOT gated: Ctrl+Up/Down still
+      // Ctrl/Command+Left/Right selects a slot, so horizontal arrows are ignored
+      // while either modifier is held. Up/Down are NOT gated: Ctrl+Up/Down still
       // moves, which is what a player reaching for Up expects.
-      const ctrl = !!this.keys.CTRL?.isDown;
+      const ctrl = !!(this.keys.CTRL?.isDown || this.slotModifier);
       if (this.keys.A.isDown || (this.keys.LEFT.isDown && !ctrl)) dx -= 1;
       if (this.keys.D.isDown || (this.keys.RIGHT.isDown && !ctrl)) dx += 1;
       if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }

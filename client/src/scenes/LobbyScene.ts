@@ -297,11 +297,39 @@ export class LobbyScene extends Phaser.Scene {
   private wire() {
     const room: any = Session.room;
     const gen = ++this.lobbyGen;
-    const live = () => gen === this.lobbyGen && Session.room === room;
+    const live = () => gen === this.lobbyGen && Session.room === room && this.sys.settings.active;
+    const off: Array<() => void> = [];
+    const playerOff = new Map<string, () => void>();
+    this.events.once('shutdown', () => {
+      this.gone = true;
+      ++this.lobbyGen;
+      off.forEach(dispose => dispose());
+      playerOff.forEach(dispose => dispose());
+      playerOff.clear();
+      this.hypePulse?.stop();
+      this.hypePulse = null;
+    });
+    let rosterKey = '';
     // roster memory survives rematch cycles: no re-toast for players already seen
     const known: Map<string, string> = room._lobbyKnown || (room._lobbyKnown = new Map());
     const draw = () => {
       if (!live() || !Session.room) return;
+      const roster: Array<[string, string, boolean]> = [];
+      room.state.players.forEach((p: any, id: string) => roster.push([id, p.name, !!p.ready]));
+      const count = roster.length;
+      const readyCount = roster.filter(([, , ready]) => ready).length;
+      this.statusText.setText(
+        room.state.phase === 'countdown'
+          ? `starting in ${Math.ceil(room.state.countdown)}…`
+          : !Session.isHost ? 'waiting for the host to start…'
+            : count < 2 ? 'share the code — need 2+ players'
+              : `ready ${readyCount}/${count} — press START when ready`,
+      );
+      // Movement and countdown patches do not change the roster. Rebuilding
+      // every Text/canvas per player per patch blocks rendering and socket work.
+      const nextKey = JSON.stringify([room.state.hostId, roster]);
+      if (nextKey === rosterKey) return;
+      rosterKey = nextKey;
       // join toasts + blip for newcomers (skip the initial roster fill)
       const fresh = new Set<string>();
       room.state.players.forEach((p: any, id: string) => {
@@ -437,36 +465,40 @@ export class LobbyScene extends Phaser.Scene {
         this.hypePulse = null;
         this.startBtn.c.setScale(1);
       }
-      this.statusText.setText(
-        room.state.phase === 'countdown'
-          ? `starting in ${Math.ceil(room.state.countdown)}…`
-          : !host ? 'waiting for the host to start…'
-            : n < 2 ? 'share the code — need 2+ players'
-              : `ready ${ready}/${n} — press START when ready`,
-      );
     };
     // roster redraws on join, leave, AND any player field change (ready toggles
     // only flip a nested field — without per-player onChange the badges never update)
-    room.state.players.onAdd((p: any) => { p.onChange(draw); draw(); });
-    room.state.players.onRemove((_p: any, id: string) => {
+    off.push(room.state.players.onAdd((p: any, id: string) => {
+      if (!live()) return;
+      playerOff.get(id)?.();
+      playerOff.set(id, p.onChange(draw));
+      draw();
+    }));
+    off.push(room.state.players.onRemove((_p: any, id: string) => {
+      if (!live()) return;
+      playerOff.get(id)?.();
+      playerOff.delete(id);
       const name = known.get(id);
       known.delete(id);
       if (name) toast(this, `${name} left the lobby`, '#94a3b8');
       draw();
-    });
-    room.state.onChange(draw);
+    }));
+    off.push(room.state.onChange(draw));
     // The match going live must NOT be detected by polling update(). Phaser
     // pauses its loop in a hidden tab, so with 8 tabs on one machine the other 7
     // would never run update(), never see phase === 'playing', and never enter
     // the arena -- only the visible (host) tab would. A Colyseus patch arrives
     // over the WebSocket regardless of the render loop, so watch it here instead.
-    room.state.onChange(() => {
-      if (room.state.phase === 'playing') this.enterArena();
-    });
-    room.onLeave(() => {
+    off.push(room.state.onChange(() => {
+      if (live() && room.state.phase === 'playing') this.enterArena();
+    }));
+    const onLeave = () => {
+      if (!live()) return;
       Session.room = null;
       if (!this.gone) { this.gone = true; this.scene.start('menu'); }
-    });
+    };
+    room.onLeave(onLeave);
+    off.push(() => room.onLeave.remove(onLeave));
     draw();
   }
 

@@ -51,7 +51,7 @@ const ok = (c, m) => { if (c) { pass++; console.log(`PASS: ${m}`); } else { fail
 // --- CTRL is tracked, and only gates the horizontal strafe -----------------
 ok(/addKeys\('W,A,S,D,UP,DOWN,LEFT,RIGHT[^']*CTRL/.test(arena),
   'CTRL is in addKeys, so its key state can be read during movement');
-ok(/const ctrl = !!this\.keys\.CTRL\?\.isDown;/.test(arena), 'movement reads a Ctrl flag');
+ok(/const ctrl = !!\(this\.keys\.CTRL\?\.isDown \|\| this\.slotModifier\);/.test(arena), 'movement reads Ctrl and Command state');
 ok(/this\.keys\.A\.isDown \|\| \(this\.keys\.LEFT\.isDown && !ctrl\)/.test(arena),
   'Left does not strafe while Ctrl is held');
 ok(/this\.keys\.D\.isDown \|\| \(this\.keys\.RIGHT\.isDown && !ctrl\)/.test(arena),
@@ -81,8 +81,8 @@ ok(/c === 'Period'\) \{ once\(ev, 1\)/.test(arena), '`.` steps forward with NO m
 // keydown-CTRL's own early return, and inline on comma/period
 ok(/const once = \(ev: KeyboardEvent, dir: -1 \| 1\) => \{[\s\S]{0,200}?if \(!ev\.repeat\) this\.stepSlot\(dir\);\s*\};/.test(arena),
   'auto-repeat is ignored, so holding a combo steps once');
-ok(/const onDown = \(ev: KeyboardEvent\) => \{[\s\S]{0,900}?if \(ev\.repeat\) return;/.test(arena),
-  'and the raw listener bails on repeat before any branch runs');
+ok(/if \(ev\.repeat\) \{\s*if \(ctrl && \(left \|\| right\)\) eat\(ev\);\s*return;/.test(arena),
+  'repeats block the browser shortcut without stepping again');
 ok(/const ctrl = !!\(ev\.ctrlKey \|\| ev\.metaKey \|\| ev\.getModifierState\?\.\('Control'\)\)/.test(arena),
   'the modifier is OS truth (ctrlKey / metaKey / getModifierState), not a stale held-Control bit');
 // There IS now a keydown-CTRL listener, deliberately -- it is the fix for pressing
@@ -217,13 +217,13 @@ ok(/RAWN\.onDown = RAWN\.onUp = RAWN\.onBlur = null;/.test(arena),
 ok(!/this\.stepGun\(/.test(arena), 'no stale stepGun calls remain');
 
 // --- discoverable ----------------------------------------------------------
-ok(/class="k">Ctrl<\/span>/.test(html), 'the key hints advertise Ctrl + arrows');
+ok(/class="k">Ctrl \/ ⌘<\/span>/.test(html), 'the key hints advertise Ctrl / Command + arrows');
 ok(/class="k">,<\/span>|class="k">&comma;|class="k">&#44;/.test(html) || /class="k">\.,?<\/span>/.test(html),
   'and the comma/period fallback');
 ok(/gun \/ throw<\/b>/.test(html), 'labelled as gun / throw — Ctrl+Arrow is the extra 1-0 option');
-ok(/Ctrl \+ Left\/Right also switches guns and throwables/.test(menu),
-  'HOW TO PLAY lists Ctrl+Left/Right as an extra gun/throwable switch');
-ok(/wheel, 1-0, or Ctrl\+arrows switch guns and throwables/.test(menu),
+ok(/←\/→ \+ Ctrl \(Windows\) or ⌘ \(Mac\): switch guns \/ throwables/.test(menu),
+  'HOW TO PLAY lists both Windows and Mac shortcuts');
+ok(/Wheel \/ 1-0 \/ Ctrl or ⌘ \+ ←\/→: guns & throwables/.test(menu),
   'SETTINGS controls list the same extra option');
 
 // ===========================================================================
@@ -238,8 +238,8 @@ ok(/wheel, 1-0, or Ctrl\+arrows switch guns and throwables/.test(menu),
 // delivered an arrow event with ctrlKey=false, then a bare keydown-CTRL with no
 // arrow information -- nothing happened. Working or not came down to which
 // finger moved first.
-ok(/c === 'ControlLeft' \|\| c === 'ControlRight'\) \{\s*if \(this\.rawHeld\.has\('ArrowLeft'\)\) \{ once\(ev, -1\); eat\(ev\); \}\s*else if \(this\.rawHeld\.has\('ArrowRight'\)\) \{ once\(ev, 1\); eat\(ev\); \}/.test(arena),
-  'Ctrl going down SECOND acts on an already-held arrow, via our own rawHeld set');
+ok(/c === 'ControlLeft' \|\| c === 'ControlRight' \|\| c === 'MetaLeft' \|\| c === 'MetaRight'\) \{\s*if \(this\.rawHeld\.has\('ArrowLeft'\)\) \{ once\(ev, -1\); eat\(ev\); \}\s*else if \(this\.rawHeld\.has\('ArrowRight'\)\) \{ once\(ev, 1\); eat\(ev\); \}/.test(arena),
+  'Ctrl or Command pressed SECOND acts on the held arrow');
 // the direction must come from which arrow is HELD, not from a polled modifier
 const ctrlIsDown = [...arena.matchAll(/keys\.CTRL\?*\.isDown/g)];
 ok(ctrlIsDown.length === 1,

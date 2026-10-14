@@ -370,7 +370,7 @@ export class MenuScene extends Phaser.Scene {
     // past the right edge of a 520-wide panel
     const ctl: Array<[string, string]> = [
       ['', 'move WASD / arrows · aim with mouse · hold click to fire'],
-      ['', 'wheel, 1-0, or Ctrl+arrows switch guns and throwables · R reloads · Q shield'],
+      ['', 'Wheel / 1-0 / Ctrl or ⌘ + ←/→: guns & throwables · R reload · Q shield'],
       ['', 'G / X / C throw now · F knife · E grabs a gun'],
     ];
     const ctlPlan = this.planRows(ctl, W, 14, 7);
@@ -420,7 +420,7 @@ export class MenuScene extends Phaser.Scene {
       ['✋', 'Move with WASD or arrows.'],
       ['🖱️', 'Aim with the mouse, hold click to fire.'],
       ['🔫', 'Grab guns with E. 1-0 or the wheel switches any slot.'],
-      ['↔️', 'Ctrl + Left/Right also switches guns and throwables.'],
+      ['↔️', '←/→ + Ctrl (Windows) or ⌘ (Mac): switch guns / throwables.'],
       ['🔪', 'F is a knife: 50 damage, and it pierces shields.'],
       ['⚡', 'Electric gun: every hit locks them for 2.5s.'],
       ['🛡️', 'You spawn SHIELDED; a raised shield stops every bullet.'],
